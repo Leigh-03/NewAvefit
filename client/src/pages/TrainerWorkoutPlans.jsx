@@ -366,8 +366,8 @@ function PlanModal({ members, exercises, onClose, onSave }) {
             <div className="space-y-3">
               {form.sessions.map((session, index) => (
                 <div key={`session-${index}`} className="grid grid-cols-2 items-start gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800 sm:grid-cols-[minmax(0,1fr)_104px_104px_36px]">
-                  <div className="col-span-2 sm:col-span-1">
-                    <label htmlFor={`sessions-${index}-exercise_id`} className="mb-1 block text-xs font-medium text-slate-500">Workout *</label>
+                  <div className="col-span-2 min-w-0 sm:col-span-1">
+                    <label htmlFor={`sessions-${index}-exercise_id`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Workout *</label>
                     <div className="relative">
                     <select
                       id={`sessions-${index}-exercise_id`}
@@ -378,16 +378,16 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                       onChange={(event) => updateSessionField(index, "exercise_id", event.target.value)}
                       aria-invalid={Boolean(fieldErrors[`sessions.${index}.exercise_id`])}
                       aria-describedby={fieldErrors[`sessions.${index}.exercise_id`] ? `sessions-${index}-exercise_id-error` : undefined}
-                      className={`${inputClass(`sessions.${index}.exercise_id`)} min-h-[42px] appearance-none px-3 py-2 pr-10`}
+                      className={`${inputClass(`sessions.${index}.exercise_id`)} h-11 min-w-0 appearance-none truncate px-3 py-2 pr-10`}
                     >
                       <option value="">
                         {!selectedMember
                           ? "Select a member first..."
                           : !preferredDifficulty
-                            ? "Member experience level unavailable"
+                            ? "Experience level unavailable"
                             : matchingExercises.length
                               ? "Select exercise..."
-                              : `No ${preferredDifficulty} exercises available`}
+                              : `No ${preferredDifficulty} exercises`}
                       </option>
                       {matchingExercises.map((exercise) => (
                         <option key={exercise.exercise_id} value={exercise.exercise_id}>
@@ -404,7 +404,7 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                     {renderFieldError(`sessions.${index}.exercise_id`)}
                   </div>
                   <div className="min-w-0">
-                    <label htmlFor={`sessions-${index}-sets`} className="mb-1 block text-xs font-medium text-slate-500">Sets <span className="text-slate-400">(1–6)</span></label>
+                    <label htmlFor={`sessions-${index}-sets`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Sets (1–6)</label>
                     <input
                       id={`sessions-${index}-sets`}
                       aria-label={`Exercise ${index + 1} sets`}
@@ -418,12 +418,12 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                       onChange={(event) => updateSessionField(index, "sets", event.target.value)}
                       aria-invalid={Boolean(fieldErrors[`sessions.${index}.sets`])}
                       aria-describedby={fieldErrors[`sessions.${index}.sets`] ? `sessions-${index}-sets-error` : undefined}
-                      className={`${inputClass(`sessions.${index}.sets`)} min-h-[42px] px-3 py-2`}
+                      className={`${inputClass(`sessions.${index}.sets`)} h-11 px-3 py-2`}
                     />
                     {renderFieldError(`sessions.${index}.sets`)}
                   </div>
                   <div className="min-w-0">
-                    <label htmlFor={`sessions-${index}-reps`} className="mb-1 block text-xs font-medium text-slate-500">Reps <span className="text-slate-400">(3–16)</span></label>
+                    <label htmlFor={`sessions-${index}-reps`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Reps (3–16)</label>
                     <input
                       id={`sessions-${index}-reps`}
                       aria-label={`Exercise ${index + 1} reps`}
@@ -437,7 +437,7 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                       onChange={(event) => updateSessionField(index, "reps", event.target.value)}
                       aria-invalid={Boolean(fieldErrors[`sessions.${index}.reps`])}
                       aria-describedby={fieldErrors[`sessions.${index}.reps`] ? `sessions-${index}-reps-error` : undefined}
-                      className={`${inputClass(`sessions.${index}.reps`)} min-h-[42px] px-3 py-2`}
+                      className={`${inputClass(`sessions.${index}.reps`)} h-11 px-3 py-2`}
                     />
                     {renderFieldError(`sessions.${index}.reps`)}
                   </div>
