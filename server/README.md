@@ -15,6 +15,8 @@ For deployment, add `ADMIN_EMAIL` to the server/API environment variables instea
 Admin password reset links are sent only to the `ADMIN_EMAIL` account. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and (optionally) `SMTP_FROM` in the server environment; password reset is unavailable when SMTP is not configured. The link expires after 30 minutes and can only be used once.
 Set `CLIENT_URL` to the public frontend origin in deployment so the emailed link opens the correct AveFit instance.
 
+Member feedback is emailed to `ADMIN_EMAIL`; feedback submission requires a valid `ADMIN_EMAIL` and working SMTP configuration.
+
 ## Browser push notifications
 
 Browser push requires a VAPID key pair in the server environment. Generate a pair from the `server` directory:

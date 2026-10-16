@@ -235,10 +235,20 @@ const deleteWorkoutSession = async (req, res) => {
       WHERE ws.session_id = $1
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
+        AND ws.completed = false
       RETURNING ws.session_id
     `, [id, req.user.user_id]);
 
     if (result.rowCount === 0) {
+      const existing = await pool.query(`
+        SELECT ws.completed
+        FROM workout_sessions ws
+        JOIN workout_plans wp ON ws.workout_plan_id = wp.workout_plan_id
+        WHERE ws.session_id = $1 AND wp.user_id = $2
+      `, [id, req.user.user_id]);
+      if (existing.rows[0]?.completed) {
+        return res.status(409).json({ success: false, message: "Completed workouts cannot be deleted." });
+      }
       return res.status(404).json({ success: false, message: "Workout not found." });
     }
 
@@ -257,6 +267,7 @@ const resetWeek = async (req, res) => {
       WHERE workout_plan_id IN (
         SELECT workout_plan_id FROM workout_plans WHERE user_id=$1
       )
+      AND completed = false
       AND (
         session_date = ANY(ARRAY['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']::text[])
         OR (

@@ -90,6 +90,14 @@ const verificationAttemptLimiter = rateLimit({
   resetOnSuccess: false,
 });
 
+const feedbackLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyPrefix: 'member-feedback',
+  message: 'Too many feedback submissions. Please try again later.',
+  resetOnSuccess: false,
+});
+
 module.exports = {
   adminLoginLimiter,
   adminPasswordResetRequestLimiter,
@@ -98,4 +106,5 @@ module.exports = {
   signupLimiter,
   verificationResendLimiter,
   verificationAttemptLimiter,
+  feedbackLimiter,
 };

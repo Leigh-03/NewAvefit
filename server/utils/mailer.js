@@ -77,7 +77,7 @@ function fromAddress() {
   return process.env.SMTP_FROM || process.env.SMTP_USER;
 }
 
-async function sendMail({ to, subject, text, html }) {
+async function sendMail({ to, subject, text, html, replyTo }) {
   const transport = getTransporter();
 
   if (!transport) {
@@ -105,6 +105,7 @@ async function sendMail({ to, subject, text, html }) {
     subject,
     text,
     html,
+    ...(replyTo ? { replyTo } : {}),
   });
 
   if (!info.accepted?.length) {
@@ -351,6 +352,45 @@ async function sendAdminPasswordResetEmail({ to, firstName, token, expiresInMinu
   });
 }
 
+async function sendMemberFeedbackEmail({ to, memberName, memberEmail, rating, message }) {
+  const safeName = escapeHtml(memberName);
+  const safeEmail = escapeHtml(memberEmail);
+  const safeMessage = escapeHtml(message);
+  const text = [
+    "New member feedback received through AveFit.",
+    "",
+    `Member: ${memberName}`,
+    `Member email: ${memberEmail}`,
+    `Rating: ${rating}/5`,
+    "",
+    "Feedback:",
+    message,
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;"><span style="font-size:20px;font-weight:800;color:#ffffff;">AveFit feedback</span></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 8px;font-size:14px;"><strong>Member:</strong> ${safeName}</p>
+        <p style="margin:0 0 8px;font-size:14px;"><strong>Email:</strong> ${safeEmail}</p>
+        <p style="margin:0 0 20px;font-size:14px;"><strong>Rating:</strong> ${rating}/5</p>
+        <p style="margin:0 0 8px;font-size:14px;font-weight:700;">Feedback</p>
+        <p style="margin:0;white-space:pre-wrap;font-size:14px;line-height:1.6;color:#475569;">${safeMessage}</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({
+    to,
+    replyTo: memberEmail,
+    subject: `AveFit member feedback (${rating}/5)`,
+    text,
+    html,
+  });
+}
+
 module.exports = {
   isMailConfigured,
   sendMail,
@@ -358,4 +398,5 @@ module.exports = {
   sendWorkoutPlanReadyEmail,
   sendPasswordChangeVerificationEmail,
   sendAdminPasswordResetEmail,
+  sendMemberFeedbackEmail,
 };

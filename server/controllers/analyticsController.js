@@ -210,6 +210,17 @@ const getAnalytics = async (req, res) => {
       ORDER BY weekdays.day_order
     `);
 
+    const mostUsedEquipment = await pool.query(`
+      SELECT BTRIM(e.equipment) AS equipment, COUNT(*)::int AS count
+      FROM workout_sessions ws
+      JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+      JOIN exercises e ON e.exercise_id = ws.exercise_id
+      WHERE NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+      GROUP BY BTRIM(e.equipment)
+      ORDER BY COUNT(*) DESC, BTRIM(e.equipment) ASC
+      LIMIT 10
+    `);
+
     // Summary
     const totalMembers = await pool.query("SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'");
     const avgBmi = await pool.query(`
@@ -237,6 +248,7 @@ const getAnalytics = async (req, res) => {
         attendance: attendance.rows,
         peakHours: peakHours.rows,
         dayAvailability: dayAvailability.rows,
+        mostUsedEquipment: mostUsedEquipment.rows,
         peakMonths: memberGrowth.rows,
       },
     });

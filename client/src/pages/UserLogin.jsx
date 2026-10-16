@@ -242,7 +242,7 @@ export default function UserLogin() {
   };
 
   const googleButtonClasses =
-    "flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent";
+    "flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-orange-500 bg-orange-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:border-orange-600 hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-60";
 
   const GoogleBrandIcon = () => (
     <svg aria-hidden="true" viewBox="0 0 48 48" className="h-6 w-6 shrink-0">

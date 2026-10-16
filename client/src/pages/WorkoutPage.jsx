@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle, Dumbbell, Moon, Play, RotateCcw, Target, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle, Dumbbell, Moon, Play, RotateCcw, Target } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
@@ -122,17 +122,6 @@ export default function WorkoutPage() {
       setError(err.response?.data?.message || "Unable to start this workout. Please try again.");
     } finally {
       setStartingSessionId(null);
-    }
-  };
-
-  const handleDelete = async (id) => {
-    setError("");
-    try {
-      await userApi.delete(`/workouts/${id}`);
-      await fetchData();
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || "Unable to remove this workout. Please try again.");
     }
   };
 
@@ -377,11 +366,6 @@ export default function WorkoutPage() {
                       </span>
                     )
                   )}
-                  <button type="button" onClick={() => handleDelete(session.session_id)}
-                    aria-label={`Remove ${session.exercise_name || "workout"}`}
-                    className="grid h-10 w-10 place-items-center rounded-xl text-slate-500 transition hover:bg-red-500/10 hover:text-red-500">
-                    <Trash2 size={18} />
-                  </button>
                 </div>
               </div>
             </div>

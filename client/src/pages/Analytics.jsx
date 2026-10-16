@@ -109,6 +109,7 @@ export default function Analytics() {
   const peakMonths = data?.peakMonths || [];
   const peakHourValue = getPeakLabel(peakHours, (row) => formatHour(row.hour));
   const dayAvailability = data?.dayAvailability || [];
+  const mostUsedEquipment = data?.mostUsedEquipment || [];
   const peakDayValue = getPeakLabel(dayAvailability, (row) => row.day);
   const peakMonthValue = getPeakLabel(peakMonths, (row) => row.label);
 
@@ -143,6 +144,7 @@ export default function Analytics() {
   };
 
   const bmiMap = Object.fromEntries((data?.bmiDistribution || []).map((b) => [b.category, parseInt(b.count)]));
+  const maxEquipmentUsage = Math.max(0, ...mostUsedEquipment.map((item) => Number(item.count) || 0));
 
   return (
     <div className="space-y-6">
@@ -173,6 +175,37 @@ export default function Analytics() {
           </div>
         ))}
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]" aria-labelledby="equipment-heading">
+        <div className="mb-4">
+          <h2 id="equipment-heading" className="text-base font-bold text-slate-900 dark:text-white">Most used equipment</h2>
+          <p className="mt-1 text-xs text-slate-500">Equipment appearing in coach-assigned workout sessions, ranked by usage.</p>
+        </div>
+        {mostUsedEquipment.length ? (
+          <div className="space-y-3">
+            {mostUsedEquipment.map((item, index) => {
+              const count = Number(item.count) || 0;
+              return (
+                <div key={item.equipment} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="w-6 shrink-0 text-xs font-bold text-slate-400">{index + 1}.</span>
+                    <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">{item.equipment}</span>
+                  </div>
+                  <span className="text-sm font-bold text-slate-900 dark:text-white">{count}</span>
+                  <div className="col-span-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-orange-500"
+                      style={{ width: `${maxEquipmentUsage > 0 ? (count / maxEquipmentUsage) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="py-8 text-center text-sm text-slate-500">No equipment usage is recorded in assigned workout sessions yet.</p>
+        )}
+      </section>
 
       <section aria-labelledby="gym-peak-heading" className="space-y-4">
         <div>
