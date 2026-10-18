@@ -216,6 +216,11 @@ const initializeDatabase = async () => {
     `);
 
     await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS bmi_reminder_email_sent_at TIMESTAMPTZ
+    `);
+
+    await client.query(`
       ALTER TABLE members
       ADD COLUMN IF NOT EXISTS trainer_id INTEGER
     `);

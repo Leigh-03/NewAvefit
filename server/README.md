@@ -17,6 +17,8 @@ Set `CLIENT_URL` to the public frontend origin in deployment so the emailed link
 
 Member feedback is emailed to `ADMIN_EMAIL`; feedback submission requires a valid `ADMIN_EMAIL` and working SMTP configuration.
 
+Weekly BMI reminder emails use the same SMTP settings. Active, verified members with a height on file receive an email when they have not logged progress in the previous seven days. Set `CLIENT_URL` to the public frontend origin so the email's progress link opens the deployed app. In-app reminders continue to work when SMTP is unavailable.
+
 ## Browser push notifications
 
 Browser push requires a VAPID key pair in the server environment. Generate a pair from the `server` directory:

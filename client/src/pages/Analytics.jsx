@@ -44,13 +44,31 @@ export default function Analytics() {
   const [fetchError, setFetchError] = useState("");
 
   useEffect(() => {
-    api.get("/analytics")
-      .then((res) => setData(res.data.data))
-      .catch((err) => {
-        console.error(err);
-        setFetchError(err.response?.data?.message || err.message || "Couldn't load analytics.");
-      })
-      .finally(() => setLoading(false));
+    let active = true;
+    const fetchAnalytics = () => {
+      api.get("/analytics")
+        .then((res) => {
+          if (!active) return;
+          setData(res.data.data);
+          setFetchError("");
+        })
+        .catch((err) => {
+          console.error(err);
+          if (active) {
+            setFetchError(err.response?.data?.message || err.message || "Couldn't load analytics.");
+          }
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    };
+
+    fetchAnalytics();
+    const refreshTimer = window.setInterval(fetchAnalytics, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+    };
   }, []);
 
   if (loading) {
@@ -179,7 +197,7 @@ export default function Analytics() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]" aria-labelledby="equipment-heading">
         <div className="mb-4">
           <h2 id="equipment-heading" className="text-base font-bold text-slate-900 dark:text-white">Most used equipment</h2>
-          <p className="mt-1 text-xs text-slate-500">Equipment appearing in coach-assigned workout sessions, ranked by usage.</p>
+          <p className="mt-1 text-xs text-slate-500">Equipment from completed member workouts, ranked by use. Refreshes automatically every 30 seconds.</p>
         </div>
         {mostUsedEquipment.length ? (
           <div className="space-y-3">

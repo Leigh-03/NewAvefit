@@ -215,7 +215,8 @@ const getAnalytics = async (req, res) => {
       FROM workout_sessions ws
       JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
       JOIN exercises e ON e.exercise_id = ws.exercise_id
-      WHERE NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+      WHERE ws.completed = TRUE
+        AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
       GROUP BY BTRIM(e.equipment)
       ORDER BY COUNT(*) DESC, BTRIM(e.equipment) ASC
       LIMIT 10

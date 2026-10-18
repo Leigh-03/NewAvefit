@@ -1,8 +1,10 @@
 const pool = require("../db");
 const webpush = require("web-push");
+const { isMailConfigured, sendWeeklyBmiReminderEmail } = require("./mailer");
 
 let pushConfigurationChecked = false;
 let pushConfigurationError = null;
+let bmiReminderSmtpWarningLogged = false;
 
 const configurePush = () => {
   if (pushConfigurationChecked) return !pushConfigurationError;
@@ -118,7 +120,8 @@ const notifyNewUser = (user) => {
 
 const sendWeeklyBmiReminders = async () => {
   const users = await pool.query(`
-    SELECT u.user_id
+    SELECT u.user_id, u.email, u.first_name,
+           u.bmi_reminder_sent_at, u.bmi_reminder_email_sent_at
     FROM users u
     WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
       AND u.email_verified = TRUE
@@ -127,6 +130,13 @@ const sendWeeklyBmiReminders = async () => {
       AND (
         u.bmi_reminder_sent_at IS NULL
         OR u.bmi_reminder_sent_at <= NOW() - INTERVAL '7 days'
+        OR (
+          NULLIF(BTRIM(u.email), '') IS NOT NULL
+          AND (
+            u.bmi_reminder_email_sent_at IS NULL
+            OR u.bmi_reminder_email_sent_at <= NOW() - INTERVAL '7 days'
+          )
+        )
       )
       AND NOT EXISTS (
         SELECT 1
@@ -138,20 +148,50 @@ const sendWeeklyBmiReminders = async () => {
   `);
 
   for (const user of users.rows) {
+    const inAppReminderDue = !user.bmi_reminder_sent_at
+      || new Date(user.bmi_reminder_sent_at).getTime() <= Date.now() - 7 * 24 * 60 * 60 * 1000;
+    if (inAppReminderDue) {
+      try {
+        await createNotification({
+          audience: "user",
+          recipientId: user.user_id,
+          message: "It’s time for your weekly BMI update. Log your current weight to refresh your BMI and progress.",
+          notificationType: "bmi_reminder",
+          targetUrl: "/user/progress",
+        });
+        await pool.query(
+          "UPDATE users SET bmi_reminder_sent_at = NOW() WHERE user_id = $1",
+          [user.user_id]
+        );
+      } catch (err) {
+        console.error(`Weekly BMI in-app reminder failed for user ${user.user_id}:`, err.message);
+      }
+    }
+
+    const emailReminderDue = user.email && (
+      !user.bmi_reminder_email_sent_at
+      || new Date(user.bmi_reminder_email_sent_at).getTime() <= Date.now() - 7 * 24 * 60 * 60 * 1000
+    );
+    if (!emailReminderDue) continue;
+    if (!isMailConfigured()) {
+      if (!bmiReminderSmtpWarningLogged) {
+        console.warn("Weekly BMI reminder emails are disabled because SMTP_HOST, SMTP_USER, and SMTP_PASS are not configured.");
+        bmiReminderSmtpWarningLogged = true;
+      }
+      continue;
+    }
+
     try {
-      await createNotification({
-        audience: "user",
-        recipientId: user.user_id,
-        message: "It’s time for your weekly BMI update. Log your current weight to refresh your BMI and progress.",
-        notificationType: "bmi_reminder",
-        targetUrl: "/user/progress",
+      await sendWeeklyBmiReminderEmail({
+        to: user.email,
+        firstName: user.first_name,
       });
       await pool.query(
-        "UPDATE users SET bmi_reminder_sent_at = NOW() WHERE user_id = $1",
+        "UPDATE users SET bmi_reminder_email_sent_at = NOW() WHERE user_id = $1",
         [user.user_id]
       );
     } catch (err) {
-      console.error(`Weekly BMI reminder failed for user ${user.user_id}:`, err.message);
+      console.error(`Weekly BMI reminder email failed for user ${user.user_id}:`, err.message);
     }
   }
 };

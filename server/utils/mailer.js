@@ -260,6 +260,51 @@ async function sendWorkoutPlanReadyEmail({ to, firstName }) {
   });
 }
 
+async function sendWeeklyBmiReminderEmail({ to, firstName }) {
+  const name = escapeHtml(firstName || "there");
+  const progressUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/progress`;
+  const safeProgressUrl = escapeHtml(progressUrl);
+  const text = [
+    `Hi ${firstName || "there"},`,
+    "",
+    "It is time for your weekly BMI update. Log your current weight in AveFit to refresh your BMI and progress.",
+    "",
+    `Update your BMI and progress: ${progressUrl}`,
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr>
+        <td style="background:${BRAND_COLOR};padding:22px 28px;">
+          <span style="font-size:20px;font-weight:800;color:#ffffff;">AveFit</span>
+          <span style="display:block;font-size:12px;color:#ffedd5;margin-top:2px;">Avenue Power &amp; Fitness Gym</span>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:28px;">
+          <p style="margin:0 0 16px;font-size:16px;">Hi ${name},</p>
+          <p style="margin:0 0 20px;font-size:14px;line-height:1.6;">It is time for your weekly BMI update. Log your current weight in AveFit to refresh your BMI and progress.</p>
+          <p style="margin:0 0 20px;">
+            <a href="${safeProgressUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Update BMI and progress</a>
+          </p>
+          <p style="margin:0;font-size:12px;color:#94a3b8;">Avenue Power &amp; Fitness Gym</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({
+    to,
+    subject: "Your weekly AveFit BMI update",
+    text,
+    html,
+  });
+}
+
 async function sendPasswordChangeVerificationEmail({ to, firstName, code }) {
   const name = escapeHtml(firstName || "there");
   const safeCode = escapeHtml(code);
@@ -396,6 +441,7 @@ module.exports = {
   sendMail,
   sendVerificationEmail,
   sendWorkoutPlanReadyEmail,
+  sendWeeklyBmiReminderEmail,
   sendPasswordChangeVerificationEmail,
   sendAdminPasswordResetEmail,
   sendMemberFeedbackEmail,

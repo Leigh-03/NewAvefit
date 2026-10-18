@@ -36,11 +36,10 @@ export function ExerciseDetail({ exercise, onClose }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mb-5">
+        <div className="grid grid-cols-2 gap-3 mb-5">
           {[
             { label: "Difficulty", value: exercise.difficulty || "N/A" },
             { label: "Equipment", value: exercise.equipment || "None" },
-            { label: "Cal/min", value: exercise.calories_per_minute ? `${exercise.calories_per_minute} kcal` : "—" },
           ].map((item) => (
             <div key={item.label} className="bg-[#1c1c1c] border border-[#303030] rounded-xl p-3 text-center">
               <p className="text-white font-semibold text-sm">{item.value}</p>
@@ -108,23 +107,17 @@ const difficultyColors = {
 export default function ExerciseLibrary() {
   const navigate = useNavigate();
   const [exercises, setExercises] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
-  const [filterCategory, setFilterCategory] = useState("All");
   const [filterDifficulty, setFilterDifficulty] = useState("All");
   const [selected, setSelected] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      userApi.get("/exercises"),
-      userApi.get("/exercises/categories"),
-    ])
-      .then(([exRes, catRes]) => {
+    userApi.get("/exercises")
+      .then((exRes) => {
         setExercises(exRes.data.data || []);
-        setCategories(catRes.data.data || []);
       })
       .catch((err) => {
         console.error(err);
@@ -133,17 +126,15 @@ export default function ExerciseLibrary() {
       .finally(() => setLoading(false));
   }, []);
 
-  const activeFilterCount = Number(filterCategory !== "All") + Number(filterDifficulty !== "All");
+  const activeFilterCount = Number(filterDifficulty !== "All");
   const filtered = exercises.filter((e) => {
     const query = search.trim().toLowerCase();
     const matchSearch = !query ||
       e.exercise_name?.toLowerCase().includes(query) ||
       e.muscle_group?.toLowerCase().includes(query) ||
-      e.equipment?.toLowerCase().includes(query) ||
-      e.category_name?.toLowerCase().includes(query);
-    const matchCat = filterCategory === "All" || e.category_name === filterCategory;
+      e.equipment?.toLowerCase().includes(query);
     const matchDiff = filterDifficulty === "All" || e.difficulty === filterDifficulty;
-    return matchSearch && matchCat && matchDiff;
+    return matchSearch && matchDiff;
   });
 
   return (
@@ -182,7 +173,7 @@ export default function ExerciseLibrary() {
           <input
             type="search"
             aria-label="Search exercises"
-            placeholder="Search by exercise, muscle, category, or equipment..."
+            placeholder="Search by exercise, muscle, or equipment..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-white"
@@ -216,26 +207,6 @@ export default function ExerciseLibrary() {
         {showFilters && (
           <div className="space-y-4 rounded-2xl border border-orange-100 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
             <div>
-              <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Category</p>
-              <div className="flex flex-wrap gap-2">
-                {["All", ...categories.map((c) => c.category_name)].map((category) => (
-                  <button
-                    key={category}
-                    type="button"
-                    aria-pressed={filterCategory === category}
-                    onClick={() => setFilterCategory(category)}
-                    className={`min-h-9 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
-                      filterCategory === category
-                        ? "border-orange-500 bg-orange-500 text-white"
-                        : "border-slate-200 bg-slate-50 text-slate-600 hover:border-orange-300 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300"
-                    }`}
-                  >
-                    {category}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
               <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Difficulty</p>
               <div className="flex flex-wrap gap-2">
                 {["All", "Beginner", "Intermediate", "Advanced"].map((difficulty) => (
@@ -259,7 +230,6 @@ export default function ExerciseLibrary() {
               <button
                 type="button"
                 onClick={() => {
-                  setFilterCategory("All");
                   setFilterDifficulty("All");
                 }}
                 className="text-xs font-semibold text-orange-700 hover:text-orange-800 dark:text-orange-300"
@@ -284,7 +254,6 @@ export default function ExerciseLibrary() {
                 type="button"
                 onClick={() => {
                   setSearch("");
-                  setFilterCategory("All");
                   setFilterDifficulty("All");
                 }}
                 className="mt-4 rounded-lg px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-500/10"
@@ -324,7 +293,7 @@ export default function ExerciseLibrary() {
                           {exercise.difficulty || "Not specified"}
                         </span>
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">{exercise.muscle_group || "Muscle group not specified"} · {exercise.category_name || "General"}</p>
+                      <p className="mt-1 text-xs text-slate-500">{exercise.muscle_group || "Muscle group not specified"}</p>
                       {exercise.equipment && <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">Equipment: {exercise.equipment}</p>}
                       <p className={`mt-2 flex items-center gap-1 text-xs font-semibold ${guide ? "text-orange-600 dark:text-orange-400" : "text-slate-400"}`}>
                         <Dumbbell size={12} /> {guide ? "Illustrated guide available" : "Guide unavailable"}

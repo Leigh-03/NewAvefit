@@ -39,8 +39,9 @@ const updateWorkout = async (req, res) => {
     const { id } = req.params;
     const { exercise_name, category_id, muscle_group, difficulty, calories_per_minute, description, equipment, movement_steps } = req.body;
     await pool.query(`
-      UPDATE exercises SET exercise_name=$1, category_id=$2, muscle_group=$3, difficulty=$4,
-      calories_per_minute=$5, description=$6, equipment=$7, movement_steps=$8 WHERE exercise_id=$9
+      UPDATE exercises SET exercise_name=$1, category_id=COALESCE($2, category_id),
+      muscle_group=$3, difficulty=$4, calories_per_minute=COALESCE($5, calories_per_minute),
+      description=$6, equipment=$7, movement_steps=$8 WHERE exercise_id=$9
     `, [exercise_name, category_id || null, muscle_group, difficulty, calories_per_minute || null, description, equipment, movement_steps ? JSON.stringify(movement_steps) : null, id]);
     res.json({ success: true, message: "Exercise updated." });
   } catch (err) {
