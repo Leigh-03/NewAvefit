@@ -116,4 +116,50 @@ const notifyNewUser = (user) => {
   });
 };
 
-module.exports = { createNotification, getVapidPublicKey, notifyAdmins, notifyNewUser };
+const sendWeeklyBmiReminders = async () => {
+  const users = await pool.query(`
+    SELECT u.user_id
+    FROM users u
+    WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+      AND u.email_verified = TRUE
+      AND u.height IS NOT NULL
+      AND u.height > 0
+      AND (
+        u.bmi_reminder_sent_at IS NULL
+        OR u.bmi_reminder_sent_at <= NOW() - INTERVAL '7 days'
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM progress_logs pl
+        WHERE pl.user_id = u.user_id
+          AND pl.log_date >= (NOW() AT TIME ZONE 'Asia/Manila')::date - 6
+      )
+    ORDER BY u.user_id
+  `);
+
+  for (const user of users.rows) {
+    try {
+      await createNotification({
+        audience: "user",
+        recipientId: user.user_id,
+        message: "It’s time for your weekly BMI update. Log your current weight to refresh your BMI and progress.",
+        notificationType: "bmi_reminder",
+        targetUrl: "/user/progress",
+      });
+      await pool.query(
+        "UPDATE users SET bmi_reminder_sent_at = NOW() WHERE user_id = $1",
+        [user.user_id]
+      );
+    } catch (err) {
+      console.error(`Weekly BMI reminder failed for user ${user.user_id}:`, err.message);
+    }
+  }
+};
+
+module.exports = {
+  createNotification,
+  getVapidPublicKey,
+  notifyAdmins,
+  notifyNewUser,
+  sendWeeklyBmiReminders,
+};

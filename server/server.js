@@ -3,6 +3,7 @@ const express = require("express");
 const cors = require("cors");
 
 const { initializeDatabase, expireMemberships } = require("./db");
+const { sendWeeklyBmiReminders } = require("./utils/notifications");
 
 // Admin routes
 const adminRoutes = require("./routes/adminRoutes");
@@ -91,6 +92,15 @@ initializeDatabase()
       });
     }, 60 * 1000);
     membershipExpiryTimer.unref();
+    const bmiReminderTimer = setInterval(() => {
+      sendWeeklyBmiReminders().catch((err) => {
+        console.error("❌ Weekly BMI reminder check failed:", err.message);
+      });
+    }, 60 * 60 * 1000);
+    bmiReminderTimer.unref();
+    sendWeeklyBmiReminders().catch((err) => {
+      console.error("❌ Initial weekly BMI reminder check failed:", err.message);
+    });
     app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
   })
   .catch((err) => {

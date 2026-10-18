@@ -9,7 +9,22 @@ const statusColors = {
 };
 
 const INTENSITY_LABELS = ["", "Light", "Easy", "Moderate", "Intense", "Very Intense"];
-const EXERCISE_DIFFICULTIES = ["Beginner", "Intermediate", "Advanced"];
+const EXERCISE_DIFFICULTIES = ["Beginner", "Moderate", "Advanced"];
+
+const difficultyRank = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "beginner") return 1;
+  if (normalized === "moderate" || normalized === "intermediate") return 2;
+  if (normalized === "advanced") return 3;
+  return 0;
+};
+
+const allowedDifficultyRank = (value) => difficultyRank(value);
+const isExerciseAllowedForMember = (exercise, memberLevel) => {
+  const memberRank = allowedDifficultyRank(memberLevel);
+  const exerciseRank = difficultyRank(exercise?.difficulty);
+  return memberRank > 0 && exerciseRank > 0 && exerciseRank <= memberRank;
+};
 
 const localDateString = (date) => {
   const year = date.getFullYear();
@@ -73,10 +88,10 @@ function PlanModal({ members, exercises, onClose, onSave }) {
   const selectedMember = members.find((member) => String(member.user_id) === form.user_id);
   const availableDays = toList(selectedMember?.preferred_days);
   const preferredDifficulty = EXERCISE_DIFFICULTIES.find(
-    (difficulty) => difficulty.toLowerCase() === String(selectedMember?.activity_level || "").trim().toLowerCase()
+    (difficulty) => difficultyRank(difficulty) === allowedDifficultyRank(selectedMember?.activity_level)
   );
   const matchingExercises = preferredDifficulty
-    ? exercises.filter((exercise) => String(exercise.difficulty || "").trim().toLowerCase() === preferredDifficulty.toLowerCase())
+    ? exercises.filter((exercise) => isExerciseAllowedForMember(exercise, selectedMember?.activity_level))
     : [];
 
   const setFieldError = (field, message) => {
@@ -197,7 +212,7 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                     plan_name: form.plan_name || (member ? `${member.first_name}'s Workout Routine` : ""),
                     sessions: form.sessions.map((session) => {
                       const exercise = exercises.find((item) => String(item.exercise_id) === String(session.exercise_id));
-                      return !exercise || String(exercise.difficulty || "").trim().toLowerCase() === memberDifficulty
+                      return !exercise || isExerciseAllowedForMember(exercise, memberDifficulty)
                         ? session
                         : { ...session, exercise_id: "" };
                     }),
@@ -332,7 +347,11 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                 <p className="text-xs text-slate-500">
                   {selectedMember
                     ? preferredDifficulty
-                      ? `Showing ${preferredDifficulty} exercises to match this member's experience level.`
+                      ? preferredDifficulty === "Moderate"
+                        ? "Showing Beginner and Moderate/Intermediate exercises to match this member's experience level."
+                        : preferredDifficulty === "Advanced"
+                          ? "Showing Beginner, Moderate/Intermediate, and Advanced exercises to match this member's experience level."
+                          : `Showing ${preferredDifficulty} exercises to match this member's experience level.`
                       : "This member has no supported experience level for exercise filtering."
                     : "Select a member to see exercises that match their experience level."}
                 </p>
@@ -387,7 +406,11 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                             ? "Experience level unavailable"
                             : matchingExercises.length
                               ? "Select exercise..."
-                              : `No ${preferredDifficulty} exercises`}
+                              : preferredDifficulty === "Beginner"
+                                ? "No Beginner exercises"
+                                : preferredDifficulty === "Moderate"
+                                  ? "No Beginner or Moderate exercises"
+                                  : "No matching exercises"}
                       </option>
                       {matchingExercises.map((exercise) => (
                         <option key={exercise.exercise_id} value={exercise.exercise_id}>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bell, CheckCheck, Trash2, Circle } from "lucide-react";
+import { Link } from "react-router-dom";
 import { createNotificationsApi } from "../services/notificationsApi";
 import BrowserPushSettings from "../components/notifications/BrowserPushSettings";
 
@@ -8,8 +9,13 @@ const typeColors = {
   membership: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   payment: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   alert: "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300",
+  bmi_reminder: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   general: "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
 };
+
+const notificationTypeLabel = (type) => ({
+  bmi_reminder: "BMI reminder",
+}[type] || type.replaceAll("_", " "));
 
 export default function Notifications({ audience = "admin" }) {
   const notificationsApi = useMemo(() => createNotificationsApi(audience), [audience]);
@@ -177,13 +183,24 @@ export default function Notifications({ audience = "admin" }) {
                     )}
                     {notif.notification_type && (
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeColors[notif.notification_type] || typeColors.general}`}>
-                        {notif.notification_type}
+                        {notificationTypeLabel(notif.notification_type)}
                       </span>
                     )}
                     <span className="text-xs text-slate-400">
                       {new Date(notif.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" })}
                     </span>
                   </div>
+                  {notif.target_url?.startsWith("/") && !notif.target_url.startsWith("//") && (
+                    <Link
+                      to={notif.target_url}
+                      onClick={() => {
+                        if (!notif.is_read) handleMarkRead(notif.notification_id);
+                      }}
+                      className="mt-2 inline-flex text-xs font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+                    >
+                      {notif.notification_type === "bmi_reminder" ? "Update BMI and progress" : "View"}
+                    </Link>
+                  )}
                 </div>
 
                 {/* Actions */}
