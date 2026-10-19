@@ -224,14 +224,14 @@ export default function ProgressPage() {
   return (
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
       {/* Header */}
-      <div className="ave-page-hero px-6 pt-10 pb-7 border-b border-orange-100 dark:border-white/5">
+      <div className="ave-page-hero px-4 pt-8 pb-6 border-b border-orange-100 dark:border-white/5 sm:px-6 sm:pt-10 sm:pb-7">
         <h1 className="text-2xl font-black text-slate-900 dark:text-white">Your Progress</h1>
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
           Your training, body metrics, and progress toward your goals in one place.
         </p>
       </div>
 
-      <div className="px-6 py-6 space-y-6">
+      <div className="space-y-6 px-4 py-5 sm:px-6 sm:py-6">
         {loadError && (
           <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
             {loadError}
@@ -280,7 +280,7 @@ export default function ProgressPage() {
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-3 gap-3">
+              <div className="mt-4 grid grid-cols-1 gap-3 min-[480px]:grid-cols-3">
                 <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
                   <p className="text-lg font-bold text-slate-900 dark:text-white">{periodLogs.length}</p>
                   <p className="text-[11px] leading-snug text-slate-500">Progress check-ins</p>

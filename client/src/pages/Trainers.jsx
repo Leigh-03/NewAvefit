@@ -3,6 +3,7 @@ import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, 
 import api from "../services/api";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 import TrainerAvailabilityManager from "../components/trainers/TrainerAvailabilityManager";
+import ScrollReveal from "../components/ScrollReveal";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 
 const SPECIALIZATION_OPTIONS = [
@@ -429,127 +430,88 @@ function TrainerProfileModal({ trainer, onClose, onEdit }) {
   const expertise = [...new Set([...specializations, trainer.goal_specialty].filter(Boolean))];
 
   return (
-    <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="trainer-profile-title"
-        className="bg-white dark:bg-[#111] rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-slate-800"
+        className="relative grid max-h-[92vh] w-full max-w-5xl grid-rows-[minmax(200px,28vh)_minmax(0,1fr)] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111] lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:grid-rows-1"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="relative flex justify-center bg-transparent">
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-black/70 text-white hover:bg-black"
-            aria-label="Close trainer profile"
-          >
-            <X size={19} />
-          </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/70 text-white shadow-lg hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+          aria-label="Close trainer profile"
+        >
+          <X size={19} />
+        </button>
+
+        <div className="relative flex min-h-0 items-center justify-center overflow-hidden bg-slate-950">
           {trainer.photo_url ? (
-            <div className="relative inline-flex max-h-[55vh] max-w-full items-center justify-center overflow-hidden">
-              <img
-                src={trainer.photo_url}
-                alt={trainer.full_name}
-                className="block max-h-[55vh] max-w-full object-contain"
-              />
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black via-black/80 to-transparent" />
-              <div className="absolute bottom-4 left-5 right-5 z-20 text-white drop-shadow-md sm:bottom-5 sm:left-6 sm:right-6">
-                <p className="text-xs font-bold uppercase tracking-widest text-orange-300">Trainer Profile</p>
-                <h2 id="trainer-profile-title" className="mt-1 text-2xl font-bold sm:text-3xl">{trainer.full_name}</h2>
-                <p className="mt-1 text-sm font-semibold text-orange-300">
-                  {trainer.goal_specialty || "General Fitness Coach"}
-                </p>
-              </div>
+            <div className="flex h-full w-full items-center justify-center p-3">
+              <img src={trainer.photo_url} alt={trainer.full_name} className="h-full w-full object-contain" />
             </div>
-          ) : (
-            <div className="relative flex h-64 w-full items-center justify-center bg-slate-950">
-              <UserCircle size={150} className="text-orange-500" />
-              <div className="absolute bottom-4 left-5 right-16 text-white sm:bottom-5 sm:left-6">
-                <p className="text-xs font-bold uppercase tracking-widest text-orange-300">Trainer Profile</p>
-                <h2 id="trainer-profile-title" className="mt-1 text-2xl font-bold sm:text-3xl">{trainer.full_name}</h2>
-                <p className="mt-1 text-sm font-semibold text-orange-300">
-                  {trainer.goal_specialty || "General Fitness Coach"}
-                </p>
-              </div>
-            </div>
-          )}
+          ) : <UserCircle size={96} className="text-orange-500" aria-hidden="true" />}
         </div>
 
-        <div className="p-5 sm:p-6">
-          <section>
-            <p className="text-xs uppercase tracking-wider font-bold text-slate-400">
-              About the Trainer
-            </p>
-            <p className="text-sm leading-7 text-slate-600 dark:text-slate-400 mt-2 whitespace-pre-line">
-              {trainer.bio || "This trainer has not added a profile description yet."}
-            </p>
-          </section>
-
-          <section className="mt-6">
-            <p className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-3">
-              Specializations
-            </p>
-            {expertise.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {expertise.map((item) => (
-                  <span
-                    key={item}
-                    className="px-3 py-2 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-semibold"
-                  >
-                    {item}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400">No specializations listed.</p>
-            )}
-          </section>
-
-          <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
-            <div className="rounded-2xl bg-slate-50 dark:bg-slate-900 p-4">
-              <p className="text-xs text-slate-400">Email</p>
-              <p className="font-medium text-sm mt-1 break-all text-slate-700 dark:text-slate-200">
-                {trainer.email || "—"}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 dark:bg-slate-900 p-4">
-              <p className="text-xs text-slate-400">Phone</p>
-              <p className="font-medium text-sm mt-1 text-slate-700 dark:text-slate-200">
-                {trainer.phone || "—"}
-              </p>
-            </div>
-          </section>
-
-          <section className="mt-4 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 flex items-center justify-between">
-            <div>
-              <p className="text-xs text-slate-400">Account Status</p>
-              <p className="font-semibold text-sm mt-1 text-slate-800 dark:text-white">
+        <div className="flex min-h-0 flex-col">
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 sm:p-7 lg:p-8">
+            <header className="border-b border-slate-200 pb-5 pr-12 dark:border-white/10">
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Trainer profile</p>
+              <h2 id="trainer-profile-title" className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">{trainer.full_name}</h2>
+              <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{trainer.goal_specialty || "General Fitness Coach"}</p>
+              <span className={`mt-3 inline-flex rounded-full px-3 py-1.5 text-xs font-bold ${statusColors[trainer.status] || statusColors.Active}`}>
                 {trainer.status || "Active"}
-              </p>
-            </div>
-            <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${statusColors[trainer.status] || statusColors.Active}`}>
-              {trainer.status || "Active"}
-            </span>
-          </section>
+              </span>
+            </header>
 
-          <div className="grid grid-cols-2 gap-3 mt-6">
+            <section>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">About the trainer</h3>
+              <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-600 dark:text-slate-300">
+                {trainer.bio || "This trainer has not added a profile description yet."}
+              </p>
+            </section>
+
+            <section>
+              <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">Specializations</h3>
+              {expertise.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {expertise.map((item) => (
+                    <span key={item} className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300">
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              ) : <p className="text-sm text-slate-400">No specializations listed.</p>}
+            </section>
+
+            <section className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/[0.03]">
+                <p className="text-xs text-slate-400">Email</p>
+                <p className="mt-1 break-all text-sm font-medium text-slate-700 dark:text-slate-200">{trainer.email || "—"}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/[0.03]">
+                <p className="text-xs text-slate-400">Phone</p>
+                <p className="mt-1 text-sm font-medium text-slate-700 dark:text-slate-200">{trainer.phone || "—"}</p>
+              </div>
+            </section>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 border-t border-slate-200 p-4 dark:border-white/10 sm:px-7 lg:px-8">
             <button
               type="button"
               onClick={onClose}
-              className="py-3 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-900"
+              className="min-h-11 rounded-xl border border-slate-300 font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
             >
               Close
             </button>
             <button
               type="button"
               onClick={onEdit}
-              className="py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold"
+              className="min-h-11 rounded-xl bg-orange-500 font-bold text-white hover:bg-orange-600"
             >
-              Edit Trainer Profile
+              Edit Profile
             </button>
           </div>
         </div>
@@ -823,8 +785,14 @@ export default function Trainers() {
                   <td colSpan={6} className="text-center py-12 text-slate-400">No trainers found.</td>
                 </tr>
               ) : (
-                filtered.map((trainer) => (
-                  <tr key={trainer.trainer_id} onClick={() => setProfileTrainer(trainer)} className="hover:bg-slate-50 transition cursor-pointer">
+                filtered.map((trainer, index) => (
+                  <ScrollReveal
+                    as="tr"
+                    key={trainer.trainer_id}
+                    delay={Math.min(index, 4) * 100}
+                    onClick={() => setProfileTrainer(trainer)}
+                    className="cursor-pointer transition-colors hover:bg-slate-50"
+                  >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-orange-500 font-bold text-sm flex-shrink-0 overflow-hidden border-2 border-orange-500/20">
@@ -905,7 +873,7 @@ export default function Trainers() {
                         )}
                       </div>
                     </td>
-                  </tr>
+                  </ScrollReveal>
                 ))
               )}
             </tbody>

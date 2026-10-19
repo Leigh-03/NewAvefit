@@ -17,6 +17,12 @@ const {
 } = require("../utils/security");
 const { sendMail, sendVerificationEmail, sendPasswordChangeVerificationEmail } = require("../utils/mailer");
 const { notifyNewUser } = require("../utils/notifications");
+const {
+  buildProfileChangePayload,
+  createProfileChangeRequest,
+  submitPasswordChangeRequest,
+  getUserChangeRequests,
+} = require("./profileChangeController");
 const googleClient = new OAuth2Client();
 const {
   generateVerificationCode,
@@ -529,61 +535,23 @@ const changePasswordWithCode = async (req, res) => {
       });
     }
 
-    const result = await pool.query(
-      `SELECT password_change_code_hash,
-              password_change_code_expires_at > NOW() AS password_change_code_valid
-       FROM users
-       WHERE user_id = $1`,
-      [req.user.user_id]
-    );
-    if (!result.rowCount || !result.rows[0].password_change_code_hash) {
-      return res.status(400).json({
-        success: false,
-        message: "Request a password-change verification code first.",
-      });
-    }
-
-    const user = result.rows[0];
-    if (!user.password_change_code_valid) {
-      return res.status(400).json({
-        success: false,
-        message: "This verification code has expired. Request a new one.",
-      });
-    }
-
-    const submittedHash = Buffer.from(hashVerificationCode(code), "hex");
-    const storedHash = Buffer.from(user.password_change_code_hash, "hex");
-    if (submittedHash.length !== storedHash.length || !crypto.timingSafeEqual(submittedHash, storedHash)) {
-      return res.status(400).json({ success: false, message: "The verification code is incorrect." });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 12);
-    const update = await pool.query(
-      `UPDATE users
-       SET password = $1,
-           password_change_code_hash = NULL,
-           password_change_code_expires_at = NULL,
-           password_change_code_sent_at = NULL,
-           token_version = token_version + 1,
-           updated_at = NOW()
-       WHERE user_id = $2
-         AND password_change_code_hash = $3
-         AND password_change_code_expires_at > NOW()
-       RETURNING user_id`,
-      [hashedPassword, req.user.user_id, user.password_change_code_hash]
-    );
-    if (!update.rowCount) {
-      return res.status(400).json({
-        success: false,
-        message: "This verification code has expired or has already been used. Request a new one.",
-      });
-    }
-
-    return res.json({
+    const request = await submitPasswordChangeRequest({
+      userId: req.user.user_id,
+      code,
+      password,
+    });
+    return res.status(202).json({
       success: true,
-      message: "Your password has been changed. Please log in again with your new password.",
+      message: request.emailSent
+        ? "Your password change request was sent to the administrator. Your current password stays active until approval."
+        : "Your password change request is saved and awaiting review, but the administrator email could not be delivered.",
+      request: request.request,
+      admin_email_sent: request.emailSent,
     });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ success: false, message: err.message });
+    }
     console.error("changePasswordWithCode error:", err.message);
     return res.status(500).json({
       success: false,
@@ -1237,6 +1205,32 @@ const updatePhoto = async (req, res) => {
       });
     }
 
+    const account = await pool.query(
+      "SELECT user_id, first_name, last_name, email, account_status, setup_completed FROM users WHERE user_id = $1",
+      [req.user.user_id]
+    );
+    if (!account.rowCount) {
+      return res.status(404).json({ success: false, message: "User account not found." });
+    }
+
+    if (
+      String(account.rows[0].account_status || "").toLowerCase() === "active" &&
+      account.rows[0].setup_completed
+    ) {
+      const request = await createProfileChangeRequest({
+        userId: req.user.user_id,
+        payload: { profile_image },
+      });
+      return res.status(202).json({
+        success: true,
+        message: request.emailSent
+          ? "Your profile photo change is awaiting admin approval."
+          : "Your profile photo request is saved and awaiting review, but the administrator email could not be delivered.",
+        request: request.request,
+        admin_email_sent: request.emailSent,
+      });
+    }
+
     await pool.query(
       "UPDATE users SET profile_image=$1, updated_at=NOW() WHERE user_id=$2",
       [profile_image, req.user.user_id]
@@ -1247,6 +1241,9 @@ const updatePhoto = async (req, res) => {
       message: "Photo updated.",
     });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ success: false, message: err.message });
+    }
     console.error("updatePhoto error:", err.message);
 
     res.status(500).json({
@@ -1550,7 +1547,7 @@ const updateProfile = async (req, res) => {
 
     // member could confirm one address and then swap in an unverified one.
     const current = await pool.query(
-      "SELECT user_id, first_name, email FROM users WHERE user_id = $1",
+    "SELECT * FROM users WHERE user_id = $1",
       [req.user.user_id]
     );
 
@@ -1564,6 +1561,37 @@ const updateProfile = async (req, res) => {
     const emailChanged =
       Boolean(nextEmail) &&
       nextEmail !== currentEmail;
+
+    if (
+      String(current.rows[0]?.account_status || "").toLowerCase() === "active" &&
+      current.rows[0]?.setup_completed
+    ) {
+      const payload = buildProfileChangePayload(current.rows[0], {
+        ...req.body,
+        ...(normalizedWorkoutDuration !== null && workout_duration !== undefined
+          ? { workout_duration: normalizedWorkoutDuration }
+          : {}),
+      });
+      if (Object.keys(payload).length === 0) {
+        return res.json({
+          success: true,
+          message: "No profile changes to submit.",
+        });
+      }
+
+      const request = await createProfileChangeRequest({
+        userId: req.user.user_id,
+        payload,
+      });
+      return res.status(202).json({
+        success: true,
+        message: request.emailSent
+          ? "Your profile changes are awaiting admin approval. Your current settings remain active until approval."
+          : "Your profile change request is saved and awaiting review, but the administrator email could not be delivered.",
+        request: request.request,
+        admin_email_sent: request.emailSent,
+      });
+    }
 
     await pool.query(
       `
@@ -1777,6 +1805,9 @@ const updateProfile = async (req, res) => {
         : {}),
     });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ success: false, message: err.message });
+    }
     console.error("updateProfile error:", err.message);
 
     res.status(500).json({
@@ -1800,4 +1831,5 @@ module.exports = {
   getProfile,
   updateProfile,
   updatePhoto,
+  getUserChangeRequests,
 };

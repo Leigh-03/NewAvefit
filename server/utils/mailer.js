@@ -436,6 +436,105 @@ async function sendMemberFeedbackEmail({ to, memberName, memberEmail, rating, me
   });
 }
 
+function formatProfileChanges(changes = {}) {
+  return Object.entries(changes)
+    .map(([key]) => {
+      const label = key.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+      return { label };
+    });
+}
+
+async function sendProfileChangeRequestEmail({ to, memberName, memberEmail, requestType, changes }) {
+  const safeName = escapeHtml(memberName || "AveFit member");
+  const safeEmail = escapeHtml(memberEmail);
+  const isPassword = requestType === "password";
+  const entries = formatProfileChanges(changes);
+  const lines = isPassword
+    ? ["Password change requested."]
+    : entries.map(({ label }) => `${label} update requested`);
+  const text = [
+    "A member submitted a profile change request that needs your review.",
+    "",
+    `Member: ${memberName || "AveFit member"}`,
+    `Email: ${memberEmail}`,
+    "",
+    ...lines,
+    "",
+    "Sign in to AveFit and open Members to approve or reject this request.",
+  ].join("\n");
+  const detailsHtml = isPassword
+    ? "<p style=\"margin:0;font-size:14px;line-height:1.6;\">Password change requested. The new password is not included in this email.</p>"
+    : `<ul style="padding-left:20px;line-height:1.7;">${entries.map(({ label }) => `<li>${escapeHtml(label)} update requested</li>`).join("")}</ul>`;
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit change request</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 8px;font-size:14px;"><strong>Member:</strong> ${safeName}</p>
+        <p style="margin:0 0 20px;font-size:14px;"><strong>Email:</strong> ${safeEmail}</p>
+        ${detailsHtml}
+        <p style="margin:20px 0 0;font-size:13px;line-height:1.6;color:#64748b;">Sign in to AveFit and open Members to approve or reject this request.</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({
+    to,
+    subject: `AveFit ${isPassword ? "password" : "profile"} change request`,
+    text,
+    html,
+  });
+}
+
+async function sendProfileChangeDecisionEmail({ to, memberName, requestType, approved, emailVerificationRequired }) {
+  const safeName = escapeHtml(memberName || "there");
+  const isPassword = requestType === "password";
+  const decision = approved ? "approved" : "not approved";
+  const verificationUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/verify-email`;
+  const safeVerificationUrl = escapeHtml(verificationUrl);
+  const text = [
+    `Hi ${memberName || "there"},`,
+    "",
+    `Your AveFit ${isPassword ? "password" : "profile"} change request was ${decision}.`,
+    ...(approved ? ["Your requested changes are now active."] : []),
+    ...(approved && emailVerificationRequired ? ["", "Your new email address must be verified before you can continue using AveFit. Visit this page and request a verification code:", verificationUrl] : []),
+    ...(!approved ? ["Your account settings have not been changed. Contact the gym if you need assistance."] : []),
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const body = !approved
+    ? "<p style=\"margin:0;font-size:14px;line-height:1.6;\">Your account settings have not been changed. Contact the gym if you need assistance.</p>"
+    : isPassword
+      ? "<p style=\"margin:0;font-size:14px;line-height:1.6;\">Your new password is now active. Please sign in again using it.</p>"
+      : "<p style=\"margin:0;font-size:14px;line-height:1.6;\">Your requested profile changes are now active.</p>";
+  const verificationHtml = approved && emailVerificationRequired
+    ? `<p style="margin:20px 0 0;font-size:14px;line-height:1.6;">Your new email address must be verified before you can continue using AveFit. <a href="${safeVerificationUrl}" style="color:${BRAND_COLOR};font-weight:700;">Verify your email address</a> and request a verification code.</p>`
+    : "";
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit account update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0 0 20px;font-size:14px;line-height:1.6;">Your AveFit ${isPassword ? "password" : "profile"} change request was <strong>${decision}</strong>.</p>
+        ${body}
+        ${verificationHtml}
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({
+    to,
+    subject: `Your AveFit ${isPassword ? "password" : "profile"} change request was ${decision}`,
+    text,
+    html,
+  });
+}
+
 module.exports = {
   isMailConfigured,
   sendMail,
@@ -445,4 +544,6 @@ module.exports = {
   sendPasswordChangeVerificationEmail,
   sendAdminPasswordResetEmail,
   sendMemberFeedbackEmail,
+  sendProfileChangeRequestEmail,
+  sendProfileChangeDecisionEmail,
 };

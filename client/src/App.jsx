@@ -60,6 +60,7 @@ function UserProtectedRoute({ children }) {
   if (savedUser?.account_status && savedUser.account_status !== "Active") {
     return <Navigate to="/user/pending" replace />;
   }
+  if (savedUser?.setup_completed) return <Navigate to="/user/profile" replace />;
   return children;
 }
 

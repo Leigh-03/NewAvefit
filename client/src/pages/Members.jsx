@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save } from "lucide-react";
+import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck } from "lucide-react";
 import api from "../services/api";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 
@@ -277,11 +277,20 @@ export default function Members() {
   const [confirmMember, setConfirmMember] = useState(null);
   const [deletingMember, setDeletingMember] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [changeRequests, setChangeRequests] = useState([]);
+  const [reviewingRequestId, setReviewingRequestId] = useState(null);
+  const [reviewRequestToReject, setReviewRequestToReject] = useState(null);
+  const [reviewMessage, setReviewMessage] = useState("");
+  const [reviewError, setReviewError] = useState("");
 
   const fetchData = async () => {
     setLoading(true); setFetchError("");
     try {
-      const [m,t] = await Promise.all([api.get("/members"), api.get("/trainers")]);
+      const [m,t,requests] = await Promise.all([
+        api.get("/members"),
+        api.get("/trainers"),
+        api.get("/members/change-requests"),
+      ]);
 
       // The API returns arrays directly. Also support { data: [...] } responses.
       const memberRows = Array.isArray(m.data) ? m.data : (m.data?.data || []);
@@ -293,10 +302,27 @@ export default function Members() {
         return memberRows.find((row) => Number(row.member_id) === Number(current.member_id)) || current;
       });
       setTrainers(trainerRows);
+      setChangeRequests(requests.data?.data || []);
     } catch (err) { console.error(err); setFetchError(err.response?.data?.message || err.message || "Couldn't load members."); }
     finally { setLoading(false); }
   };
   useEffect(()=>{fetchData();},[]);
+
+  const handleReviewChangeRequest = async (request, decision) => {
+    setReviewingRequestId(request.request_id);
+    setReviewMessage("");
+    setReviewError("");
+    try {
+      const response = await api.put(`/members/change-requests/${request.request_id}/${decision}`);
+      setReviewMessage(response.data.message);
+      setReviewRequestToReject(null);
+      await fetchData();
+    } catch (error) {
+      setReviewError(error.response?.data?.message || "Unable to review this request.");
+    } finally {
+      setReviewingRequestId(null);
+    }
+  };
 
   const handleApprove=async id=>{try{await api.put(`/members/${id}/approve`);await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to update member status.");}};
   const handleReject=async id=>{try{await api.put(`/members/${id}/reject`);await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to deactivate member.");}};
@@ -393,13 +419,67 @@ export default function Members() {
     {editMember&&<MemberModal member={editMember} onClose={()=>setEditMember(null)} onSave={handleMemberSave}/>} 
     {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onEdit={m=>setEditMember(m)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate}/>}
     {confirmMember&&<ConfirmDialog title={`Delete ${confirmMember.full_name || "this member"} permanently?`} description="This action cannot be undone. The member’s account and associated records will be permanently deleted." confirmLabel="Delete member" isLoading={deletingMember} error={deleteError} onCancel={()=>{if(!deletingMember){setConfirmMember(null);setDeleteError("");}}} onConfirm={confirmDelete}/>}
+    {reviewRequestToReject&&<ConfirmDialog title="Reject this change request?" description="The member's current profile and password will remain unchanged. The member will be notified by email." confirmLabel="Reject request" isLoading={reviewingRequestId === reviewRequestToReject.request_id} error={reviewError} onCancel={()=>{if(!reviewingRequestId)setReviewRequestToReject(null);}} onConfirm={()=>handleReviewChangeRequest(reviewRequestToReject, "reject")}/>}
 
     <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8"><p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">People management</p><div className="mt-2 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-3xl font-black text-slate-900 dark:text-white">Members</h1><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage accounts, approvals, fitness profiles, and coach assignments.</p></div></div></header>
     {fetchError&&<div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">⚠️ {fetchError}</div>}
     <section aria-label="Member summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       {[{label:"Total members",value:members.length},{label:"Active members",value:activeCount},{label:"Pending approval",value:pendingCount}].map(item=><div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading?"—":item.value}</p></div>)}
     </section>
-    <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-slate-100 px-3 dark:bg-white/5 sm:max-w-xs"><Search size={16} className="shrink-0 text-slate-400"/><span className="sr-only">Search members</span><input type="search" placeholder="Search name or email..." value={search} onChange={e=>setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"/></label><div role="group" aria-label="Filter members by status" className="flex gap-2 overflow-x-auto">{["All","Active","Pending","Inactive","Rejected"].map(s=><button key={s} type="button" aria-pressed={filter===s} onClick={()=>setFilter(s)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${filter===s?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"}`}>{s}{s==="Pending"&&pendingCount>0?` (${pendingCount})`:""}</button>)}</div></div>
+    {(reviewMessage || reviewError) && <p role={reviewError ? "alert" : "status"} className={`rounded-xl border px-4 py-3 text-sm ${reviewError ? "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300" : "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-200"}`}>{reviewError || reviewMessage}</p>}
+    {changeRequests.length > 0 && (
+      <section aria-labelledby="member-change-requests-title" className="space-y-4 rounded-2xl border border-orange-200 bg-orange-50/60 p-4 dark:border-orange-500/20 dark:bg-orange-500/[0.04] sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="member-change-requests-title" className="text-lg font-bold text-slate-900 dark:text-white">Profile &amp; password requests</h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Review member changes before they take effect. Members keep their current settings until approval.</p>
+          </div>
+          <span className="rounded-full bg-orange-500 px-3 py-1 text-xs font-bold text-white">{changeRequests.length} awaiting review</span>
+        </div>
+        <div className="grid gap-3">
+          {changeRequests.map((request) => {
+            const changes = request.payload || {};
+            const isPassword = request.request_type === "password";
+            const isReviewing = reviewingRequestId === request.request_id;
+            return (
+              <article key={request.request_id} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isPassword ? <KeyRound size={17} className="text-orange-500" /> : <ShieldCheck size={17} className="text-orange-500" />}
+                      <h3 className="font-bold text-slate-900 dark:text-white">{request.member_name || "Member"} · {isPassword ? "Password change" : "Profile changes"}</h3>
+                    </div>
+                    <p className="mt-1 break-all text-xs text-slate-500">{request.email}</p>
+                    <p className="mt-1 text-xs text-slate-400">{new Date(request.created_at).toLocaleString()}</p>
+                    {isPassword ? (
+                      <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">The member verified the request by email. The proposed password is kept private and is not displayed.</p>
+                    ) : (
+                      <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                        {Object.entries(changes).map(([key, value]) => (
+                          <div key={key} className="min-w-0 rounded-lg bg-slate-50 px-3 py-2 dark:bg-white/[0.04]">
+                            <dt className="text-xs font-medium text-slate-500">{key === "profile_photo_changed" ? "Profile photo" : key.replaceAll("_", " ")}</dt>
+                            <dd className="mt-0.5 break-words font-semibold text-slate-800 dark:text-slate-200">{key === "profile_photo_changed" ? "Photo update requested" : Array.isArray(value) ? value.join(", ") : String(value ?? "Not set")}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 gap-2 sm:flex-col">
+                    <button type="button" disabled={isReviewing} onClick={() => handleReviewChangeRequest(request, "approve")} className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-green-700 disabled:opacity-60 sm:flex-none">
+                      <CheckCircle size={16} /> {isReviewing ? "Saving..." : "Approve"}
+                    </button>
+                    <button type="button" disabled={isReviewing} onClick={() => { setReviewError(""); setReviewRequestToReject(request); }} className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-60 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10 sm:flex-none">
+                      <XCircle size={16} /> Reject
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    )}
+    <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-slate-100 px-3 dark:bg-white/5 sm:max-w-xs"><Search size={16} className="shrink-0 text-slate-400"/><span className="sr-only">Search members</span><input type="search" placeholder="Search name or email..." value={search} onChange={e=>setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"/></label><div role="group" aria-label="Filter  members by status" className="flex gap-2 overflow-x-auto">{["All","Active","Pending","Inactive","Rejected"].map(s=><button key={s} type="button" aria-pressed={filter===s} onClick={()=>setFilter(s)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${filter===s?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"}`}>{s}{s==="Pending"&&pendingCount>0?` (${pendingCount})`:""}</button>)}</div></div>
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
       {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Status","Membership","Joined","Actions"].map(h=><th key={h} className="text-left px-6 py-4 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:filtered.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-6 py-4"><div className="flex items-center gap-3"><MemberPhoto member={member}/><div><p className="font-semibold text-slate-800 dark:text-white">{member.full_name}</p><p className="text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-6 py-4 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-6 py-4">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span>{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-6 py-4"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"—"}</span><span className={`ml-2 text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></td><td className="px-6 py-4"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-6 py-4"><div className="space-y-1"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Expired" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-6 py-4 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-6 py-4" onClick={e=>e.stopPropagation()}><div className="flex items-center gap-2"><button onClick={()=>setViewMember(member)} className="p-1.5 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-500/10 text-orange-500 transition" title="View member / change coach"><UserRoundCog size={16}/></button>{memberStatus==="pending"&&<><button onClick={()=>handleApprove(member.member_id)} className="p-1.5 rounded-lg transition hover:bg-green-50 dark:hover:bg-green-500/10 text-green-500" title="Approve member"><CheckCircle size={16}/></button><button onClick={()=>handleReject(member.member_id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-red-400 transition" title="Reject"><XCircle size={16}/></button></>}{(memberStatus==="inactive"||memberStatus==="rejected")&&<button onClick={()=>handleApprove(member.member_id)} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-green-700" title={memberStatus==="rejected"?"Approve member":"Reactivate member"}><CheckCircle size={14}/>{memberStatus==="rejected"?"Approve":"Activate"}</button>}<button onClick={()=>handleDelete(member.member_id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-red-400 transition" title="Delete"><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
       <div className="px-6 py-3 border-t border-slate-100 dark:border-gray-800 text-sm text-slate-400">Showing {filtered.length} of {members.length} registered members</div>

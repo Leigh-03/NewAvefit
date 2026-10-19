@@ -5,7 +5,7 @@ const {
   register, login, googleLogin, forgotPassword, resetPassword,
   requestPasswordChangeCode, changePasswordWithCode,
   verifyEmail, resendVerification, getVerificationStatus,
-  getProfile, updateProfile, updatePhoto,
+  getProfile, updateProfile, updatePhoto, getUserChangeRequests,
 } = require("../controllers/userController");
 const { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
 const { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
@@ -32,6 +32,7 @@ router.get("/verification-status", verificationAttemptLimiter, getVerificationSt
 
 // Profile
 router.get("/profile", verifyUser, getProfile);
+router.get("/profile/change-requests", verifyUser, getUserChangeRequests);
 router.put("/profile", verifyUser, updateProfile);
 router.put("/profile/photo", verifyUser, updatePhoto);
 router.post("/feedback", verifyUser, feedbackLimiter, submitMemberFeedback);

@@ -161,7 +161,7 @@ export default function AppShell({
   }, [drawerOpen]);
 
   return (
-    <div className={`ave-portal-shell flex min-h-screen w-full ${portalClassName}`}>
+    <div className={`ave-portal-shell flex min-h-dvh w-full ${portalClassName}`}>
       {/* Desktop rail */}
       <aside className="ave-sidebar sticky top-0 hidden h-dvh w-[var(--ave-sidebar-w)] shrink-0 border-r lg:block">
         <SidebarBody
@@ -197,7 +197,7 @@ export default function AppShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar */}
-        <header className="ave-topbar sticky top-0 z-40 flex h-16 shrink-0 items-center gap-3 border-b px-4 sm:px-6 lg:h-[var(--ave-topbar-h)] lg:px-8">
+        <header className="ave-topbar sticky top-0 z-40 flex h-16 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-6 lg:h-[var(--ave-topbar-h)] lg:px-8">
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
@@ -234,8 +234,8 @@ export default function AppShell({
         </header>
 
         {/* Page content */}
-        <main className={`portal-content flex-1 ${bottomNav ? "pb-16 lg:pb-0" : ""}`}>
-          <div className={`mx-auto w-full ${contentWidth} ${contentClassName}`}>{children}</div>
+        <main className={`portal-content min-w-0 flex-1 ${bottomNav ? "pb-16 lg:pb-0" : ""}`}>
+          <div className={`mx-auto w-full min-w-0 ${contentWidth} ${contentClassName}`}>{children}</div>
         </main>
       </div>
 
