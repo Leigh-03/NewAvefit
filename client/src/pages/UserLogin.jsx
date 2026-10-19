@@ -429,7 +429,7 @@ export default function UserLogin() {
 
           {error && <Alert tone="error">{error}</Alert>}
 
-          <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mt-2">
+          <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mt-2 !h-12 !px-4 !py-0">
             Log in
           </PrimaryButton>
 

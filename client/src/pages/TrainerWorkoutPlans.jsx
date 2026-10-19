@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ClipboardList, Plus, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ClipboardList, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 
 const statusColors = {
@@ -53,14 +53,16 @@ const calculateBmi = (member) => {
   return (weight / ((height / 100) ** 2)).toFixed(1);
 };
 
-const nextPreferredDate = (preferredDays) => {
+const nextPreferredDate = (preferredDays, reservedDates = []) => {
   const today = new Date();
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const preferences = toList(preferredDays).map((day) => day.toLowerCase());
-  for (let offset = 0; offset < 7; offset += 1) {
+  for (let offset = 0; offset < 365; offset += 1) {
     const candidate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
-    if (!preferences.length || preferences.includes(dayNames[candidate.getDay()].toLowerCase())) {
-      return localDateString(candidate);
+    const date = localDateString(candidate);
+    if ((!preferences.length || preferences.includes(dayNames[candidate.getDay()].toLowerCase()))
+      && !reservedDates.includes(date)) {
+      return date;
     }
   }
   return localDateString(today);
@@ -74,8 +76,18 @@ const isPreferredWorkoutDate = (date, preferredDays) => {
   return preferences.includes(dayNames[weekday].toLowerCase());
 };
 
-function PlanModal({ members, exercises, onClose, onSave }) {
-  const [form, setForm] = useState({
+function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
+  const [form, setForm] = useState(() => plan ? {
+    user_id: String(plan.user_id),
+    plan_name: plan.plan_name || "",
+    goal: plan.goal || "",
+    session_date: plan.scheduled_date || "",
+    sessions: (plan.sessions || []).map((session) => ({
+      exercise_id: String(session.exercise_id || ""),
+      sets: String(session.sets ?? ""),
+      reps: String(session.reps ?? ""),
+    })),
+  } : {
     user_id: "",
     plan_name: "",
     goal: "",
@@ -86,6 +98,11 @@ function PlanModal({ members, exercises, onClose, onSave }) {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const selectedMember = members.find((member) => String(member.user_id) === form.user_id);
+  const existingPlanOnDate = plans.find((item) =>
+    String(item.user_id) === form.user_id
+    && item.scheduled_date === form.session_date
+    && item.workout_plan_id !== plan?.workout_plan_id
+  );
   const availableDays = toList(selectedMember?.preferred_days);
   const preferredDifficulty = EXERCISE_DIFFICULTIES.find(
     (difficulty) => difficultyRank(difficulty) === allowedDifficultyRank(selectedMember?.activity_level)
@@ -125,6 +142,9 @@ function PlanModal({ members, exercises, onClose, onSave }) {
     if (!planName) nextErrors.plan_name = "Plan name is required.";
     if (!form.goal.trim()) nextErrors.goal = "Goal is required. Enter the member's assessment goal.";
     if (!form.session_date) nextErrors.session_date = "Workout date is required.";
+    if (existingPlanOnDate) {
+      nextErrors.session_date = "A workout plan already exists for this member on that date. Edit the existing plan instead.";
+    }
     if (form.sessions.length === 0) nextErrors.sessions = "Add at least one exercise.";
 
     form.sessions.forEach((session, index) => {
@@ -140,7 +160,7 @@ function PlanModal({ members, exercises, onClose, onSave }) {
     setSaving(true);
     setError("");
     try {
-      await trainerApi.post("/me/workout-plans", {
+      const payload = {
         ...form,
         plan_name: planName,
         sessions: form.sessions.map(({ exercise_id, sets, reps }) => ({
@@ -148,11 +168,16 @@ function PlanModal({ members, exercises, onClose, onSave }) {
           sets,
           reps,
         })),
-      });
+      };
+      if (plan) {
+        await trainerApi.put(`/me/workout-plans/${plan.workout_plan_id}`, payload);
+      } else {
+        await trainerApi.post("/me/workout-plans", payload);
+      }
       await onSave();
       onClose();
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to create workout plan.");
+      setError(err.response?.data?.message || `Failed to ${plan ? "update" : "create"} workout plan.`);
     } finally {
       setSaving(false);
     }
@@ -186,7 +211,7 @@ function PlanModal({ members, exercises, onClose, onSave }) {
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4">
       <div className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-[#111]">
         <div className="flex items-center justify-between border-b border-slate-200 p-6 dark:border-slate-800">
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white">Create Workout Plan</h2>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-white">{plan ? "Edit Workout Plan" : "Create Workout Plan"}</h2>
           <button type="button" onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X size={20} />
           </button>
@@ -200,15 +225,19 @@ function PlanModal({ members, exercises, onClose, onSave }) {
               <select
                 id="trainer-plan-member"
                 value={form.user_id}
+                disabled={Boolean(plan)}
                 onChange={(event) => {
                   const member = members.find((item) => String(item.user_id) === event.target.value);
                   const goal = member?.fitness_goal || "";
                   const memberDifficulty = String(member?.activity_level || "").trim().toLowerCase();
+                  const reservedDates = plans
+                    .filter((item) => String(item.user_id) === event.target.value)
+                    .map((item) => item.scheduled_date);
                   setForm({
                     ...form,
                     user_id: event.target.value,
                     goal,
-                    session_date: member ? nextPreferredDate(member.preferred_days) : "",
+                    session_date: member ? nextPreferredDate(member.preferred_days, reservedDates) : "",
                     plan_name: form.plan_name || (member ? `${member.first_name}'s Workout Routine` : ""),
                     sessions: form.sessions.map((session) => {
                       const exercise = exercises.find((item) => String(item.exercise_id) === String(session.exercise_id));
@@ -334,6 +363,11 @@ function PlanModal({ members, exercises, onClose, onSave }) {
               className={inputClass("session_date")}
             />
             {renderFieldError("session_date")}
+            {existingPlanOnDate && (
+              <p role="alert" className="mt-1 text-xs text-red-500">
+                This member already has a plan on this date. Edit that plan instead.
+              </p>
+            )}
             {selectedMember && availableDays.length > 0 && (
               <p className="mt-1 text-xs text-slate-500">
                 Only assessment days are allowed: {availableDays.join(", ")}.
@@ -493,8 +527,8 @@ function PlanModal({ members, exercises, onClose, onSave }) {
           <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
             Cancel
           </button>
-          <button type="button" onClick={handleSubmit} disabled={saving} className="rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-orange-700 disabled:opacity-50">
-            {saving ? "Creating..." : "Create Plan"}
+          <button type="button" onClick={handleSubmit} disabled={saving || Boolean(existingPlanOnDate)} className="rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
+            {saving ? (plan ? "Saving..." : "Creating...") : (plan ? "Save Changes" : "Create Plan")}
           </button>
         </div>
       </div>
@@ -510,6 +544,7 @@ export default function TrainerWorkoutPlans() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showModal, setShowModal] = useState(false);
+  const [editingPlan, setEditingPlan] = useState(null);
   const [fetchError, setFetchError] = useState("");
 
   const fetchData = async () => {
@@ -547,6 +582,11 @@ export default function TrainerWorkoutPlans() {
     }
   };
 
+  const handleEdit = (plan) => {
+    setEditingPlan(plan);
+    setShowModal(true);
+  };
+
   const query = search.trim().toLowerCase();
   const filtered = plans.filter((plan) =>
     plan.plan_name?.toLowerCase().includes(query) ||
@@ -557,7 +597,18 @@ export default function TrainerWorkoutPlans() {
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
       {showModal && (
-        <PlanModal members={members} exercises={exercises} onClose={() => setShowModal(false)} onSave={fetchData} />
+        <PlanModal
+          key={editingPlan?.workout_plan_id ?? "new-plan"}
+          members={members}
+          exercises={exercises}
+          plans={plans}
+          plan={editingPlan}
+          onClose={() => {
+            setShowModal(false);
+            setEditingPlan(null);
+          }}
+          onSave={fetchData}
+        />
       )}
 
       <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
@@ -568,7 +619,10 @@ export default function TrainerWorkoutPlans() {
         </div>
         <button
           type="button"
-          onClick={() => setShowModal(true)}
+          onClick={() => {
+            setEditingPlan(null);
+            setShowModal(true);
+          }}
           className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#080808]"
         >
           <Plus size={18} /> Create Plan
@@ -655,14 +709,27 @@ export default function TrainerWorkoutPlans() {
                       </span>
                     </td>
                     <td className="px-5 py-4">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(plan)}
-                        aria-label={`Delete ${plan.plan_name}`}
-                        className="rounded-lg p-2 text-red-400 transition hover:bg-red-500/10 hover:text-red-500"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        {plan.user_id && !plan.has_started && (
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(plan)}
+                            aria-label={`Edit ${plan.plan_name}`}
+                            className="rounded-lg p-2 text-orange-500 transition hover:bg-orange-500/10 hover:text-orange-600"
+                            title="Edit workout plan"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(plan)}
+                          aria-label={`Delete ${plan.plan_name}`}
+                          className="rounded-lg p-2 text-red-400 transition hover:bg-red-500/10 hover:text-red-500"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

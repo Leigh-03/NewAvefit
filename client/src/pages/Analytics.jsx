@@ -4,7 +4,7 @@ import {
   LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler,
 } from "chart.js";
 import { Line, Bar, Doughnut } from "react-chartjs-2";
-import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays } from "lucide-react";
+import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter } from "lucide-react";
 import api from "../services/api";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
@@ -42,11 +42,17 @@ export default function Analytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
+  const [equipmentDay, setEquipmentDay] = useState("");
+  const [equipmentHour, setEquipmentHour] = useState("");
+  const [appliedEquipmentFilters, setAppliedEquipmentFilters] = useState({ day: "", hour: "" });
 
   useEffect(() => {
     let active = true;
     const fetchAnalytics = () => {
-      api.get("/analytics")
+      const params = {};
+      if (appliedEquipmentFilters.day) params.equipment_day = appliedEquipmentFilters.day;
+      if (appliedEquipmentFilters.hour !== "") params.equipment_hour = appliedEquipmentFilters.hour;
+      api.get("/analytics", { params })
         .then((res) => {
           if (!active) return;
           setData(res.data.data);
@@ -64,12 +70,12 @@ export default function Analytics() {
     };
 
     fetchAnalytics();
-    const refreshTimer = window.setInterval(fetchAnalytics, 30_000);
+    const refreshTimer = window.setInterval(fetchAnalytics, 60 * 60 * 1000);
     return () => {
       active = false;
       window.clearInterval(refreshTimer);
     };
-  }, []);
+  }, [appliedEquipmentFilters]);
 
   if (loading) {
     return (
@@ -197,8 +203,54 @@ export default function Analytics() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]" aria-labelledby="equipment-heading">
         <div className="mb-4">
           <h2 id="equipment-heading" className="text-base font-bold text-slate-900 dark:text-white">Most used equipment</h2>
-          <p className="mt-1 text-xs text-slate-500">Equipment from completed member workouts, ranked by use. Refreshes automatically every 30 seconds.</p>
+          <p className="mt-1 text-xs text-slate-500">Equipment from completed member workouts, ranked by use. Refreshes automatically every hour.</p>
         </div>
+        <form
+          className="mb-5 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/[0.03]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setAppliedEquipmentFilters({ day: equipmentDay, hour: equipmentHour });
+          }}
+        >
+          <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            Day
+            <input
+              type="date"
+              value={equipmentDay}
+              onChange={(event) => setEquipmentDay(event.target.value)}
+              className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+            />
+          </label>
+          <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            Hour (Philippines time)
+            <select
+              value={equipmentHour}
+              onChange={(event) => setEquipmentHour(event.target.value)}
+              className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+            >
+              <option value="">All hours</option>
+              {Array.from({ length: 24 }, (_, hour) => (
+                <option key={hour} value={hour}>{formatHour(hour)}</option>
+              ))}
+            </select>
+          </label>
+          <button type="submit" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-bold text-white transition hover:bg-orange-600">
+            <Filter size={15} /> Apply filters
+          </button>
+          {(equipmentDay || equipmentHour) && (
+            <button
+              type="button"
+              onClick={() => {
+                setEquipmentDay("");
+                setEquipmentHour("");
+                setAppliedEquipmentFilters({ day: "", hour: "" });
+              }}
+              className="min-h-10 rounded-lg px-3 text-sm font-semibold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-white/10"
+            >
+              Clear
+            </button>
+          )}
+        </form>
         {mostUsedEquipment.length ? (
           <div className="space-y-3">
             {mostUsedEquipment.map((item, index) => {

@@ -1119,7 +1119,9 @@ const getMyWorkoutPlans = async (req, res) => {
         CASE
           WHEN u.user_id IS NULL THEN NULL
           ELSE CONCAT_WS(' ', u.first_name, u.last_name)
-        END AS member_name
+        END AS member_name,
+        plan_sessions.sessions,
+        plan_sessions.has_started
       FROM workout_plans wp
       LEFT JOIN users u ON u.user_id = wp.user_id
       LEFT JOIN LATERAL (
@@ -1127,7 +1129,19 @@ const getMyWorkoutPlans = async (req, res) => {
           MIN(ws.session_date) FILTER (
             WHERE ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
           ) AS scheduled_date,
-          COUNT(ws.session_id)::int AS exercise_count
+          COUNT(ws.session_id)::int AS exercise_count,
+          COALESCE(
+            JSON_AGG(
+              JSON_BUILD_OBJECT(
+                'exercise_id', ws.exercise_id,
+                'sets', ws.sets,
+                'reps', ws.reps
+              )
+              ORDER BY ws.session_id
+            ) FILTER (WHERE ws.session_id IS NOT NULL),
+            '[]'::json
+          ) AS sessions,
+          COALESCE(BOOL_OR(ws.started_at IS NOT NULL OR ws.completed = TRUE), FALSE) AS has_started
         FROM workout_sessions ws
         WHERE ws.workout_plan_id = wp.workout_plan_id
       ) plan_sessions ON true
@@ -1238,6 +1252,26 @@ const createMyWorkoutPlan = async (req, res) => {
       });
     }
 
+    const existingPlan = await client.query(
+      `
+      SELECT wp.workout_plan_id
+      FROM workout_plans wp
+      JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+      WHERE wp.user_id = $1
+        AND ws.session_date = $2
+      LIMIT 1
+      `,
+      [userId, sessionDate]
+    );
+    if (existingPlan.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: "A workout plan already exists for this member on that date. Edit the existing plan instead.",
+      });
+    }
+
     const exerciseIds = [...new Set(sessions.map((session) => Number(session.exercise_id)))];
     const exercises = await client.query(
       "SELECT exercise_id FROM exercises WHERE exercise_id = ANY($1::int[])",
@@ -1305,6 +1339,186 @@ const createMyWorkoutPlan = async (req, res) => {
   } catch (err) {
     if (transactionStarted) await client.query("ROLLBACK");
     console.error("createMyWorkoutPlan error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    client?.release();
+  }
+};
+
+const updateMyWorkoutPlan = async (req, res) => {
+  const trainerId = req.trainer.trainer_id;
+  const planId = Number(req.params.planId);
+  const planName = typeof req.body.plan_name === "string" ? req.body.plan_name.trim() : "";
+  const goal = typeof req.body.goal === "string" ? req.body.goal.trim() : "";
+  const sessionDate = req.body.session_date;
+  const sessions = req.body.sessions;
+
+  if (!Number.isInteger(planId) || planId < 1) {
+    return res.status(400).json({ success: false, message: "Choose a valid workout plan." });
+  }
+  if (!planName) {
+    return res.status(400).json({ success: false, message: "Plan name is required." });
+  }
+  if (!goal) {
+    return res.status(400).json({ success: false, message: "Goal is required." });
+  }
+  const parsedSessionDate = typeof sessionDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sessionDate)
+    ? new Date(`${sessionDate}T00:00:00.000Z`)
+    : null;
+  if (!parsedSessionDate || !Number.isFinite(parsedSessionDate.getTime()) ||
+      parsedSessionDate.toISOString().slice(0, 10) !== sessionDate) {
+    return res.status(400).json({ success: false, message: "Choose a valid workout date." });
+  }
+  if (!Array.isArray(sessions) || sessions.length === 0 || sessions.length > 30) {
+    return res.status(400).json({ success: false, message: "A workout routine must contain between 1 and 30 exercises." });
+  }
+  if (sessions.some((session) =>
+    !session ||
+    typeof session !== "object" ||
+    Array.isArray(session) ||
+    !Number.isInteger(Number(session.exercise_id)) ||
+    Number(session.exercise_id) < 1 ||
+    String(session.sets ?? "").trim() === "" ||
+    !Number.isInteger(Number(session.sets)) ||
+    Number(session.sets) < 1 ||
+    Number(session.sets) > 6 ||
+    String(session.reps ?? "").trim() === "" ||
+    !Number.isInteger(Number(session.reps)) ||
+    Number(session.reps) < 3 ||
+    Number(session.reps) > 16
+  )) {
+    return res.status(400).json({
+      success: false,
+      message: "Every exercise must have an exercise, sets from 1 to 6, and reps from 3 to 16.",
+    });
+  }
+
+  let client;
+  let transactionStarted = false;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const plan = await client.query(
+      `
+      SELECT wp.workout_plan_id, wp.user_id
+      FROM workout_plans wp
+      JOIN users u ON u.user_id = wp.user_id
+      WHERE wp.workout_plan_id = $1
+        AND wp.trainer_id = $2
+        AND u.trainer_id = $2
+        AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+      FOR UPDATE OF wp, u
+      `,
+      [planId, trainerId]
+    );
+    if (!plan.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(404).json({ success: false, message: "Workout plan not found in your roster." });
+    }
+
+    const planSessions = await client.query(
+      `SELECT session_id, started_at, completed
+       FROM workout_sessions
+       WHERE workout_plan_id = $1
+       FOR UPDATE`,
+      [planId]
+    );
+    if (planSessions.rows.some((session) => session.started_at || session.completed)) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: "This workout plan can no longer be edited because the member has already started it.",
+      });
+    }
+
+    const today = await client.query("SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS today");
+    if (sessionDate < today.rows[0].today) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: "Workout date can't be in the past." });
+    }
+
+    const member = await client.query(
+      `SELECT user_id, preferred_days
+       FROM users
+       WHERE user_id = $1 AND trainer_id = $2 AND COALESCE(account_status, 'Pending') = 'Active'`,
+      [plan.rows[0].user_id, trainerId]
+    );
+    if (!member.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(403).json({ success: false, message: "This member isn't on your roster." });
+    }
+
+    const preferredDays = Array.isArray(member.rows[0].preferred_days)
+      ? member.rows[0].preferred_days.map((day) => String(day).trim().toLowerCase())
+      : [];
+    const weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const scheduledWeekday = weekdayNames[parsedSessionDate.getUTCDay()];
+    if (preferredDays.length > 0 && !preferredDays.includes(scheduledWeekday)) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `Choose one of the member's preferred workout days: ${member.rows[0].preferred_days.join(", ")}.`,
+      });
+    }
+
+    const existingPlan = await client.query(
+      `
+      SELECT wp.workout_plan_id
+      FROM workout_plans wp
+      JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+      WHERE wp.user_id = $1
+        AND ws.session_date = $2
+        AND wp.workout_plan_id <> $3
+      LIMIT 1
+      `,
+      [plan.rows[0].user_id, sessionDate, planId]
+    );
+    if (existingPlan.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: "A workout plan already exists for this member on that date. Edit the existing plan instead.",
+      });
+    }
+
+    const exerciseIds = [...new Set(sessions.map((session) => Number(session.exercise_id)))];
+    const exercises = await client.query(
+      "SELECT exercise_id FROM exercises WHERE exercise_id = ANY($1::int[])",
+      [exerciseIds]
+    );
+    if (exercises.rowCount !== exerciseIds.length) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: "One or more selected exercises are unavailable." });
+    }
+
+    await client.query(
+      "UPDATE workout_plans SET plan_name = $1, goal = $2 WHERE workout_plan_id = $3",
+      [planName, goal, planId]
+    );
+    await client.query("DELETE FROM workout_sessions WHERE workout_plan_id = $1", [planId]);
+    for (const session of sessions) {
+      await client.query(
+        `INSERT INTO workout_sessions
+          (workout_plan_id, exercise_id, sets, reps, duration_minutes, session_date)
+         VALUES ($1, $2, $3, $4, NULL, $5)`,
+        [planId, Number(session.exercise_id), Number(session.sets), Number(session.reps), sessionDate]
+      );
+    }
+
+    await client.query("COMMIT");
+    transactionStarted = false;
+    res.json({ success: true, message: "Workout plan updated." });
+  } catch (err) {
+    if (transactionStarted) await client.query("ROLLBACK");
+    console.error("updateMyWorkoutPlan error:", err.message);
     res.status(500).json({ success: false, message: err.message });
   } finally {
     client?.release();
@@ -1575,6 +1789,8 @@ const getRosterMemberSessions = async (req, res) => {
 // =========================================================
 
 const assignSessionAsTrainer = async (req, res) => {
+  let client;
+  let transactionStarted = false;
   try {
     const trainerId = req.trainer.trainer_id;
 
@@ -1633,28 +1849,37 @@ const assignSessionAsTrainer = async (req, res) => {
       });
     }
 
-    const currentDate = await pool.query(
+    client = await pool.connect();
+    await client.query("BEGIN");
+    transactionStarted = true;
+
+    const currentDate = await client.query(
       "SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS today"
     );
     if (session_date < currentDate.rows[0].today) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
       return res.status(400).json({
         success: false,
         message: "Workout date can't be in the past.",
       });
     }
 
-    const memberAvailability = await pool.query(
+    const memberAvailability = await client.query(
       `
       SELECT preferred_days
       FROM users
       WHERE user_id = $1
         AND trainer_id = $2
         AND COALESCE(account_status, 'Pending') = 'Active'
+      FOR UPDATE
       `,
       [user_id, trainerId]
     );
 
     if (!memberAvailability.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
       return res.status(403).json({
         success: false,
         message: "This member isn't on your roster.",
@@ -1678,13 +1903,39 @@ const assignSessionAsTrainer = async (req, res) => {
         (day) => String(day).trim().toLowerCase() === weekday.toLowerCase()
       )
     ) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
       return res.status(400).json({
         success: false,
         message: "The selected date is not part of this client's availability.",
       });
     }
 
-    const planRes = await pool.query(
+    const existingSession = await client.query(
+      `
+      SELECT wp.workout_plan_id,
+        BOOL_OR(ws.started_at IS NOT NULL OR ws.completed = TRUE) AS has_started
+      FROM workout_plans wp
+      JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+      WHERE wp.user_id = $1
+        AND ws.session_date = $2
+      GROUP BY wp.workout_plan_id
+      LIMIT 1
+      `,
+      [user_id, session_date]
+    );
+    if (existingSession.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: existingSession.rows[0].has_started
+          ? "This workout has already started and cannot be changed."
+          : "A workout plan already exists for this member on that date. Edit the existing plan instead.",
+      });
+    }
+
+    const planRes = await client.query(
       `
       SELECT workout_plan_id
       FROM workout_plans
@@ -1700,7 +1951,7 @@ const assignSessionAsTrainer = async (req, res) => {
     if (planRes.rows.length > 0) {
       planId = planRes.rows[0].workout_plan_id;
 
-      await pool.query(
+      await client.query(
         `
         UPDATE workout_plans
         SET trainer_id = $1
@@ -1709,7 +1960,7 @@ const assignSessionAsTrainer = async (req, res) => {
         [trainerId, planId]
       );
     } else {
-      const created = await pool.query(
+      const created = await client.query(
         `
         INSERT INTO workout_plans
           (
@@ -1733,7 +1984,7 @@ const assignSessionAsTrainer = async (req, res) => {
       planId = created.rows[0].workout_plan_id;
     }
 
-    const result = await pool.query(
+    const result = await client.query(
       `
       INSERT INTO workout_sessions
         (
@@ -1758,6 +2009,9 @@ const assignSessionAsTrainer = async (req, res) => {
       ]
     );
 
+    await client.query("COMMIT");
+    transactionStarted = false;
+
     await createNotification({
       audience: "user",
       recipientId: Number(user_id),
@@ -1773,6 +2027,7 @@ const assignSessionAsTrainer = async (req, res) => {
       data: result.rows[0],
     });
   } catch (err) {
+    if (transactionStarted) await client.query("ROLLBACK");
     console.error(
       "assignSessionAsTrainer error:",
       err.message
@@ -1782,6 +2037,8 @@ const assignSessionAsTrainer = async (req, res) => {
       success: false,
       message: err.message,
     });
+  } finally {
+    client?.release();
   }
 };
 
@@ -1860,6 +2117,7 @@ module.exports = {
   updateMyPhoto,
   getMyWorkoutPlans,
   createMyWorkoutPlan,
+  updateMyWorkoutPlan,
   deleteMyWorkoutPlan,
   getExerciseCatalog,
   getRosterMemberSessions,

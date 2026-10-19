@@ -42,6 +42,25 @@ const getDashboardStats = async (req, res) => {
 // GET full analytics
 const getAnalytics = async (req, res) => {
   try {
+    const equipmentDay = req.query.equipment_day || "";
+    const equipmentHour = req.query.equipment_hour || "";
+    const parsedEquipmentDay = typeof equipmentDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(equipmentDay)
+      ? new Date(`${equipmentDay}T00:00:00.000Z`)
+      : null;
+    if (equipmentDay && (
+      !parsedEquipmentDay ||
+      !Number.isFinite(parsedEquipmentDay.getTime()) ||
+      parsedEquipmentDay.toISOString().slice(0, 10) !== equipmentDay
+    )) {
+      return res.status(400).json({ success: false, message: "Equipment day must be a valid date." });
+    }
+    if (equipmentHour && (
+      typeof equipmentHour !== "string" ||
+      !/^(?:[0-9]|1[0-9]|2[0-3])$/.test(equipmentHour)
+    )) {
+      return res.status(400).json({ success: false, message: "Equipment hour must be between 0 and 23." });
+    }
+
     const growthPeriods = {
       week: { granularity: "day", offset: "6 days", step: "1 day", labelFormat: "Dy" },
       month: { granularity: "day", offset: "29 days", step: "1 day", labelFormat: "Mon FMDD" },
@@ -210,6 +229,11 @@ const getAnalytics = async (req, res) => {
       ORDER BY weekdays.day_order
     `);
 
+    const equipmentCompletedAtManila = `CASE
+      WHEN pg_typeof(ws.completed_at) = 'timestamp with time zone'::regtype
+        THEN ws.completed_at AT TIME ZONE 'Asia/Manila'
+      ELSE ws.completed_at::timestamp
+    END`;
     const mostUsedEquipment = await pool.query(`
       SELECT BTRIM(e.equipment) AS equipment, COUNT(*)::int AS count
       FROM workout_sessions ws
@@ -217,10 +241,18 @@ const getAnalytics = async (req, res) => {
       JOIN exercises e ON e.exercise_id = ws.exercise_id
       WHERE ws.completed = TRUE
         AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+        AND ($1::date IS NULL OR (
+          ws.completed_at IS NOT NULL
+          AND (${equipmentCompletedAtManila})::date = $1::date
+        ))
+        AND ($2::integer IS NULL OR (
+          ws.completed_at IS NOT NULL
+          AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila}))::integer = $2::integer
+        ))
       GROUP BY BTRIM(e.equipment)
       ORDER BY COUNT(*) DESC, BTRIM(e.equipment) ASC
       LIMIT 10
-    `);
+    `, [equipmentDay || null, equipmentHour === "" ? null : Number(equipmentHour)]);
 
     // Summary
     const totalMembers = await pool.query("SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'");

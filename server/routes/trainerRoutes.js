@@ -7,7 +7,7 @@ const availabilityController = require("../controllers/trainerAvailabilityContro
 const {
   getTrainers, getTrainerById, createTrainer, updateTrainer, approveTrainer, rejectTrainer, deactivateTrainer, deleteTrainer, getTrainerRoster,
   loginTrainer, getMyRoster, getMyProfile, updateMyPhoto, getExerciseCatalog,
-  getMyWorkoutPlans, createMyWorkoutPlan, deleteMyWorkoutPlan,
+  getMyWorkoutPlans, createMyWorkoutPlan, updateMyWorkoutPlan, deleteMyWorkoutPlan,
   getRosterMemberSessions, assignSessionAsTrainer, deleteSessionAsTrainer,
 } = require("../controllers/trainerController");
 
@@ -20,6 +20,7 @@ router.get("/me/availability", verifyTrainer, availabilityController.getForTrain
 router.put("/me/availability", verifyTrainer, availabilityController.saveForTrainer);
 router.get("/me/workout-plans", verifyTrainer, getMyWorkoutPlans);
 router.post("/me/workout-plans", verifyTrainer, createMyWorkoutPlan);
+router.put("/me/workout-plans/:planId", verifyTrainer, updateMyWorkoutPlan);
 router.delete("/me/workout-plans/:planId", verifyTrainer, deleteMyWorkoutPlan);
 router.get("/me/exercises", verifyTrainer, getExerciseCatalog);
 router.get("/me/members/:userId/sessions", verifyTrainer, getRosterMemberSessions);
