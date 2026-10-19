@@ -21,17 +21,11 @@ function expertise(t) {
   return [...new Set([...(t.specializations || []), t.goal_specialty].filter(Boolean))].slice(0, 8);
 }
 
-function TrainerPhoto({ trainer, className = "" }) {
+function TrainerPhoto({ trainer, className = "", fit = "cover" }) {
   return (
-    <div className={`relative overflow-hidden bg-slate-950 ${className}`}>
+    <div className={`relative overflow-hidden ${fit === "contain" ? "bg-slate-950" : "bg-transparent"} ${className}`}>
       {trainer.photo_url ? (
-        <>
-          <img src={trainer.photo_url} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-40" />
-          <div className="absolute inset-0 bg-black/20" />
-          <div className="relative z-10 w-full h-full flex items-center justify-center p-3 sm:p-5">
-            <img src={trainer.photo_url} alt={trainer.full_name} className="max-w-full max-h-full w-auto h-auto object-contain drop-shadow-2xl" />
-          </div>
-        </>
+        <img src={trainer.photo_url} alt={trainer.full_name} className={`absolute inset-0 h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`} />
       ) : (
         <div className="w-full h-full flex items-center justify-center"><User size={96} className="text-orange-500" /></div>
       )}
@@ -47,19 +41,30 @@ function TrainerProfileModal({ trainer, goal, onClose }) {
   return (
     <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-labelledby="coach-profile-title" className="bg-white dark:bg-[#111] rounded-3xl shadow-2xl w-full max-w-3xl max-h-[94vh] overflow-y-auto border border-slate-200 dark:border-slate-800" onClick={(e) => e.stopPropagation()}>
-        <div className="relative h-[55vh] min-h-[360px] max-h-[650px] bg-slate-950">
-          <button type="button" onClick={() => trainer.photo_url && setPhotoOpen(true)} className={`w-full h-full ${trainer.photo_url ? "cursor-zoom-in" : "cursor-default"}`} aria-label={trainer.photo_url ? "View full profile photo" : "Profile photo unavailable"}>
-            <TrainerPhoto trainer={trainer} className="w-full h-full" />
-          </button>
-          <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/95 via-black/45 to-transparent pointer-events-none" />
-          <button type="button" onClick={onClose} className="absolute top-4 right-4 z-30 w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center" aria-label="Close profile"><X size={20} /></button>
-          <div className="absolute bottom-6 left-6 right-6 text-white">
-            <p className="text-xs uppercase tracking-widest font-bold text-orange-300">Coach Profile</p>
-            <h2 id="coach-profile-title" className="text-3xl sm:text-4xl font-bold mt-1">{trainer.full_name}</h2>
-            <p className="text-orange-300 font-semibold mt-1">{trainer.goal_specialty || "General Fitness Coach"}</p>
-          </div>
+        <div className="relative flex justify-center bg-transparent">
+          <button type="button" onClick={onClose} className="absolute right-4 top-4 z-30 flex h-11 w-11 items-center justify-center rounded-full bg-black/70 text-white hover:bg-black" aria-label="Close profile"><X size={20} /></button>
+          {trainer.photo_url ? (
+            <button type="button" onClick={() => setPhotoOpen(true)} className="relative inline-flex max-h-[55vh] max-w-full items-center justify-center overflow-hidden cursor-zoom-in" aria-label="View full profile photo">
+              <img src={trainer.photo_url} alt={trainer.full_name} className="block max-h-[55vh] max-w-full object-contain" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-48 bg-gradient-to-t from-black via-black/85 to-transparent" />
+              <div className="pointer-events-none absolute bottom-4 left-5 right-5 z-20 text-left text-white drop-shadow-md sm:bottom-5 sm:left-6 sm:right-6">
+                <p className="text-xs font-bold uppercase tracking-widest text-orange-300">Coach Profile</p>
+                <h2 id="coach-profile-title" className="mt-1 text-2xl font-bold sm:text-3xl">{trainer.full_name}</h2>
+                <p className="mt-1 font-semibold text-orange-300">{trainer.goal_specialty || "General Fitness Coach"}</p>
+              </div>
+            </button>
+          ) : (
+            <div className="relative flex h-64 w-full items-center justify-center bg-slate-950">
+              <TrainerPhoto trainer={trainer} className="h-full w-full" />
+              <div className="absolute bottom-4 left-5 right-16 z-20 text-white sm:bottom-5 sm:left-6">
+                <p className="text-xs font-bold uppercase tracking-widest text-orange-300">Coach Profile</p>
+                <h2 id="coach-profile-title" className="mt-1 text-2xl font-bold sm:text-3xl">{trainer.full_name}</h2>
+                <p className="mt-1 font-semibold text-orange-300">{trainer.goal_specialty || "General Fitness Coach"}</p>
+              </div>
+            </div>
+          )}
         </div>
-        <div className="p-6 sm:p-8">
+        <div className="p-5 sm:p-7">
           <p className="text-xs uppercase tracking-wider font-bold text-slate-400">About the Coach</p>
           <p className="text-sm sm:text-base leading-7 text-slate-600 dark:text-slate-300 mt-2 whitespace-pre-line">{trainer.bio || "This coach has not added a profile description yet."}</p>
           <div className="mt-7">

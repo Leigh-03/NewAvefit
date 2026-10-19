@@ -98,10 +98,12 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const selectedMember = members.find((member) => String(member.user_id) === form.user_id);
-  const existingPlanOnDate = plans.find((item) =>
+  const keepingExistingDate = plan
+    && String(plan.scheduled_date || "").slice(0, 10) === form.session_date;
+  const existingPlanOnDate = !keepingExistingDate && plans.find((item) =>
     String(item.user_id) === form.user_id
-    && item.scheduled_date === form.session_date
-    && item.workout_plan_id !== plan?.workout_plan_id
+    && String(item.scheduled_date || "").slice(0, 10) === form.session_date
+    && String(item.workout_plan_id) !== String(plan?.workout_plan_id)
   );
   const availableDays = toList(selectedMember?.preferred_days);
   const preferredDifficulty = EXERCISE_DIFFICULTIES.find(
@@ -346,7 +348,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
               id="trainer-plan-date"
               type="date"
               required
-              min={localDateString(new Date())}
+              min={plan ? undefined : localDateString(new Date())}
               value={form.session_date}
               onChange={(event) => {
                 const sessionDate = event.target.value;

@@ -2,11 +2,16 @@ import { Link } from "react-router-dom";
 import {
   ArrowRight,
   ArrowUpRight,
+  Clock3,
   Dumbbell,
+  ExternalLink,
+  MapPin,
   TrendingUp,
   Users,
 } from "lucide-react";
 import "./Homepage.css";
+
+const GYM_ADDRESS = "34 A Mabini Tanauan Batangas, Mabini Ave, Tanauan City, Batangas";
 
 const FEATURES = [
   {
@@ -43,6 +48,7 @@ export default function Homepage() {
             <a href="#training">Training</a>
             <a href="#coaching">Coaching</a>
             <a href="#club">The club</a>
+            <a href="#about">About Us</a>
           </nav>
 
         </div>
@@ -118,6 +124,42 @@ export default function Homepage() {
                 Start where you are, build a routine that fits your life, and keep track of how far you&apos;ve come.
                 AveFit brings your training and coaching journey together in one place.
               </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="home-about" id="about" aria-labelledby="home-about-title">
+          <div className="home-about-inner">
+            <div className="home-about-copy">
+              <p className="home-eyebrow">Come visit us</p>
+              <h2 id="home-about-title">A local gym for your next strong start.</h2>
+              <p>
+                Visit Avenue Power and Fitness Gym in Tanauan City. Find our location, check our opening hours, and plan your next workout.
+              </p>
+              <div className="home-about-detail">
+                <MapPin size={19} aria-hidden="true" />
+                <address>{GYM_ADDRESS}</address>
+              </div>
+              <div className="home-about-detail">
+                <Clock3 size={19} aria-hidden="true" />
+                <p>Monday–Saturday: 5:00 AM–10:00 PM<br />Sunday: 7:00 AM–6:00 PM</p>
+              </div>
+              <a
+                className="home-button home-button-orange home-directions"
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(GYM_ADDRESS)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Get directions <ExternalLink size={16} />
+              </a>
+            </div>
+            <div className="home-map-frame">
+              <iframe
+                title="Map showing Avenue Power and Fitness Gym in Tanauan City, Batangas"
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(GYM_ADDRESS)}&output=embed`}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
             </div>
           </div>
         </section>

@@ -260,24 +260,26 @@ export default function UserLogin() {
         <span>or</span>
         <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
       </div>
-      <div className="flex justify-center">
+      <div className="w-full">
         {googleClientId ? (
           <GoogleOAuthProvider clientId={googleClientId}>
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
-              render={({ onClick, disabled }) => (
-                <button
-                  type="button"
-                  onClick={onClick}
-                  disabled={disabled || loading}
-                  className={`${googleButtonClasses} ${loading ? "cursor-not-allowed opacity-80" : ""}`}
-                >
-                  <GoogleBrandIcon />
-                  <span>Continue with Google</span>
-                </button>
-              )}
-            />
+            <div className="w-full">
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
+                render={({ onClick, disabled }) => (
+                  <button
+                    type="button"
+                    onClick={onClick}
+                    disabled={disabled || loading}
+                    className={`${googleButtonClasses} ${loading ? "cursor-not-allowed opacity-80" : ""}`}
+                  >
+                    <GoogleBrandIcon />
+                    <span>Continue with Google</span>
+                  </button>
+                )}
+              />
+            </div>
           </GoogleOAuthProvider>
         ) : (
           <button
@@ -429,7 +431,7 @@ export default function UserLogin() {
 
           {error && <Alert tone="error">{error}</Alert>}
 
-          <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mt-2 !h-12 !px-4 !py-0">
+          <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mt-2 !h-12 !w-full !px-4 !py-0">
             Log in
           </PrimaryButton>
 

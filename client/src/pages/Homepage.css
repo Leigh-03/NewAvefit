@@ -31,6 +31,7 @@
 .home-header-inner,
 .home-section,
 .home-club-inner,
+.home-about-inner,
 .home-coaching-inner,
 .home-join-inner,
 .home-footer-inner {
@@ -331,6 +332,68 @@
   line-height: 1.8;
 }
 
+.home-about { background: var(--home-paper); }
+
+.home-about-inner {
+  display: grid;
+  grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr);
+  align-items: center;
+  gap: 8%;
+  padding-block: 96px;
+}
+
+.home-about-copy h2 {
+  max-width: 520px;
+  font-family: Impact, "Arial Narrow", sans-serif;
+  font-size: 48px;
+  font-weight: 500;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.home-about-copy > p:not(.home-eyebrow) {
+  max-width: 460px;
+  margin-top: 18px;
+  color: var(--home-muted);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.home-about-detail {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 22px;
+  color: var(--home-orange);
+}
+
+.home-about-detail address,
+.home-about-detail p {
+  color: var(--home-ink);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 650;
+  line-height: 1.7;
+}
+
+.home-directions { margin-top: 26px; }
+
+.home-map-frame {
+  min-width: 0;
+  min-height: 380px;
+  border: 1px solid color-mix(in srgb, var(--home-ink) 14%, transparent);
+  background: var(--home-white);
+}
+
+.home-map-frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 380px;
+  border: 0;
+  filter: grayscale(.2) contrast(1.05);
+}
+
 .home-coaching { background: #1c1d1a; color: #f7f6f2; }
 
 .home-coaching-inner {
@@ -466,6 +529,8 @@
   .home-hero { min-height: 550px; }
   .home-hero h1 { max-width: 610px; font-size: 64px; }
   .home-club-inner { gap: 6%; }
+  .home-about-inner { gap: 5%; }
+  .home-about-copy h2 { font-size: 42px; }
   .home-section-heading h2,
   .home-club-copy h2,
   .home-coaching-heading h2 { font-size: 44px; }
@@ -481,6 +546,7 @@
   .home-header-inner,
   .home-section,
   .home-club-inner,
+  .home-about-inner,
   .home-coaching-inner,
   .home-join-inner,
   .home-footer-inner { width: min(100% - 40px, 1280px); }
@@ -518,6 +584,11 @@
   .home-image-caption { right: -7px; bottom: 14px; font-size: 9px; }
   .home-club-copy > p:not(.home-eyebrow) { margin-top: 17px; font-size: 14px; }
   .home-club-copy .home-button { margin-top: 22px; }
+
+  .home-about-inner { grid-template-columns: 1fr; gap: 30px; padding-block: 64px; }
+  .home-about-copy h2 { font-size: 39px; }
+  .home-map-frame,
+  .home-map-frame iframe { min-height: 300px; }
 
   .home-coaching-inner { grid-template-columns: 1fr; gap: 34px; padding-block: 66px; }
   .home-coaching-heading > p:last-child { margin-top: 16px; }

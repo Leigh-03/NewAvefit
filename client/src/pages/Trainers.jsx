@@ -434,53 +434,52 @@ function TrainerProfileModal({ trainer, onClose, onEdit }) {
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="trainer-profile-title"
         className="bg-white dark:bg-[#111] rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-slate-800"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="relative h-[55vh] min-h-[360px] max-h-[650px] bg-slate-950 overflow-hidden flex items-center justify-center">
-          {trainer.photo_url ? (
-            <>
-              <img
-                src={trainer.photo_url}
-                alt=""
-                aria-hidden="true"
-                className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-40"
-              />
-              <div className="absolute inset-0 bg-black/20" />
-              <img
-                src={trainer.photo_url}
-                alt={trainer.full_name}
-                className="relative z-10 w-auto h-auto max-w-full max-h-full object-contain"
-              />
-            </>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <UserCircle size={150} className="text-orange-500" />
-            </div>
-          )}
-
-          <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
-
+        <div className="relative flex justify-center bg-transparent">
           <button
             type="button"
             onClick={onClose}
-            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center"
+            className="absolute right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-black/70 text-white hover:bg-black"
+            aria-label="Close trainer profile"
           >
             <X size={19} />
           </button>
-
-          <div className="absolute bottom-5 left-6 right-6 text-white">
-            <p className="text-xs uppercase tracking-widest font-bold text-orange-300">
-              Trainer Profile
-            </p>
-            <h2 className="text-3xl font-bold mt-1">{trainer.full_name}</h2>
-            <p className="text-sm text-orange-300 font-semibold mt-1">
-              {trainer.goal_specialty || "General Fitness Coach"}
-            </p>
-          </div>
+          {trainer.photo_url ? (
+            <div className="relative inline-flex max-h-[55vh] max-w-full items-center justify-center overflow-hidden">
+              <img
+                src={trainer.photo_url}
+                alt={trainer.full_name}
+                className="block max-h-[55vh] max-w-full object-contain"
+              />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black via-black/80 to-transparent" />
+              <div className="absolute bottom-4 left-5 right-5 z-20 text-white drop-shadow-md sm:bottom-5 sm:left-6 sm:right-6">
+                <p className="text-xs font-bold uppercase tracking-widest text-orange-300">Trainer Profile</p>
+                <h2 id="trainer-profile-title" className="mt-1 text-2xl font-bold sm:text-3xl">{trainer.full_name}</h2>
+                <p className="mt-1 text-sm font-semibold text-orange-300">
+                  {trainer.goal_specialty || "General Fitness Coach"}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="relative flex h-64 w-full items-center justify-center bg-slate-950">
+              <UserCircle size={150} className="text-orange-500" />
+              <div className="absolute bottom-4 left-5 right-16 text-white sm:bottom-5 sm:left-6">
+                <p className="text-xs font-bold uppercase tracking-widest text-orange-300">Trainer Profile</p>
+                <h2 id="trainer-profile-title" className="mt-1 text-2xl font-bold sm:text-3xl">{trainer.full_name}</h2>
+                <p className="mt-1 text-sm font-semibold text-orange-300">
+                  {trainer.goal_specialty || "General Fitness Coach"}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="p-6">
+        <div className="p-5 sm:p-6">
           <section>
             <p className="text-xs uppercase tracking-wider font-bold text-slate-400">
               About the Trainer
@@ -851,10 +850,12 @@ export default function Trainers() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setProfileTrainer(trainer)}
-                          className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-500 transition"
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-orange-600 transition hover:bg-orange-50"
                           title="View Coach Profile"
+                          aria-label={`View ${trainer.full_name}'s coach profile`}
                         >
                           <UserCircle size={16} />
+                          <span className="text-xs font-semibold">Profile</span>
                         </button>
                         <button
                           onClick={() => setRosterTrainer(trainer)}

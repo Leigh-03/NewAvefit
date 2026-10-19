@@ -1419,7 +1419,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     }
 
     const planSessions = await client.query(
-      `SELECT session_id, started_at, completed
+      `SELECT session_id, session_date::text AS session_date, started_at, completed
        FROM workout_sessions
        WHERE workout_plan_id = $1
        FOR UPDATE`,
@@ -1434,37 +1434,41 @@ const updateMyWorkoutPlan = async (req, res) => {
       });
     }
 
-    const today = await client.query("SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS today");
-    if (sessionDate < today.rows[0].today) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(400).json({ success: false, message: "Workout date can't be in the past." });
-    }
+    const keepingExistingDate = planSessions.rows.length > 0
+      && planSessions.rows.every((session) => String(session.session_date).slice(0, 10) === sessionDate);
+    if (!keepingExistingDate) {
+      const today = await client.query("SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS today");
+      if (sessionDate < today.rows[0].today) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({ success: false, message: "Workout date can't be in the past." });
+      }
 
-    const member = await client.query(
-      `SELECT user_id, preferred_days
-       FROM users
-       WHERE user_id = $1 AND trainer_id = $2 AND COALESCE(account_status, 'Pending') = 'Active'`,
-      [plan.rows[0].user_id, trainerId]
-    );
-    if (!member.rowCount) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(403).json({ success: false, message: "This member isn't on your roster." });
-    }
+      const member = await client.query(
+        `SELECT user_id, preferred_days
+         FROM users
+         WHERE user_id = $1 AND trainer_id = $2 AND COALESCE(account_status, 'Pending') = 'Active'`,
+        [plan.rows[0].user_id, trainerId]
+      );
+      if (!member.rowCount) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(403).json({ success: false, message: "This member isn't on your roster." });
+      }
 
-    const preferredDays = Array.isArray(member.rows[0].preferred_days)
-      ? member.rows[0].preferred_days.map((day) => String(day).trim().toLowerCase())
-      : [];
-    const weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-    const scheduledWeekday = weekdayNames[parsedSessionDate.getUTCDay()];
-    if (preferredDays.length > 0 && !preferredDays.includes(scheduledWeekday)) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(400).json({
-        success: false,
-        message: `Choose one of the member's preferred workout days: ${member.rows[0].preferred_days.join(", ")}.`,
-      });
+      const preferredDays = Array.isArray(member.rows[0].preferred_days)
+        ? member.rows[0].preferred_days.map((day) => String(day).trim().toLowerCase())
+        : [];
+      const weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+      const scheduledWeekday = weekdayNames[parsedSessionDate.getUTCDay()];
+      if (preferredDays.length > 0 && !preferredDays.includes(scheduledWeekday)) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: `Choose one of the member's preferred workout days: ${member.rows[0].preferred_days.join(", ")}.`,
+        });
+      }
     }
 
     const existingPlan = await client.query(
@@ -1479,7 +1483,7 @@ const updateMyWorkoutPlan = async (req, res) => {
       `,
       [plan.rows[0].user_id, sessionDate, planId]
     );
-    if (existingPlan.rowCount) {
+    if (!keepingExistingDate && existingPlan.rowCount) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(409).json({
