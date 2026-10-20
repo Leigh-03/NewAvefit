@@ -10,6 +10,35 @@ const statusColors = {
 };
 
 const MEMBER_STATUS_OPTIONS = ["Active", "Inactive"];
+const PROFILE_CHANGE_LABELS = {
+  first_name: "First name",
+  last_name: "Last name",
+  email: "Email",
+  phone: "Phone",
+  gender: "Gender",
+  birth_date: "Birth date",
+  age: "Age",
+  height: "Height",
+  weight: "Weight",
+  fitness_goal: "Fitness goal",
+  activity_level: "Experience level",
+  target_weight: "Target weight",
+  workout_days_per_week: "Workout days per week",
+  workout_duration: "Workout duration",
+  preferred_days: "Preferred days",
+  preferred_workout_time: "Preferred workout time",
+  intensity: "Preferred intensity",
+  injuries: "Injuries",
+  health_conditions: "Health conditions",
+  profile_photo_changed: "Profile photo",
+};
+
+const formatChangeValue = (value) => {
+  if (value === null || value === undefined || value === "") return "Not set";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "None";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+};
 
 function getBMICategory(bmi) {
   if (!bmi) return { label: "N/A", color: "text-slate-400" };
@@ -452,13 +481,26 @@ export default function Members() {
                     <p className="mt-1 break-all text-xs text-slate-500">{request.email}</p>
                     <p className="mt-1 text-xs text-slate-400">{new Date(request.created_at).toLocaleString()}</p>
                     {isPassword ? (
-                      <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">The member verified the request by email. The proposed password is kept private and is not displayed.</p>
+                      <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-white/[0.04]">
+                        <p className="font-semibold text-slate-800 dark:text-slate-200">Password</p>
+                        <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">From: Current password (hidden)</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-300">To: New password (hidden)</p>
+                        <p className="mt-2 text-xs text-slate-500">The member verified this request by email. Passwords are never shown to administrators.</p>
+                      </div>
                     ) : (
-                      <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                      <dl className="mt-3 grid gap-2 text-sm">
                         {Object.entries(changes).map(([key, value]) => (
                           <div key={key} className="min-w-0 rounded-lg bg-slate-50 px-3 py-2 dark:bg-white/[0.04]">
-                            <dt className="text-xs font-medium text-slate-500">{key === "profile_photo_changed" ? "Profile photo" : key.replaceAll("_", " ")}</dt>
-                            <dd className="mt-0.5 break-words font-semibold text-slate-800 dark:text-slate-200">{key === "profile_photo_changed" ? "Photo update requested" : Array.isArray(value) ? value.join(", ") : String(value ?? "Not set")}</dd>
+                            <dt className="text-xs font-semibold text-slate-600 dark:text-slate-300">{PROFILE_CHANGE_LABELS[key] || key.replaceAll("_", " ")}</dt>
+                            <dd className="mt-1 grid gap-1 break-words text-xs sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+                              <span><strong className="text-slate-500">From:</strong> {key === "profile_photo_changed"
+                                ? request.current_values?.[key] ? "Photo on file" : "No photo"
+                                : formatChangeValue(request.current_values?.[key])}</span>
+                              <span className="hidden text-slate-400 sm:inline" aria-hidden="true">→</span>
+                              <span><strong className="text-slate-500">To:</strong> {key === "profile_photo_changed"
+                                ? "Replacement photo requested"
+                                : formatChangeValue(value)}</span>
+                            </dd>
                           </div>
                         ))}
                       </dl>

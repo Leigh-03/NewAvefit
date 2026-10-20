@@ -835,8 +835,8 @@ export default function Trainers() {
                         <button
                           onClick={() => setAvailabilityTrainer(trainer)}
                           className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition"
-                          title="Manage availability"
-                          aria-label={`Manage ${trainer.full_name}'s availability`}
+                          title="View availability"
+                          aria-label={`View ${trainer.full_name}'s availability`}
                         >
                           <CalendarClock size={16} />
                         </button>

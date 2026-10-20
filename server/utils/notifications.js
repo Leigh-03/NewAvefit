@@ -1,10 +1,15 @@
 const pool = require("../db");
 const webpush = require("web-push");
-const { isMailConfigured, sendWeeklyBmiReminderEmail } = require("./mailer");
+const {
+  isMailConfigured,
+  sendWeeklyBmiReminderEmail,
+  sendNoWorkoutReminderEmail,
+} = require("./mailer");
 
 let pushConfigurationChecked = false;
 let pushConfigurationError = null;
 let bmiReminderSmtpWarningLogged = false;
+let workoutReminderSmtpWarningLogged = false;
 
 const configurePush = () => {
   if (pushConfigurationChecked) return !pushConfigurationError;
@@ -196,10 +201,107 @@ const sendWeeklyBmiReminders = async () => {
   }
 };
 
+const sendUnassignedWorkoutReminders = async () => {
+  if (!isMailConfigured()) {
+    if (!workoutReminderSmtpWarningLogged) {
+      console.warn("No-workout reminder emails are disabled because SMTP_HOST, SMTP_USER, and SMTP_PASS are not configured.");
+      workoutReminderSmtpWarningLogged = true;
+    }
+    return;
+  }
+
+  await pool.query(
+    `DELETE FROM user_workout_reminder_emails
+     WHERE sent_at IS NULL AND created_at < NOW() - INTERVAL '1 hour'`
+  );
+
+  const users = await pool.query(`
+    WITH schedule AS (
+      SELECT (NOW() AT TIME ZONE 'Asia/Manila')::date + 1 AS workout_date
+    )
+    SELECT u.user_id, u.trainer_id, u.email, u.first_name, schedule.workout_date
+    FROM users u
+    CROSS JOIN schedule
+    WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+      AND u.setup_completed = TRUE
+      AND u.trainer_id IS NOT NULL
+      AND NULLIF(BTRIM(u.email), '') IS NOT NULL
+      AND COALESCE(cardinality(u.preferred_days), 0) > 0
+      AND LOWER(TO_CHAR(schedule.workout_date, 'FMDay')) = ANY (
+        SELECT LOWER(BTRIM(day_name))
+        FROM UNNEST(u.preferred_days) AS days(day_name)
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM workout_plans wp
+        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+        WHERE wp.user_id = u.user_id
+          AND ws.session_date = TO_CHAR(schedule.workout_date, 'YYYY-MM-DD')
+      )
+    ORDER BY u.user_id
+  `);
+
+  for (const user of users.rows) {
+    const reservation = await pool.query(
+      `INSERT INTO user_workout_reminder_emails (user_id, workout_date)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id, workout_date) DO NOTHING
+       RETURNING user_id`,
+      [user.user_id, user.workout_date]
+    );
+    if (!reservation.rowCount) continue;
+
+    try {
+      const result = await sendNoWorkoutReminderEmail({
+        to: user.email,
+        firstName: user.first_name,
+        workoutDate: new Date(user.workout_date).toLocaleDateString("en-PH", {
+          timeZone: "Asia/Manila",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        }),
+      });
+      if (!result.delivered) {
+        throw new Error("SMTP did not confirm delivery of the workout reminder.");
+      }
+
+      await pool.query(
+        `UPDATE user_workout_reminder_emails
+         SET sent_at = NOW()
+         WHERE user_id = $1 AND workout_date = $2`,
+        [user.user_id, user.workout_date]
+      );
+    } catch (err) {
+      await pool.query(
+        `DELETE FROM user_workout_reminder_emails
+         WHERE user_id = $1 AND workout_date = $2 AND sent_at IS NULL`,
+        [user.user_id, user.workout_date]
+      );
+      console.error(`No-workout reminder failed for user ${user.user_id}:`, err.message);
+      continue;
+    }
+
+    try {
+      await createNotification({
+        audience: "trainer",
+        recipientId: user.trainer_id,
+        message: `A workout is still missing for ${user.first_name || "your member"}'s preferred workout day tomorrow.`,
+        notificationType: "workout",
+        userName: user.first_name || "Member",
+        targetUrl: "/trainer/workout-plans",
+      });
+    } catch (err) {
+      console.error(`No-workout coach notification failed for user ${user.user_id}:`, err.message);
+    }
+  }
+};
+
 module.exports = {
   createNotification,
   getVapidPublicKey,
   notifyAdmins,
   notifyNewUser,
   sendWeeklyBmiReminders,
+  sendUnassignedWorkoutReminders,
 };

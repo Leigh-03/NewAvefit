@@ -31,7 +31,6 @@ router.delete("/me/sessions/:sessionId", verifyTrainer, deleteSessionAsTrainer);
 router.get("/", verifyToken, getTrainers);
 router.get("/:id/roster", verifyToken, getTrainerRoster);
 router.get("/:id/availability", verifyToken, availabilityController.getForAdmin);
-router.put("/:id/availability", verifyToken, availabilityController.saveForAdmin);
 router.get("/:id", verifyToken, getTrainerById);
 router.post("/", verifyToken, createTrainer);
 router.put("/:id", verifyToken, updateTrainer);

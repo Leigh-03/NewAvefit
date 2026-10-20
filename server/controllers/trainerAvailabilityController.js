@@ -125,21 +125,6 @@ const replaceAvailability = async (trainerId, slots) => {
   }
 };
 
-const saveForAdmin = async (req, res) => {
-  const validationError = validateAvailability(req.body?.availability);
-  if (validationError) {
-    return res.status(400).json({ success: false, message: validationError });
-  }
-  try {
-    const saved = await replaceAvailability(req.params.id, req.body.availability);
-    if (!saved) return res.status(404).json({ success: false, message: "Trainer not found." });
-    res.json({ success: true, data: await listAvailability(req.params.id) });
-  } catch (err) {
-    console.error("save trainer availability error:", err.message);
-    res.status(500).json({ success: false, message: "Unable to save trainer availability." });
-  }
-};
-
 const saveForTrainer = async (req, res) => {
   const validationError = validateAvailability(req.body?.availability);
   if (validationError) {
@@ -154,4 +139,4 @@ const saveForTrainer = async (req, res) => {
   }
 };
 
-module.exports = { getForAdmin, getForTrainer, saveForAdmin, saveForTrainer, validateAvailability };
+module.exports = { getForAdmin, getForTrainer, saveForTrainer, validateAvailability };

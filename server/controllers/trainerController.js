@@ -1206,6 +1206,12 @@ const createMyWorkoutPlan = async (req, res) => {
       message: "Every exercise must have an exercise, sets from 1 to 6, and reps from 3 to 16.",
     });
   }
+  if (new Set(sessions.map((session) => Number(session.exercise_id))).size !== sessions.length) {
+    return res.status(400).json({
+      success: false,
+      message: "An exercise can only appear once in a day's workout plan.",
+    });
+  }
 
   let client;
   let transactionStarted = false;
@@ -1214,7 +1220,9 @@ const createMyWorkoutPlan = async (req, res) => {
     await client.query("BEGIN");
     transactionStarted = true;
 
-    const today = await client.query("SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS today");
+    const today = await client.query(
+      "SELECT TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today"
+    );
     if (sessionDate < today.rows[0].today) {
       await client.query("ROLLBACK");
       transactionStarted = false;
@@ -1392,6 +1400,12 @@ const updateMyWorkoutPlan = async (req, res) => {
       message: "Every exercise must have an exercise, sets from 1 to 6, and reps from 3 to 16.",
     });
   }
+  if (new Set(sessions.map((session) => Number(session.exercise_id))).size !== sessions.length) {
+    return res.status(400).json({
+      success: false,
+      message: "An exercise can only appear once in a day's workout plan.",
+    });
+  }
 
   let client;
   let transactionStarted = false;
@@ -1425,6 +1439,27 @@ const updateMyWorkoutPlan = async (req, res) => {
        FOR UPDATE`,
       [planId]
     );
+    const currentDate = await client.query(
+      "SELECT TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today"
+    );
+    const todayDate = currentDate.rows[0].today;
+    const hasPastWorkoutDate = planSessions.rows.some((session) => {
+      const date = String(session.session_date).slice(0, 10);
+      return /^\d{4}-\d{2}-\d{2}$/.test(date) && date < todayDate;
+    });
+    if (hasPastWorkoutDate) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: "This workout plan's date has passed and it can no longer be edited.",
+      });
+    }
+    if (sessionDate < todayDate) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: "Workout date can't be in the past." });
+    }
     if (planSessions.rows.some((session) => session.started_at || session.completed)) {
       await client.query("ROLLBACK");
       transactionStarted = false;
@@ -1437,13 +1472,6 @@ const updateMyWorkoutPlan = async (req, res) => {
     const keepingExistingDate = planSessions.rows.length > 0
       && planSessions.rows.every((session) => String(session.session_date).slice(0, 10) === sessionDate);
     if (!keepingExistingDate) {
-      const today = await client.query("SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS today");
-      if (sessionDate < today.rows[0].today) {
-        await client.query("ROLLBACK");
-        transactionStarted = false;
-        return res.status(400).json({ success: false, message: "Workout date can't be in the past." });
-      }
-
       const member = await client.query(
         `SELECT user_id, preferred_days
          FROM users
@@ -1562,6 +1590,24 @@ const deleteMyWorkoutPlan = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Workout plan not found in your plans.",
+      });
+    }
+
+    const planDate = await client.query(
+      `SELECT MIN(session_date) FILTER (
+         WHERE session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+       ) AS scheduled_date,
+       TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today
+       FROM workout_sessions
+       WHERE workout_plan_id = $1`,
+      [plan.rows[0].workout_plan_id]
+    );
+    if (planDate.rows[0].scheduled_date && planDate.rows[0].scheduled_date < planDate.rows[0].today) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: "This workout plan's date has passed and it can no longer be changed.",
       });
     }
 
@@ -1858,7 +1904,7 @@ const assignSessionAsTrainer = async (req, res) => {
     transactionStarted = true;
 
     const currentDate = await client.query(
-      "SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS today"
+      "SELECT TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today"
     );
     if (session_date < currentDate.rows[0].today) {
       await client.query("ROLLBACK");

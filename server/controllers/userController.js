@@ -15,8 +15,13 @@ const {
   normalizeEmail,
   publicUser,
 } = require("../utils/security");
-const { sendMail, sendVerificationEmail, sendPasswordChangeVerificationEmail } = require("../utils/mailer");
-const { notifyNewUser } = require("../utils/notifications");
+const {
+  sendMail,
+  sendVerificationEmail,
+  sendPasswordChangeVerificationEmail,
+  sendCoachAssignmentEmail,
+} = require("../utils/mailer");
+const { notifyNewUser, createNotification } = require("../utils/notifications");
 const {
   buildProfileChangePayload,
   createProfileChangeRequest,
@@ -1593,6 +1598,15 @@ const updateProfile = async (req, res) => {
       });
     }
 
+    const selectedNewCoach = setup_completed === true &&
+      trainer_id !== undefined &&
+      trainer_id !== null &&
+      trainer_id !== "" &&
+      !current.rows[0]?.trainer_id &&
+      Number.isInteger(Number(trainer_id)) &&
+      Number(trainer_id) > 0;
+    let coachAssignmentEmailSent = null;
+
     await pool.query(
       `
       UPDATE users
@@ -1655,6 +1669,53 @@ const updateProfile = async (req, res) => {
         req.user.user_id,
       ]
     );
+
+    if (selectedNewCoach) {
+      const coachResult = await pool.query(
+        `SELECT trainer_id, full_name, email
+         FROM trainers
+         WHERE trainer_id = $1`,
+        [trainer_id]
+      );
+      const coach = coachResult.rows[0];
+      if (coach) {
+        const memberName = `${first_name || current.rows[0].first_name || ""} ${last_name || current.rows[0].last_name || ""}`.trim();
+        try {
+          const delivery = await sendCoachAssignmentEmail({
+            to: coach.email,
+            trainerName: coach.full_name,
+            memberName,
+            memberEmail: nextEmail || current.rows[0].email,
+            preferredDays: Array.isArray(preferred_days)
+              ? preferred_days
+              : current.rows[0].preferred_days,
+            preferredWorkoutTime: preferred_workout_time || current.rows[0].preferred_workout_time,
+          });
+          coachAssignmentEmailSent = delivery.delivered;
+          if (!delivery.delivered) {
+            console.error(`Coach assignment email for trainer ${coach.trainer_id} was not delivered.`);
+          }
+        } catch (err) {
+          coachAssignmentEmailSent = false;
+          console.error(`Coach assignment email for trainer ${coach.trainer_id} failed:`, err.message);
+        }
+        try {
+          await createNotification({
+            audience: "trainer",
+            recipientId: coach.trainer_id,
+            message: `${memberName || "A new member"} selected you as their coach. Assign their workout plan.`,
+            notificationType: "workout",
+            userName: memberName || "New member",
+            targetUrl: "/trainer/workout-plans",
+          });
+        } catch (err) {
+          console.error(`Coach assignment notification for trainer ${coach.trainer_id} failed:`, err.message);
+        }
+      } else {
+        coachAssignmentEmailSent = false;
+        console.error(`Selected coach ${trainer_id} could not be found after the profile was saved.`);
+      }
+    }
 
     // Keep the admin member record synchronized with the registered user.
     // A member record is created the first time onboarding is completed;
@@ -1799,9 +1860,14 @@ const updateProfile = async (req, res) => {
       success: true,
       message: emailChanged
         ? "Profile updated. Enter the verification code sent to your new email address."
-        : "Profile updated.",
+        : coachAssignmentEmailSent === false
+          ? "Profile updated, but the coach assignment email could not be delivered."
+          : "Profile updated.",
       ...(emailChanged
         ? { email_verification_required: true }
+        : {}),
+      ...(coachAssignmentEmailSent !== null
+        ? { coach_assignment_email_sent: coachAssignmentEmailSent }
         : {}),
     });
   } catch (err) {

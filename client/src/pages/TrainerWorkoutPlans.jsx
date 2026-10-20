@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ClipboardList, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ClipboardList, LockKeyhole, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 
 const statusColors = {
@@ -32,6 +32,22 @@ const localDateString = (date) => {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 };
+
+const manilaDateString = () => {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+const isPastWorkoutPlan = (plan) => Boolean(
+  plan.scheduled_date &&
+  String(plan.scheduled_date).slice(0, 10) < manilaDateString()
+);
 
 const toList = (value) => {
   if (Array.isArray(value)) return value.filter(Boolean);
@@ -130,6 +146,11 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   const getSessionErrors = (session, index) => {
     const errors = {};
     if (!session.exercise_id) errors[`sessions.${index}.exercise_id`] = "Select an exercise.";
+    if (session.exercise_id && form.sessions.some((other, otherIndex) =>
+      otherIndex !== index && String(other.exercise_id) === String(session.exercise_id)
+    )) {
+      errors[`sessions.${index}.exercise_id`] = "Choose an exercise that is not already in this day's plan.";
+    }
     const setsError = integerRangeError(session.sets, "Sets", 1, 6);
     if (setsError) errors[`sessions.${index}.sets`] = setsError;
     const repsError = integerRangeError(session.reps, "Reps", 3, 16);
@@ -201,7 +222,13 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
     }));
     const key = `sessions.${index}.${field}`;
     const fieldError = field === "exercise_id"
-      ? (value ? "" : "Select an exercise.")
+      ? !value
+        ? "Select an exercise."
+        : form.sessions.some((session, sessionIndex) =>
+          sessionIndex !== index && String(session.exercise_id) === String(value)
+        )
+          ? "Choose an exercise that is not already in this day's plan."
+          : ""
       : field === "sets"
         ? integerRangeError(value, "Sets", 1, 6)
         : integerRangeError(value, "Reps", 3, 16);
@@ -449,7 +476,13 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                                   : "No matching exercises"}
                       </option>
                       {matchingExercises.map((exercise) => (
-                        <option key={exercise.exercise_id} value={exercise.exercise_id}>
+                        <option
+                          key={exercise.exercise_id}
+                          value={exercise.exercise_id}
+                          disabled={form.sessions.some((other, otherIndex) =>
+                            otherIndex !== index && String(other.exercise_id) === String(exercise.exercise_id)
+                          )}
+                        >
                           {exercise.exercise_name} · {exercise.difficulty}
                         </option>
                       ))}
@@ -696,7 +729,9 @@ export default function TrainerWorkoutPlans() {
                       <p className="mt-1 text-sm text-slate-500">{plans.length ? "Try a different search or status." : "Create a plan to start building a member's routine."}</p>
                     </td>
                   </tr>
-                ) : filtered.map((plan) => (
+                ) : filtered.map((plan) => {
+                  const pastWorkoutDate = isPastWorkoutPlan(plan);
+                  return (
                   <tr key={plan.workout_plan_id} className="hover:bg-orange-500/5">
                     <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-800 dark:text-white">{plan.plan_name}</td>
                     <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.goal || "—"}</td>
@@ -712,7 +747,7 @@ export default function TrainerWorkoutPlans() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1">
-                        {plan.user_id && !plan.has_started && (
+                        {plan.user_id && !plan.has_started && !pastWorkoutDate && (
                           <button
                             type="button"
                             onClick={() => handleEdit(plan)}
@@ -723,18 +758,30 @@ export default function TrainerWorkoutPlans() {
                             <Pencil size={16} />
                           </button>
                         )}
+                        {pastWorkoutDate && (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 text-xs text-slate-500"
+                            title="Workout dates in the past are locked."
+                            aria-label="Workout date has passed; plan is locked"
+                          >
+                            <LockKeyhole size={15} /> Locked
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() => handleDelete(plan)}
+                          disabled={pastWorkoutDate}
                           aria-label={`Delete ${plan.plan_name}`}
-                          className="rounded-lg p-2 text-red-400 transition hover:bg-red-500/10 hover:text-red-500"
+                          title={pastWorkoutDate ? "Past workout plans are locked." : "Delete workout plan"}
+                          className="rounded-lg p-2 text-red-400 transition hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Trash2 size={16} />
                         </button>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

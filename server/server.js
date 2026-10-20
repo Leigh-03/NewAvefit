@@ -3,7 +3,10 @@ const express = require("express");
 const cors = require("cors");
 
 const { initializeDatabase, expireMemberships } = require("./db");
-const { sendWeeklyBmiReminders } = require("./utils/notifications");
+const {
+  sendWeeklyBmiReminders,
+  sendUnassignedWorkoutReminders,
+} = require("./utils/notifications");
 
 // Admin routes
 const adminRoutes = require("./routes/adminRoutes");
@@ -100,6 +103,15 @@ initializeDatabase()
     bmiReminderTimer.unref();
     sendWeeklyBmiReminders().catch((err) => {
       console.error("❌ Initial weekly BMI reminder check failed:", err.message);
+    });
+    const workoutReminderTimer = setInterval(() => {
+      sendUnassignedWorkoutReminders().catch((err) => {
+        console.error("❌ No-workout reminder check failed:", err.message);
+      });
+    }, 60 * 60 * 1000);
+    workoutReminderTimer.unref();
+    sendUnassignedWorkoutReminders().catch((err) => {
+      console.error("❌ Initial no-workout reminder check failed:", err.message);
     });
     app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
   })

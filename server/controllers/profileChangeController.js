@@ -306,7 +306,13 @@ const getAdminChangeRequests = async (_req, res) => {
   try {
     const result = await pool.query(
       `SELECT r.request_id, r.user_id, r.request_type, r.status, r.payload,
-              r.created_at, u.first_name, u.last_name, u.email
+              r.created_at, u.first_name, u.last_name, u.email, u.phone,
+              u.gender, u.birth_date, u.age, u.height, u.weight,
+              u.fitness_goal, u.activity_level, u.target_weight,
+              u.workout_days_per_week, u.workout_duration, u.preferred_days,
+              u.preferred_workout_time, u.intensity, u.injuries,
+              u.health_conditions,
+              (u.profile_image IS NOT NULL AND u.profile_image <> '') AS has_profile_image
        FROM user_profile_change_requests r
        JOIN users u ON u.user_id = r.user_id
        WHERE r.status = 'Pending'
@@ -314,11 +320,21 @@ const getAdminChangeRequests = async (_req, res) => {
     );
     res.json({
       success: true,
-      data: result.rows.map((request) => ({
-        ...request,
-        member_name: `${request.first_name || ""} ${request.last_name || ""}`.trim(),
-        payload: sanitizePayload(request.payload || {}),
-      })),
+      data: result.rows.map((request) => {
+        const payload = sanitizePayload(request.payload || {});
+        const currentValues = {};
+        for (const key of Object.keys(payload)) {
+          currentValues[key] = key === "profile_photo_changed"
+            ? Boolean(request.has_profile_image)
+            : request[key];
+        }
+        return {
+          ...request,
+          member_name: `${request.first_name || ""} ${request.last_name || ""}`.trim(),
+          payload,
+          current_values: currentValues,
+        };
+      }),
     });
   } catch (err) {
     console.error("getAdminChangeRequests error:", err.message);
