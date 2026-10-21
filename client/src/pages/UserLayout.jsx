@@ -37,7 +37,7 @@ export default function UserLayout({ children }) {
           ? {
               name: fullName || "Member",
               meta: user.email || "Member",
-              avatarUrl: user.photo_url || null,
+              avatarUrl: user.profile_image || null,
               initials: (user.first_name || "M").charAt(0).toUpperCase(),
             }
           : null

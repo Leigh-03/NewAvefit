@@ -87,32 +87,39 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
+// Network-level failures (DNS lookup, dropped Wi-Fi, laptop waking from sleep).
+// These are temporary: the job simply runs again on its next interval.
+const NETWORK_ERRORS = ["ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ETIMEDOUT", "ECONNRESET"];
+const lastNetworkWarning = {};
+
+const runJob = (label, fn) => async () => {
+  try {
+    await fn();
+    delete lastNetworkWarning[label];
+  } catch (err) {
+    if (NETWORK_ERRORS.includes(err.code)) {
+      // Warn once per outage instead of every minute.
+      if (!lastNetworkWarning[label]) {
+        console.warn(`\u26a0\ufe0f ${label} skipped: database unreachable (${err.code}). Will retry automatically.`);
+        lastNetworkWarning[label] = true;
+      }
+    } else {
+      console.error(`\u274c ${label} failed:`, err.message);
+    }
+  }
+};
+
+const membershipJob = runJob("Membership expiry check", expireMemberships);
+const bmiJob = runJob("Weekly BMI reminder check", sendWeeklyBmiReminders);
+const workoutJob = runJob("No-workout reminder check", sendUnassignedWorkoutReminders);
+
 initializeDatabase()
   .then(() => {
-    const membershipExpiryTimer = setInterval(() => {
-      expireMemberships().catch((err) => {
-        console.error("❌ Membership expiry check failed:", err.message);
-      });
-    }, 60 * 1000);
-    membershipExpiryTimer.unref();
-    const bmiReminderTimer = setInterval(() => {
-      sendWeeklyBmiReminders().catch((err) => {
-        console.error("❌ Weekly BMI reminder check failed:", err.message);
-      });
-    }, 60 * 60 * 1000);
-    bmiReminderTimer.unref();
-    sendWeeklyBmiReminders().catch((err) => {
-      console.error("❌ Initial weekly BMI reminder check failed:", err.message);
-    });
-    const workoutReminderTimer = setInterval(() => {
-      sendUnassignedWorkoutReminders().catch((err) => {
-        console.error("❌ No-workout reminder check failed:", err.message);
-      });
-    }, 60 * 60 * 1000);
-    workoutReminderTimer.unref();
-    sendUnassignedWorkoutReminders().catch((err) => {
-      console.error("❌ Initial no-workout reminder check failed:", err.message);
-    });
+    setInterval(membershipJob, 60 * 1000).unref();
+    setInterval(bmiJob, 60 * 60 * 1000).unref();
+    setInterval(workoutJob, 60 * 60 * 1000).unref();
+    bmiJob();
+    workoutJob();
     app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
   })
   .catch((err) => {
