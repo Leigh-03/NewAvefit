@@ -1,0 +1,83 @@
+# render.yaml -- put this file in the ROOT of your NewAvefit repo (next to client/, server/, Database/)
+#
+# Creates two services on Render and uses your EXISTING database:
+#   1. avefit-api  (Node/Express backend, from ./server)
+#   2. avefit-web  (React static site, from ./client)
+#
+# Variables marked "sync: false" are NOT stored in this file. Render asks you to
+# type them in on the first deploy, so your secrets never go on GitHub.
+
+services:
+  # ---------- Backend API ----------
+  - type: web
+    name: avefit-api
+    runtime: node
+    region: singapore
+    plan: starter            # $7/mo, always on. "free" sleeps after 15 min and pauses your reminder timers.
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: JWT_SECRET
+        generateValue: true  # Render creates a strong random secret for you.
+      # Your existing database (same values as DB_* in your server/.env):
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      # Accounts and email:
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      # Public address of the React site, e.g. https://avefit-web.onrender.com
+      # (no trailing slash). Use the SAME value for both.
+      - key: CLIENT_URL
+        sync: false
+      - key: CLIENT_ORIGINS
+        sync: false
+
+  # ---------- Frontend (React / Vite) ----------
+  - type: web
+    name: avefit-web
+    runtime: static
+    rootDir: client
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Public address of the API, e.g. https://avefit-api.onrender.com
+      # (no trailing slash and NO /api at the end).
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
+    routes:
+      # Makes refreshes on pages like /user/profile work instead of showing a 404.
+      - type: rewrite
+        source: /*
+        destination: /index.html
