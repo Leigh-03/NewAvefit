@@ -211,7 +211,7 @@ const sendUnassignedWorkoutReminders = async () => {
   }
 
   await pool.query(
-    `DELETE FROM user_workout_reminder_emails
+    `DELETE FROM trainer_workout_reminder_emails
      WHERE sent_at IS NULL AND created_at < NOW() - INTERVAL '1 hour'`
   );
 
@@ -219,13 +219,21 @@ const sendUnassignedWorkoutReminders = async () => {
     WITH schedule AS (
       SELECT (NOW() AT TIME ZONE 'Asia/Manila')::date + 1 AS workout_date
     )
-    SELECT u.user_id, u.trainer_id, u.email, u.first_name, schedule.workout_date
+    SELECT
+      u.user_id,
+      u.trainer_id,
+      u.first_name,
+      u.last_name,
+      t.email AS trainer_email,
+      t.full_name AS trainer_name,
+      schedule.workout_date
     FROM users u
+    JOIN trainers t ON t.trainer_id = u.trainer_id
     CROSS JOIN schedule
     WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
       AND u.setup_completed = TRUE
       AND u.trainer_id IS NOT NULL
-      AND NULLIF(BTRIM(u.email), '') IS NOT NULL
+      AND NULLIF(BTRIM(t.email), '') IS NOT NULL
       AND COALESCE(cardinality(u.preferred_days), 0) > 0
       AND LOWER(TO_CHAR(schedule.workout_date, 'FMDay')) = ANY (
         SELECT LOWER(BTRIM(day_name))
@@ -243,18 +251,19 @@ const sendUnassignedWorkoutReminders = async () => {
 
   for (const user of users.rows) {
     const reservation = await pool.query(
-      `INSERT INTO user_workout_reminder_emails (user_id, workout_date)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id, workout_date) DO NOTHING
+      `INSERT INTO trainer_workout_reminder_emails (user_id, trainer_id, workout_date)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, trainer_id, workout_date) DO NOTHING
        RETURNING user_id`,
-      [user.user_id, user.workout_date]
+      [user.user_id, user.trainer_id, user.workout_date]
     );
     if (!reservation.rowCount) continue;
 
     try {
       const result = await sendNoWorkoutReminderEmail({
-        to: user.email,
-        firstName: user.first_name,
+        to: user.trainer_email,
+        trainerName: user.trainer_name,
+        memberName: `${user.first_name || ""} ${user.last_name || ""}`.trim() || "A member",
         workoutDate: new Date(user.workout_date).toLocaleDateString("en-PH", {
           timeZone: "Asia/Manila",
           year: "numeric",
@@ -267,18 +276,18 @@ const sendUnassignedWorkoutReminders = async () => {
       }
 
       await pool.query(
-        `UPDATE user_workout_reminder_emails
+        `UPDATE trainer_workout_reminder_emails
          SET sent_at = NOW()
-         WHERE user_id = $1 AND workout_date = $2`,
-        [user.user_id, user.workout_date]
+         WHERE user_id = $1 AND trainer_id = $2 AND workout_date = $3`,
+        [user.user_id, user.trainer_id, user.workout_date]
       );
     } catch (err) {
       await pool.query(
-        `DELETE FROM user_workout_reminder_emails
-         WHERE user_id = $1 AND workout_date = $2 AND sent_at IS NULL`,
-        [user.user_id, user.workout_date]
+        `DELETE FROM trainer_workout_reminder_emails
+         WHERE user_id = $1 AND trainer_id = $2 AND workout_date = $3 AND sent_at IS NULL`,
+        [user.user_id, user.trainer_id, user.workout_date]
       );
-      console.error(`No-workout reminder failed for user ${user.user_id}:`, err.message);
+      console.error(`No-workout reminder email failed for coach ${user.trainer_id} about user ${user.user_id}:`, err.message);
       continue;
     }
 

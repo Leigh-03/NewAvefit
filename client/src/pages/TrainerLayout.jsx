@@ -44,7 +44,7 @@ export default function TrainerLayout({ children }) {
         trainer
           ? {
               name: trainer.full_name || "Coach",
-              meta: trainer.specializations?.[0] || trainer.email || "Coach",
+              meta: trainer.email || "Coach",
               avatarUrl: trainer.photo_url || null,
               initials: (trainer.full_name || "C").charAt(0).toUpperCase(),
             }

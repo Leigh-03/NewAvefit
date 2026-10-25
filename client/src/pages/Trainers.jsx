@@ -20,9 +20,6 @@ const SPECIALIZATION_OPTIONS = [
   "Group Fitness",
 ];
 
-const TRAINER_EMAIL_DOMAIN = "@avefit.com";
-const emailLocalPart = (value) => String(value || "").replace(/\s/g, "").split("@")[0];
-
 const normalizeSpecializations = (trainer) => Array.isArray(trainer?.specializations) ? trainer.specializations.filter(Boolean) : [];
 
 const statusColors = {
@@ -52,14 +49,10 @@ function TrainerModal({ trainer, onClose, onSave }) {
   // value (e.g. Pending/Rejected) selectable so editing never silently changes it.
   const statusOptions = [...new Set([...(form.status ? [form.status] : []), ...TRAINER_STATUS_OPTIONS])];
 
-  // The exact address the coach will type on the login screen. Surfaced in the
-  // form so an edit can never change the login email without the admin seeing it.
-  const loginUsername = emailLocalPart(form.email);
-  const loginEmail = loginUsername ? `${loginUsername}${TRAINER_EMAIL_DOMAIN}` : "";
   const storedEmailMismatch =
     Boolean(trainer?.email) &&
-    Boolean(loginEmail) &&
-    String(trainer.email).trim().toLowerCase() !== loginEmail.toLowerCase();
+    Boolean(form.email) &&
+    String(trainer.email).trim().toLowerCase() !== String(form.email).trim().toLowerCase();
 
   const handlePhotoChange = async (e) => {
     const file = e.target.files?.[0];
@@ -92,17 +85,13 @@ function TrainerModal({ trainer, onClose, onSave }) {
       return;
     }
 
-    const username = emailLocalPart(form.email);
-    if (!username) {
-      setError(`Enter the email username before ${TRAINER_EMAIL_DOMAIN}.`);
+    const email = String(form.email || "").trim();
+    if (!email) {
+      setError("Enter a valid email address for the coach.");
       return;
     }
-    if (username.length < 3 || username.length > 64) {
-      setError(`Email username must be 3 to 64 characters (currently ${username.length}).`);
-      return;
-    }
-    if (!/^[A-Za-z0-9](?:[A-Za-z0-9._%+-]*[A-Za-z0-9])?$/.test(username)) {
-      setError("Email username may only use letters, numbers, and . _ % + - and must start and end with a letter or number.");
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) {
+      setError("Enter a valid email address, such as name@example.com.");
       return;
     }
 
@@ -168,7 +157,7 @@ function TrainerModal({ trainer, onClose, onSave }) {
     setSaving(true);
     setError("");
     try {
-      const payload = { ...form, email: `${username}${TRAINER_EMAIL_DOMAIN}`, specializations: selectedSpecializations, photo_url: photo, ...(password ? { password } : {}) };
+      const payload = { ...form, email, specializations: selectedSpecializations, photo_url: photo, ...(password ? { password } : {}) };
       delete payload.specialization;
       if (trainer) {
         await api.put(`/trainers/${trainer.trainer_id}`, { ...payload, status: form.status || trainer.status });
@@ -237,31 +226,22 @@ function TrainerModal({ trainer, onClose, onSave }) {
 
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">Email *</label>
-            <div className="flex items-stretch overflow-hidden rounded-lg border border-slate-300 focus-within:ring-2 focus-within:ring-orange-500">
-              <input
-                type="text"
-                autoComplete="off"
-                required
-                spellCheck={false}
-                maxLength={64}
-                placeholder="username"
-                value={emailLocalPart(form.email)}
-                onChange={(e) => {
-                  const username = e.target.value.replace(/[^A-Za-z0-9._%+-]/g, "").slice(0, 64);
-                  setForm({ ...form, email: username ? `${username}${TRAINER_EMAIL_DOMAIN}` : "" });
-                }}
-                className="min-w-0 flex-1 px-4 py-2.5 text-sm focus:outline-none"
-              />
-              <span className="flex select-none items-center border-l border-slate-300 bg-slate-100 px-3 text-sm font-semibold text-slate-500">
-                {TRAINER_EMAIL_DOMAIN}
-              </span>
-            </div>
+            <input
+              type="email"
+              autoComplete="email"
+              required
+              spellCheck={false}
+              placeholder="coach@email.com"
+              value={form.email || ""}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
             <p className="text-xs text-slate-400 mt-1">
-              Coach signs in with <strong className="text-slate-600">{loginEmail || `username${TRAINER_EMAIL_DOMAIN}`}</strong>. The domain cannot be changed.
+              Use the coach's full email address. Any valid email domain is accepted.
             </p>
             {storedEmailMismatch && (
               <p className="text-xs text-amber-600 mt-1">
-                Current login email is <strong>{trainer.email}</strong>. Saving changes it to <strong>{loginEmail}</strong> &mdash; tell the coach to use the new address.
+                Current login email is <strong>{trainer.email}</strong>. Saving changes it to <strong>{form.email}</strong> &mdash; tell the coach to use the new address.
               </p>
             )}
           </div>

@@ -66,7 +66,7 @@ export default function TrainerLogin() {
           type="email"
           name="trainer_email"
           autoComplete="off"
-          placeholder="coach@avefit.com"
+          placeholder="coach@example.com"
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
         />
@@ -93,7 +93,7 @@ export default function TrainerLogin() {
           type="submit"
           loading={loading}
           loadingText="Signing in…"
-          className="mt-2"
+          className="mx-auto mt-2 !flex !h-12 !w-full !max-w-[400px] !px-4 !py-0"
         >
           Sign in
         </PrimaryButton>

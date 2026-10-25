@@ -270,7 +270,7 @@ async function sendCoachAssignmentEmail({ to, trainerName, memberName, memberEma
   const text = [
     `Hi ${trainerName || "Coach"},`,
     "",
-    `${memberName || "A new member"} selected you as their coach.`,
+    `${memberName || "A new member"} has been assigned to you as their coach.`,
     `Member email: ${memberEmail || "Not provided"}`,
     `Preferred workout days: ${preferredDays?.length ? preferredDays.join(", ") : "Not specified"}`,
     `Preferred workout time: ${preferredWorkoutTime || "Flexible"}`,
@@ -287,7 +287,7 @@ async function sendCoachAssignmentEmail({ to, trainerName, memberName, memberEma
       <tr><td style="background:${BRAND_COLOR};padding:22px 28px;"><span style="font-size:20px;font-weight:800;color:#ffffff;">AveFit</span><span style="display:block;font-size:12px;color:#ffedd5;margin-top:2px;">Avenue Power &amp; Fitness Gym</span></td></tr>
       <tr><td style="padding:28px;">
         <p style="margin:0 0 16px;font-size:16px;">Hi ${safeTrainerName},</p>
-        <p style="margin:0 0 16px;font-size:15px;line-height:1.6;"><strong>${safeMemberName}</strong> selected you as their coach. Please review their preferences and assign a workout plan.</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.6;"><strong>${safeMemberName}</strong> has been assigned to you as their coach. Please review their preferences and assign a workout plan.</p>
         <p style="margin:0 0 6px;font-size:14px;"><strong>Member:</strong> ${safeMemberName}${safeMemberEmail ? ` (${safeMemberEmail})` : ""}</p>
         <p style="margin:0 0 6px;font-size:14px;"><strong>Preferred days:</strong> ${safePreferredDays}</p>
         <p style="margin:0 0 20px;font-size:14px;"><strong>Preferred time:</strong> ${safePreferredTime}</p>
@@ -297,19 +297,19 @@ async function sendCoachAssignmentEmail({ to, trainerName, memberName, memberEma
   </body>
 </html>`;
 
-  return sendMail({ to, subject: "A new member chose you as their AveFit coach", text, html });
+  return sendMail({ to, subject: "A new member has been assigned to you as their AveFit coach", text, html });
 }
 
-async function sendNoWorkoutReminderEmail({ to, firstName, workoutDate }) {
-  const safeName = escapeHtml(firstName || "there");
-  const safeWorkoutDate = escapeHtml(workoutDate || "tomorrow");
-  const workoutUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/workout`;
+async function sendUserCoachAssignedEmail({ to, firstName, trainerName }) {
+  const safeFirstName = escapeHtml(firstName || "there");
+  const safeTrainerName = escapeHtml(trainerName || "your new coach");
+  const coachesUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/coaches`;
   const text = [
     `Hi ${firstName || "there"},`,
     "",
-    `Your coach has not added a workout for your preferred workout day (${workoutDate || "tomorrow"}) yet.`,
-    "Your coach has been notified. You can check your workout page for updates.",
-    `View your workouts: ${workoutUrl}`,
+    `${trainerName || "A new coach"} has been assigned to you.`,
+    "You can view your coach's profile in AveFit.",
+    `View your coach: ${coachesUrl}`,
     "",
     "Avenue Power & Fitness Gym",
   ].join("\n");
@@ -319,15 +319,46 @@ async function sendNoWorkoutReminderEmail({ to, firstName, workoutDate }) {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
       <tr><td style="background:${BRAND_COLOR};padding:22px 28px;"><span style="font-size:20px;font-weight:800;color:#ffffff;">AveFit</span><span style="display:block;font-size:12px;color:#ffedd5;margin-top:2px;">Avenue Power &amp; Fitness Gym</span></td></tr>
       <tr><td style="padding:28px;">
-        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
-        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;">Your coach has not added a workout for your preferred workout day (${safeWorkoutDate}) yet. Your coach has been notified. Check your workout page for updates.</p>
-        <a href="${workoutUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">View my workouts</a>
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;"><strong>${safeTrainerName}</strong> has been assigned as your coach. You can view your coach's profile in AveFit.</p>
+        <a href="${coachesUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">View my coach</a>
       </td></tr>
     </table>
   </body>
 </html>`;
 
-  return sendMail({ to, subject: "No workout has been scheduled for tomorrow yet", text, html });
+  return sendMail({ to, subject: "Your AveFit coach has been assigned", text, html });
+}
+
+async function sendNoWorkoutReminderEmail({ to, trainerName, memberName, workoutDate }) {
+  const safeTrainerName = escapeHtml(trainerName || "Coach");
+  const safeMemberName = escapeHtml(memberName || "A member");
+  const safeWorkoutDate = escapeHtml(workoutDate || "tomorrow");
+  const workoutPlansUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/trainer/workout-plans`;
+  const text = [
+    `Hi ${trainerName || "Coach"},`,
+    "",
+    `${memberName || "A member"} does not have a workout scheduled for their preferred workout day (${workoutDate || "tomorrow"}).`,
+    "Please review their schedule and assign a workout plan.",
+    `Open workout plans: ${workoutPlansUrl}`,
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;"><span style="font-size:20px;font-weight:800;color:#ffffff;">AveFit</span><span style="display:block;font-size:12px;color:#ffedd5;margin-top:2px;">Avenue Power &amp; Fitness Gym</span></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeTrainerName},</p>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;"><strong>${safeMemberName}</strong> does not have a workout scheduled for their preferred workout day (${safeWorkoutDate}). Please review their schedule and assign a workout plan.</p>
+        <a href="${workoutPlansUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Open workout plans</a>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({ to, subject: "A member needs a workout plan", text, html });
 }
 
 async function sendWeeklyBmiReminderEmail({ to, firstName }) {
@@ -611,6 +642,7 @@ module.exports = {
   sendVerificationEmail,
   sendWorkoutPlanReadyEmail,
   sendCoachAssignmentEmail,
+  sendUserCoachAssignedEmail,
   sendNoWorkoutReminderEmail,
   sendWeeklyBmiReminderEmail,
   sendPasswordChangeVerificationEmail,

@@ -51,7 +51,7 @@ export default function TrainerLogin() {
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                placeholder="coach@avefit.com"
+                placeholder="coach@example.com"
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>

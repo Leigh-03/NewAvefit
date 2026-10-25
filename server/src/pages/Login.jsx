@@ -43,7 +43,7 @@ export default function Login() {
               <label className="block text-sm font-medium text-slate-300 mb-1">Email Address</label>
               <input
                 type="email"
-                placeholder="admin@avefit.com"
+                placeholder="admin@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleLogin()}

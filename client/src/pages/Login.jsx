@@ -66,7 +66,7 @@ export default function Login() {
           type="email"
           name="email"
           autoComplete="username"
-          placeholder="admin@avefit.com"
+          placeholder="admin@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
@@ -87,7 +87,7 @@ export default function Login() {
           type="submit"
           loading={loading}
           loadingText="Signing in…"
-          className="mt-2"
+          className="mx-auto mt-2 !flex !h-12 !w-full !max-w-[400px] !px-4 !py-0"
         >
           Sign in
         </PrimaryButton>

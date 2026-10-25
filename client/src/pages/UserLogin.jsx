@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { MailCheck } from "lucide-react";
 import { GoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
@@ -77,6 +77,8 @@ export default function UserLogin() {
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const [resendNotice, setResendNotice] = useState("");
   const [resending, setResending] = useState(false);
+  const googleButtonContainerRef = useRef(null);
+  const [googleButtonWidth, setGoogleButtonWidth] = useState(0);
 
   const [loginForm, setLoginForm] = useState({
     email: localStorage.getItem(USER_REMEMBERED_EMAIL_KEY) || "",
@@ -91,6 +93,23 @@ export default function UserLogin() {
     agreed: false,
   });
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+  useEffect(() => {
+    const container = googleButtonContainerRef.current;
+    if (!container) return undefined;
+
+    const updateWidth = () => {
+      const availableWidth = Math.floor(container.getBoundingClientRect().width);
+      if (availableWidth > 0) {
+        setGoogleButtonWidth(availableWidth);
+      }
+    };
+
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   const goToDestination = (user) => {
     const returnLocation = location.state?.from;
@@ -242,7 +261,7 @@ export default function UserLogin() {
   };
 
   const googleButtonClasses =
-    "flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-orange-500 bg-orange-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:border-orange-600 hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-60";
+    "flex min-h-12 w-full min-w-0 items-center justify-center gap-2 rounded-xl border border-orange-500 bg-orange-500 px-3 py-3 text-center text-sm font-semibold leading-tight text-white shadow-sm transition hover:border-orange-600 hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-60 sm:gap-3 sm:px-4";
 
   const GoogleBrandIcon = () => (
     <svg aria-hidden="true" viewBox="0 0 48 48" className="h-6 w-6 shrink-0">
@@ -260,24 +279,18 @@ export default function UserLogin() {
         <span>or</span>
         <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
       </div>
-      <div className="w-full">
+      <div
+        ref={googleButtonContainerRef}
+        className="mx-auto w-full min-w-0 max-w-[400px]"
+      >
         {googleClientId ? (
           <GoogleOAuthProvider clientId={googleClientId}>
-            <div className="w-full">
+            <div className="w-full min-w-0">
               <GoogleLogin
                 onSuccess={handleGoogleSuccess}
                 onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
-                render={({ onClick, disabled }) => (
-                  <button
-                    type="button"
-                    onClick={onClick}
-                    disabled={disabled || loading}
-                    className={`${googleButtonClasses} ${loading ? "cursor-not-allowed opacity-80" : ""}`}
-                  >
-                    <GoogleBrandIcon />
-                    <span>Continue with Google</span>
-                  </button>
-                )}
+                width={String(googleButtonWidth)}
+                containerProps={{ className: "w-full", style: { width: "100%" } }}
               />
             </div>
           </GoogleOAuthProvider>
@@ -288,7 +301,7 @@ export default function UserLogin() {
             className={googleButtonClasses}
           >
             <GoogleBrandIcon />
-            <span>Continue with Google</span>
+            <span className="min-w-0">Continue with Google</span>
           </button>
         )}
       </div>
@@ -431,7 +444,7 @@ export default function UserLogin() {
 
           {error && <Alert tone="error">{error}</Alert>}
 
-          <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mt-2 !h-12 !w-full !px-4 !py-0">
+          <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mx-auto mt-2 !flex !h-12 !w-full !max-w-[400px] !px-4 !py-0">
             Log in
           </PrimaryButton>
 
@@ -542,7 +555,7 @@ export default function UserLogin() {
 
           {error && <Alert tone="error">{error}</Alert>}
 
-          <PrimaryButton type="submit" loading={loading} loadingText="Creating account…" className="mt-2">
+          <PrimaryButton type="submit" loading={loading} loadingText="Creating account…" className="mx-auto mt-2 !flex !h-12 !w-full !max-w-[400px] !px-4 !py-0">
             Create account
           </PrimaryButton>
         </form>
