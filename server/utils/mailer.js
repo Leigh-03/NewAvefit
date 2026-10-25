@@ -25,20 +25,12 @@ function smtpConfig() {
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
-
-    // Force IPv4 because some hosted environments
-    // may have unreliable IPv6 connectivity.
     family: 4,
-
-    // Force DNS lookup to IPv4 addresses only.
     lookup: (hostname, options, callback) => {
       dns.lookup(hostname, { family: 4 }, callback);
     },
-
-    // Implicit TLS for port 465.
     secure:
       String(process.env.SMTP_SECURE || "").toLowerCase() === "true",
-
     auth: {
       user,
       pass,
