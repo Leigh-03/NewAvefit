@@ -1,6 +1,10 @@
 const pool = require("../db");
 const { createNotification } = require("../utils/notifications");
 const { validateAge } = require("../utils/security");
+const {
+  sendCoachAssignmentEmail,
+  sendUserCoachAssignedEmail,
+} = require("../utils/mailer");
 
 // =====================================================
 // GET ALL MEMBERS FROM USERS TABLE
@@ -187,11 +191,13 @@ const getMemberById = async (req, res) => {
 // ADMIN ONLY
 // =====================================================
 const assignTrainer = async (req, res) => {
+  const client = await pool.connect();
+  let transactionStarted = false;
+
   try {
     const { id } = req.params;
     const { trainer_id } = req.body;
 
-    // Allow removing trainer
     const trainerIdValue =
       trainer_id === null ||
       trainer_id === "" ||
@@ -199,29 +205,49 @@ const assignTrainer = async (req, res) => {
         ? null
         : Number(trainer_id);
 
-    if (trainerIdValue !== null && Number.isNaN(trainerIdValue)) {
+    if (
+      trainerIdValue !== null &&
+      (!Number.isInteger(trainerIdValue) || trainerIdValue <= 0)
+    ) {
       return res.status(400).json({
         message: "Invalid trainer_id"
       });
     }
 
-    // Make sure member exists
-    const memberCheck = await pool.query(
-      `SELECT user_id FROM users WHERE user_id = $1`,
+    await client.query("BEGIN");
+    transactionStarted = true;
+
+    const memberCheck = await client.query(
+      `SELECT
+         u.user_id,
+         u.trainer_id,
+         u.first_name,
+         u.last_name,
+         u.email,
+         u.preferred_days,
+         u.preferred_workout_time
+       FROM users u
+       WHERE u.user_id = $1
+       FOR UPDATE`,
       [id]
     );
 
     if (memberCheck.rows.length === 0) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
       return res.status(404).json({
         message: "Member not found"
       });
     }
 
-    // If assigning a trainer, verify trainer exists and is active
+    const member = memberCheck.rows[0];
+    const previousTrainerId = member.trainer_id;
+    let nextTrainer = null;
+
     if (trainerIdValue !== null) {
-      const trainerCheck = await pool.query(
+      const trainerCheck = await client.query(
         `
-        SELECT trainer_id
+        SELECT trainer_id, full_name, email
         FROM trainers
         WHERE trainer_id = $1
           AND COALESCE(status, 'Active') = 'Active'
@@ -230,14 +256,16 @@ const assignTrainer = async (req, res) => {
       );
 
       if (trainerCheck.rows.length === 0) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
         return res.status(404).json({
           message: "Trainer not found or inactive"
         });
       }
+      nextTrainer = trainerCheck.rows[0];
     }
 
-    // Update users table
-    const result = await pool.query(
+    const result = await client.query(
       `
       UPDATE users
       SET
@@ -248,24 +276,132 @@ const assignTrainer = async (req, res) => {
         user_id,
         trainer_id
       `,
-      [trainerIdValue, id]
+      [trainerIdValue, member.user_id]
     );
+    await client.query("COMMIT");
+    transactionStarted = false;
 
-    res.json({
-      message:
-        trainerIdValue === null
-          ? "Trainer removed successfully"
-          : "Trainer assigned successfully",
-      member: result.rows[0]
+    const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || "A member";
+    const assignmentChanged = Number(previousTrainerId || 0) !== Number(trainerIdValue || 0);
+    let coachAssignmentEmailSent = null;
+    let userAssignmentEmailSent = null;
+    if (assignmentChanged) {
+      if (previousTrainerId) {
+        try {
+          await createNotification({
+            audience: "trainer",
+            recipientId: previousTrainerId,
+            message: trainerIdValue === null
+              ? `${memberName} is no longer assigned to you as their coach.`
+              : `${memberName} has been reassigned to another coach and is no longer on your roster.`,
+            notificationType: "workout",
+            userName: memberName,
+            targetUrl: "/trainer/roster",
+          });
+        } catch (error) {
+          console.error(`Previous coach notification failed for member ${member.user_id}:`, error.message);
+        }
+      }
+
+      if (nextTrainer) {
+        if (nextTrainer.email) {
+          try {
+            const delivery = await sendCoachAssignmentEmail({
+              to: nextTrainer.email,
+              trainerName: nextTrainer.full_name,
+              memberName,
+              memberEmail: member.email,
+              preferredDays: member.preferred_days,
+              preferredWorkoutTime: member.preferred_workout_time,
+            });
+            coachAssignmentEmailSent = delivery.delivered;
+            if (!delivery.delivered) {
+              console.error(`Coach assignment email for trainer ${nextTrainer.trainer_id} was not delivered.`);
+            }
+          } catch (error) {
+            coachAssignmentEmailSent = false;
+            console.error(`Coach assignment email for trainer ${nextTrainer.trainer_id} failed:`, error.message);
+          }
+        } else {
+          coachAssignmentEmailSent = false;
+          console.error(`Coach assignment email for trainer ${nextTrainer.trainer_id} was not sent because no email address is configured.`);
+        }
+
+        try {
+          await createNotification({
+            audience: "trainer",
+            recipientId: nextTrainer.trainer_id,
+            message: `${memberName} has been assigned to you as their coach.`,
+            notificationType: "workout",
+            userName: memberName,
+            targetUrl: "/trainer/roster",
+          });
+        } catch (error) {
+          console.error(`New coach notification failed for member ${member.user_id}:`, error.message);
+        }
+      }
+
+      if (nextTrainer && member.email) {
+        try {
+          const delivery = await sendUserCoachAssignedEmail({
+            to: member.email,
+            firstName: member.first_name,
+            trainerName: nextTrainer.full_name,
+          });
+          userAssignmentEmailSent = delivery.delivered;
+          if (!delivery.delivered) {
+            console.error(`Coach assignment email for user ${member.user_id} was not delivered.`);
+          }
+        } catch (error) {
+          userAssignmentEmailSent = false;
+          console.error(`Coach assignment email for user ${member.user_id} failed:`, error.message);
+        }
+      } else if (nextTrainer) {
+        userAssignmentEmailSent = false;
+        console.error(`Coach assignment email for user ${member.user_id} was not sent because no email address is configured.`);
+      }
+
+      try {
+        await createNotification({
+          audience: "user",
+          recipientId: member.user_id,
+          message: nextTrainer
+            ? `${nextTrainer.full_name || "A new coach"} has been assigned to you.`
+            : "Your coach assignment has been removed. Contact the gym if you need assistance.",
+          notificationType: "coach_assignment",
+          userName: memberName,
+          targetUrl: "/user/coaches",
+        });
+      } catch (error) {
+        console.error(`Member coach assignment notification failed for user ${member.user_id}:`, error.message);
+      }
+    }
+
+    return res.json({
+      message: trainerIdValue === null
+        ? "Trainer removed successfully"
+        : "Trainer assigned successfully",
+      member: result.rows[0],
+      ...(coachAssignmentEmailSent !== null
+        ? { coach_assignment_email_sent: coachAssignmentEmailSent }
+        : {}),
+      ...(userAssignmentEmailSent !== null
+        ? { user_assignment_email_sent: userAssignmentEmailSent }
+        : {}),
     });
 
   } catch (error) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK");
+    }
     console.error("❌ Error assigning trainer:", error);
 
     res.status(500).json({
       message: "Failed to assign trainer",
       error: error.message
     });
+  } finally {
+    client.release();
   }
 };
 

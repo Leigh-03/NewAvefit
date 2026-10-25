@@ -69,7 +69,9 @@ const getAnalytics = async (req, res) => {
       year: { granularity: "month", offset: "11 months", step: "1 month", labelFormat: "Mon YYYY" },
     };
     const requestedGrowthPeriod = req.query.period || "sixMonths";
-    const growthPeriod = growthPeriods[requestedGrowthPeriod];
+    const growthPeriod = Object.prototype.hasOwnProperty.call(growthPeriods, requestedGrowthPeriod)
+      ? growthPeriods[requestedGrowthPeriod]
+      : null;
 
     if (!growthPeriod) {
       return res.status(400).json({
@@ -110,8 +112,8 @@ const getAnalytics = async (req, res) => {
     const growthOverview = await pool.query(`
       WITH bounds AS (
         SELECT
-          DATE_TRUNC('${growthPeriod.granularity}', NOW() AT TIME ZONE 'Asia/Manila') - INTERVAL '${growthPeriod.offset}' AS start_at,
-          DATE_TRUNC('${growthPeriod.granularity}', NOW() AT TIME ZONE 'Asia/Manila') AS end_at
+          DATE_TRUNC($1, NOW() AT TIME ZONE 'Asia/Manila') - $2::interval AS start_at,
+          DATE_TRUNC($1, NOW() AT TIME ZONE 'Asia/Manila') AS end_at
       ),
       buckets AS (
         SELECT generated.bucket_start
@@ -119,37 +121,42 @@ const getAnalytics = async (req, res) => {
         CROSS JOIN LATERAL GENERATE_SERIES(
           bounds.start_at,
           bounds.end_at,
-          INTERVAL '${growthPeriod.step}'
+          $3::interval
         ) AS generated(bucket_start)
       ),
       new_members AS (
-        SELECT DATE_TRUNC('${growthPeriod.granularity}', ${createdAtManila}) AS bucket_start,
+        SELECT DATE_TRUNC($1, ${createdAtManila}) AS bucket_start,
           COUNT(*)::int AS count
         FROM users
         WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
           AND ${createdAtManila} >= (SELECT start_at FROM bounds)
-          AND ${createdAtManila} < (SELECT end_at FROM bounds) + INTERVAL '${growthPeriod.step}'
-        GROUP BY DATE_TRUNC('${growthPeriod.granularity}', ${createdAtManila})
+          AND ${createdAtManila} < (SELECT end_at FROM bounds) + $3::interval
+        GROUP BY DATE_TRUNC($1, ${createdAtManila})
       ),
       completed_workouts AS (
-        SELECT DATE_TRUNC('${growthPeriod.granularity}', ${completedAtManila}) AS bucket_start,
+        SELECT DATE_TRUNC($1, ${completedAtManila}) AS bucket_start,
           COUNT(*)::int AS count
         FROM workout_sessions
         WHERE completed = true
           AND completed_at IS NOT NULL
           AND ${completedAtManila} >= (SELECT start_at FROM bounds)
-          AND ${completedAtManila} < (SELECT end_at FROM bounds) + INTERVAL '${growthPeriod.step}'
-        GROUP BY DATE_TRUNC('${growthPeriod.granularity}', ${completedAtManila})
+          AND ${completedAtManila} < (SELECT end_at FROM bounds) + $3::interval
+        GROUP BY DATE_TRUNC($1, ${completedAtManila})
       )
       SELECT
-        TO_CHAR(buckets.bucket_start, '${growthPeriod.labelFormat}') AS label,
+        TO_CHAR(buckets.bucket_start, $4) AS label,
         COALESCE(new_members.count, 0)::int AS new_members,
         COALESCE(completed_workouts.count, 0)::int AS workout_sessions
       FROM buckets
       LEFT JOIN new_members USING (bucket_start)
       LEFT JOIN completed_workouts USING (bucket_start)
       ORDER BY buckets.bucket_start
-    `);
+    `, [
+      growthPeriod.granularity,
+      growthPeriod.offset,
+      growthPeriod.step,
+      growthPeriod.labelFormat,
+    ]);
 
     // Fitness goal distribution
     const goalDistribution = await pool.query(`

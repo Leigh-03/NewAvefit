@@ -13,9 +13,6 @@ const {
   normalizeEmail,
 } = require("../utils/security");
 
-const TRAINER_EMAIL_DOMAIN = "@avefit.com";
-const isTrainerEmail = (email) => normalizeEmail(email).endsWith(TRAINER_EMAIL_DOMAIN);
-
 const GOAL_SPECIALTIES = [
   "Weight Loss",
   "Muscle Gain",
@@ -220,13 +217,6 @@ const createTrainer = async (req, res) => {
       });
     }
 
-    if (!isTrainerEmail(email)) {
-      return res.status(400).json({
-        success: false,
-        message: `Trainer email must use the ${TRAINER_EMAIL_DOMAIN} domain.`,
-      });
-    }
-
     if (typeof phone !== "string" || !/^09\d{9}$/.test(phone)) {
       return res.status(400).json({
         success: false,
@@ -392,13 +382,6 @@ const updateTrainer = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Please provide a valid trainer email.",
-      });
-    }
-
-    if (!isTrainerEmail(email)) {
-      return res.status(400).json({
-        success: false,
-        message: `Trainer email must use the ${TRAINER_EMAIL_DOMAIN} domain.`,
       });
     }
 

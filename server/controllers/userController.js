@@ -20,6 +20,7 @@ const {
   sendVerificationEmail,
   sendPasswordChangeVerificationEmail,
   sendCoachAssignmentEmail,
+  sendUserCoachAssignedEmail,
 } = require("../utils/mailer");
 const { notifyNewUser, createNotification } = require("../utils/notifications");
 const {
@@ -1606,6 +1607,7 @@ const updateProfile = async (req, res) => {
       Number.isInteger(Number(trainer_id)) &&
       Number(trainer_id) > 0;
     let coachAssignmentEmailSent = null;
+    let userCoachAssignmentEmailSent = null;
 
     await pool.query(
       `
@@ -1700,16 +1702,42 @@ const updateProfile = async (req, res) => {
           console.error(`Coach assignment email for trainer ${coach.trainer_id} failed:`, err.message);
         }
         try {
+          const delivery = await sendUserCoachAssignedEmail({
+            to: nextEmail || current.rows[0].email,
+            firstName: first_name || current.rows[0].first_name,
+            trainerName: coach.full_name,
+          });
+          userCoachAssignmentEmailSent = delivery.delivered;
+          if (!delivery.delivered) {
+            console.error(`Coach assignment email for user ${req.user.user_id} was not delivered.`);
+          }
+        } catch (err) {
+          userCoachAssignmentEmailSent = false;
+          console.error(`Coach assignment email for user ${req.user.user_id} failed:`, err.message);
+        }
+        try {
           await createNotification({
             audience: "trainer",
             recipientId: coach.trainer_id,
-            message: `${memberName || "A new member"} selected you as their coach. Assign their workout plan.`,
+            message: `${memberName || "A new member"} has been assigned to you as their coach. Assign their workout plan.`,
             notificationType: "workout",
             userName: memberName || "New member",
             targetUrl: "/trainer/workout-plans",
           });
         } catch (err) {
           console.error(`Coach assignment notification for trainer ${coach.trainer_id} failed:`, err.message);
+        }
+        try {
+          await createNotification({
+            audience: "user",
+            recipientId: req.user.user_id,
+            message: `${coach.full_name || "Your new coach"} has been assigned to you.`,
+            notificationType: "coach_assignment",
+            userName: memberName || "Member",
+            targetUrl: "/user/coaches",
+          });
+        } catch (err) {
+          console.error(`Coach assignment notification for user ${req.user.user_id} failed:`, err.message);
         }
       } else {
         coachAssignmentEmailSent = false;
@@ -1868,6 +1896,9 @@ const updateProfile = async (req, res) => {
         : {}),
       ...(coachAssignmentEmailSent !== null
         ? { coach_assignment_email_sent: coachAssignmentEmailSent }
+        : {}),
+      ...(userCoachAssignmentEmailSent !== null
+        ? { user_coach_assignment_email_sent: userCoachAssignmentEmailSent }
         : {}),
     });
   } catch (err) {
