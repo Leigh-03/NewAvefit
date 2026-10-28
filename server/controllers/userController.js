@@ -764,6 +764,21 @@ const googleLogin = async (req, res) => {
     });
   }
 
+  let googlePicture = null;
+  if (typeof googleProfile.picture === "string") {
+    try {
+      const pictureUrl = new URL(googleProfile.picture);
+      if (
+        pictureUrl.protocol === "https:"
+        && /(^|\.)googleusercontent\.com$/i.test(pictureUrl.hostname)
+      ) {
+        googlePicture = pictureUrl.href;
+      }
+    } catch {
+      // Google profile photos are optional; ignore malformed photo claims.
+    }
+  }
+
   const email = normalizeEmail(googleProfile.email);
 
   try {
@@ -845,10 +860,10 @@ const googleLogin = async (req, res) => {
       const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
       const result = await pool.query(
         `INSERT INTO users (
-           first_name, last_name, email, password, phone, google_sub,
+           first_name, last_name, email, password, phone, google_sub, profile_image,
            account_status, email_verified, email_verified_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, 'Pending', TRUE, NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'Pending', TRUE, NOW())
          RETURNING user_id, first_name, last_name, email, phone, google_sub,
                    account_status, email_verified, trainer_id, fitness_goal,
                    height, weight, gender, activity_level, setup_completed,
@@ -860,6 +875,7 @@ const googleLogin = async (req, res) => {
           passwordHash,
           normalizedPhone,
           googleProfile.sub,
+          googlePicture,
         ]
       );
       user = result.rows[0];
@@ -876,13 +892,14 @@ const googleLogin = async (req, res) => {
         `UPDATE users
          SET google_sub = $1,
              email_verified = TRUE,
-             email_verified_at = COALESCE(email_verified_at, NOW())
-         WHERE user_id = $2
+             email_verified_at = COALESCE(email_verified_at, NOW()),
+             profile_image = COALESCE(NULLIF(profile_image, ''), $2)
+         WHERE user_id = $3
          RETURNING user_id, first_name, last_name, email, phone, google_sub,
                    account_status, email_verified, trainer_id, fitness_goal,
                    height, weight, gender, activity_level, setup_completed,
                    profile_image, token_version`,
-        [googleProfile.sub, user.user_id]
+        [googleProfile.sub, googlePicture, user.user_id]
       );
       user = result.rows[0];
     }
