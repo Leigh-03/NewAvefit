@@ -281,7 +281,7 @@ export default function UserLogin() {
       </div>
       <div
         ref={googleButtonContainerRef}
-        className="mx-auto w-full min-w-0 max-w-[400px]"
+        className="mx-auto w-full min-w-0 max-w-[400px] overflow-x-hidden"
       >
         {googleClientId ? (
           <GoogleOAuthProvider clientId={googleClientId}>
