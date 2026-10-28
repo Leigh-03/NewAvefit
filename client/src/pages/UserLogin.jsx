@@ -78,7 +78,7 @@ export default function UserLogin() {
   const [resendNotice, setResendNotice] = useState("");
   const [resending, setResending] = useState(false);
   const googleButtonContainerRef = useRef(null);
-  const [googleButtonWidth, setGoogleButtonWidth] = useState(0);
+  const [googleButtonWidth, setGoogleButtonWidth] = useState(null);
 
   const [loginForm, setLoginForm] = useState({
     email: localStorage.getItem(USER_REMEMBERED_EMAIL_KEY) || "",
@@ -101,7 +101,9 @@ export default function UserLogin() {
     const updateWidth = () => {
       const availableWidth = Math.floor(container.getBoundingClientRect().width);
       if (availableWidth > 0) {
-        setGoogleButtonWidth(availableWidth);
+        setGoogleButtonWidth((currentWidth) => (
+          currentWidth === availableWidth ? currentWidth : availableWidth
+        ));
       }
     };
 
@@ -162,14 +164,6 @@ export default function UserLogin() {
   const handleGoogleSuccess = async ({ credential }) => {
     if (!credential) {
       setError("Google sign-in did not return an identity token. Please try again.");
-      return;
-    }
-    if (mode === "signup" && !signupForm.agreed) {
-      setError("Please agree to the Terms and Conditions before creating your account.");
-      return;
-    }
-    if (mode === "signup" && signupForm.phone && !/^09\d{9}$/.test(signupForm.phone)) {
-      setError("Phone number must start with 09 and contain exactly 11 digits, or leave it blank.");
       return;
     }
     setLoading(true);
@@ -281,17 +275,20 @@ export default function UserLogin() {
       </div>
       <div
         ref={googleButtonContainerRef}
-        className="mx-auto w-full min-w-0 max-w-[400px] overflow-x-hidden"
+        className="mx-auto w-full min-w-0 max-w-[400px]"
       >
         {googleClientId ? (
           <GoogleOAuthProvider clientId={googleClientId}>
             <div className="w-full min-w-0">
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
-                width={String(googleButtonWidth)}
-                containerProps={{ className: "w-full", style: { width: "100%" } }}
-              />
+              {googleButtonWidth && (
+                <GoogleLogin
+                  key={googleButtonWidth}
+                  onSuccess={handleGoogleSuccess}
+                  onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
+                  width={googleButtonWidth}
+                  containerProps={{ className: "w-full", style: { width: "100%" } }}
+                />
+              )}
             </div>
           </GoogleOAuthProvider>
         ) : (
