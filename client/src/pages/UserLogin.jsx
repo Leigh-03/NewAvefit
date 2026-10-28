@@ -164,14 +164,6 @@ export default function UserLogin() {
       setError("Google sign-in did not return an identity token. Please try again.");
       return;
     }
-    if (mode === "signup" && !signupForm.agreed) {
-      setError("Please agree to the Terms and Conditions before creating your account.");
-      return;
-    }
-    if (mode === "signup" && signupForm.phone && !/^09\d{9}$/.test(signupForm.phone)) {
-      setError("Phone number must start with 09 and contain exactly 11 digits, or leave it blank.");
-      return;
-    }
     setLoading(true);
     setError("");
     try {
@@ -281,7 +273,7 @@ export default function UserLogin() {
       </div>
       <div
         ref={googleButtonContainerRef}
-        className="mx-auto w-full min-w-0 max-w-[400px] overflow-x-hidden"
+        className="mx-auto w-full min-w-0 max-w-[400px]"
       >
         {googleClientId ? (
           <GoogleOAuthProvider clientId={googleClientId}>
