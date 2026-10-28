@@ -13,6 +13,7 @@ const TABS = [
   { id: "signup", label: "Sign up" },
 ];
 
+const GOOGLE_BUTTON_FRAME_INSET = 20;
 const SIGNUP_NAME_PATTERN = /^[A-Za-zÀ-ÿ' -]+$/;
 const COMMON_PASSWORDS = new Set([
   "password", "password1", "password123", "12345678", "123456789",
@@ -256,6 +257,9 @@ export default function UserLogin() {
 
   const googleButtonClasses =
     "flex min-h-12 w-full min-w-0 items-center justify-center gap-2 rounded-xl border border-orange-500 bg-orange-500 px-3 py-3 text-center text-sm font-semibold leading-tight text-white shadow-sm transition hover:border-orange-600 hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-60 sm:gap-3 sm:px-4";
+  const renderedGoogleButtonWidth = googleButtonWidth
+    ? Math.max(200, googleButtonWidth - GOOGLE_BUTTON_FRAME_INSET)
+    : null;
 
   const GoogleBrandIcon = () => (
     <svg aria-hidden="true" viewBox="0 0 48 48" className="h-6 w-6 shrink-0">
@@ -280,12 +284,12 @@ export default function UserLogin() {
         {googleClientId ? (
           <GoogleOAuthProvider clientId={googleClientId}>
             <div className="w-full min-w-0">
-              {googleButtonWidth && (
+              {renderedGoogleButtonWidth && (
                 <GoogleLogin
-                  key={googleButtonWidth}
+                  key={renderedGoogleButtonWidth}
                   onSuccess={handleGoogleSuccess}
                   onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
-                  width={googleButtonWidth}
+                  width={renderedGoogleButtonWidth}
                   containerProps={{ className: "w-full", style: { width: "100%" } }}
                 />
               )}
