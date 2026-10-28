@@ -78,7 +78,7 @@ export default function UserLogin() {
   const [resendNotice, setResendNotice] = useState("");
   const [resending, setResending] = useState(false);
   const googleButtonContainerRef = useRef(null);
-  const [googleButtonWidth, setGoogleButtonWidth] = useState(0);
+  const [googleButtonWidth, setGoogleButtonWidth] = useState(null);
 
   const [loginForm, setLoginForm] = useState({
     email: localStorage.getItem(USER_REMEMBERED_EMAIL_KEY) || "",
@@ -101,7 +101,9 @@ export default function UserLogin() {
     const updateWidth = () => {
       const availableWidth = Math.floor(container.getBoundingClientRect().width);
       if (availableWidth > 0) {
-        setGoogleButtonWidth(availableWidth);
+        setGoogleButtonWidth((currentWidth) => (
+          currentWidth === availableWidth ? currentWidth : availableWidth
+        ));
       }
     };
 
@@ -278,12 +280,15 @@ export default function UserLogin() {
         {googleClientId ? (
           <GoogleOAuthProvider clientId={googleClientId}>
             <div className="w-full min-w-0">
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
-                width={String(googleButtonWidth)}
-                containerProps={{ className: "w-full", style: { width: "100%" } }}
-              />
+              {googleButtonWidth && (
+                <GoogleLogin
+                  key={googleButtonWidth}
+                  onSuccess={handleGoogleSuccess}
+                  onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
+                  width={googleButtonWidth}
+                  containerProps={{ className: "w-full", style: { width: "100%" } }}
+                />
+              )}
             </div>
           </GoogleOAuthProvider>
         ) : (
