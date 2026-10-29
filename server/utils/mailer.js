@@ -529,6 +529,43 @@ async function sendMemberFeedbackEmail({ to, memberName, memberEmail, rating, me
   });
 }
 
+async function sendNewUserRegistrationEmail({ to, memberName, memberEmail, phone }) {
+  const safeName = escapeHtml(memberName || "AveFit member");
+  const safeEmail = escapeHtml(memberEmail);
+  const safePhone = escapeHtml(phone || "Not provided");
+  const text = [
+    "A new user registered for AveFit and is awaiting review.",
+    "",
+    `Name: ${memberName || "AveFit member"}`,
+    `Email: ${memberEmail}`,
+    `Phone: ${phone || "Not provided"}`,
+    "",
+    "Sign in to AveFit and open Members to review the registration.",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">New AveFit registration</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">A new user registered and is awaiting review.</p>
+        <p style="margin:0 0 8px;font-size:14px;"><strong>Name:</strong> ${safeName}</p>
+        <p style="margin:0 0 8px;font-size:14px;"><strong>Email:</strong> ${safeEmail}</p>
+        <p style="margin:0 0 20px;font-size:14px;"><strong>Phone:</strong> ${safePhone}</p>
+        <p style="margin:0;font-size:13px;line-height:1.6;color:#64748b;">Sign in to AveFit and open Members to review the registration.</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({
+    to,
+    subject: "A new user registered for AveFit",
+    text,
+    html,
+  });
+}
+
 function formatProfileChanges(changes = {}) {
   return Object.entries(changes)
     .map(([key]) => {
@@ -640,6 +677,7 @@ module.exports = {
   sendPasswordChangeVerificationEmail,
   sendAdminPasswordResetEmail,
   sendMemberFeedbackEmail,
+  sendNewUserRegistrationEmail,
   sendProfileChangeRequestEmail,
   sendProfileChangeDecisionEmail,
 };
