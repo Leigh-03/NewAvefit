@@ -224,7 +224,7 @@ export default function Settings() {
           type="button"
           onClick={handleRequestPasswordReset}
           disabled={passwordRequest.loading || !profile.email}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-slate-700 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-500 dark:text-white dark:hover:bg-orange-600"
         >
           <Lock size={16} />
           {passwordRequest.loading ? "Sending reset link…" : "Email password reset link"}
