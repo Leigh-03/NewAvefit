@@ -11,7 +11,8 @@ const {
   validateName,
   validatePhone,
   validateAge,
-  validateImageDataUrl,
+  validateProfileImage,
+  validateGoogleProfileImageUrl,
   normalizeEmail,
   publicUser,
 } = require("../utils/security");
@@ -763,24 +764,8 @@ const googleLogin = async (req, res) => {
   }
 
   let googlePicture = null;
-  if (typeof googleProfile.picture === "string") {
-    try {
-      const pictureUrl = new URL(googleProfile.picture);
-      const pictureHost = pictureUrl.hostname.toLowerCase();
-      if (
-        pictureUrl.protocol === "https:"
-        && (
-          pictureHost === "googleusercontent.com"
-          || pictureHost.endsWith(".googleusercontent.com")
-          || pictureHost === "google.com"
-          || pictureHost.endsWith(".google.com")
-        )
-      ) {
-        googlePicture = pictureUrl.href;
-      }
-    } catch {
-      // Google profile photos are optional; ignore malformed photo claims.
-    }
+  if (validateGoogleProfileImageUrl(googleProfile.picture)) {
+    googlePicture = new URL(googleProfile.picture).href;
   }
 
   const email = normalizeEmail(googleProfile.email);
@@ -1232,7 +1217,7 @@ const updatePhoto = async (req, res) => {
       });
     }
 
-    const imageCheck = validateImageDataUrl(profile_image);
+    const imageCheck = validateProfileImage(profile_image);
 
     if (!imageCheck.ok) {
       return res.status(400).json({
@@ -1446,7 +1431,7 @@ const updateProfile = async (req, res) => {
       profile_image !== ""
     ) {
       const imageCheck =
-        validateImageDataUrl(profile_image);
+        validateProfileImage(profile_image);
 
       if (!imageCheck.ok) {
         return res.status(400).json({
