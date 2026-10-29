@@ -81,6 +81,34 @@ function validateImageDataUrl(dataUrl) {
   return { ok: true, mime, size: buffer.length };
 }
 
+function validateGoogleProfileImageUrl(imageUrl) {
+  if (typeof imageUrl !== 'string' || imageUrl.length > 2048) return false;
+
+  try {
+    const url = new URL(imageUrl);
+    const hostname = url.hostname.toLowerCase();
+    const isGoogleImageHost = [
+      "googleusercontent.com",
+      "google.com",
+    ].some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+
+    return url.protocol === "https:"
+      && !url.username
+      && !url.password
+      && !url.port
+      && isGoogleImageHost;
+  } catch {
+    return false;
+  }
+}
+
+function validateProfileImage(image) {
+  if (validateGoogleProfileImageUrl(image)) {
+    return { ok: true, mime: "image/remote" };
+  }
+  return validateImageDataUrl(image);
+}
+
 function publicUser(row) {
   if (!row) return null;
   const {
@@ -95,5 +123,6 @@ function publicUser(row) {
 
 module.exports = {
   normalizeEmail, validateEmail, validatePassword, validateName, validatePhone,
-  validateAge, validateRegistration, validateImageDataUrl, publicUser,
+  validateAge, validateRegistration, validateImageDataUrl,
+  validateGoogleProfileImageUrl, validateProfileImage, publicUser,
 };
