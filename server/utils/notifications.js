@@ -4,7 +4,9 @@ const {
   isMailConfigured,
   sendWeeklyBmiReminderEmail,
   sendNoWorkoutReminderEmail,
+  sendNewUserRegistrationEmail,
 } = require("./mailer");
+const { getConfiguredAdminEmail } = require("./adminAccess");
 
 let pushConfigurationChecked = false;
 let pushConfigurationError = null;
@@ -114,13 +116,40 @@ const notifyAdmins = async ({ message, notificationType, userName, targetUrl = "
   })));
 };
 
-const notifyNewUser = (user) => {
+const notifyNewUser = async (user) => {
   const name = `${user.first_name || ""} ${user.last_name || ""}`.trim() || "A new member";
-  return notifyAdmins({
+  const notificationPromise = notifyAdmins({
     message: `${name} created an AveFit profile and is awaiting review.`,
     notificationType: "general",
     userName: name,
+  }).catch((err) => {
+    console.error("New-user in-app admin notification failed:", err.message);
   });
+
+  const adminEmail = getConfiguredAdminEmail();
+  let emailPromise;
+  if (!adminEmail) {
+    console.error("New-user admin email was not sent because ADMIN_EMAIL is not configured.");
+  } else if (!isMailConfigured()) {
+    console.error("New-user admin email was not sent because SMTP is not configured.");
+  } else {
+    emailPromise = sendNewUserRegistrationEmail({
+      to: adminEmail,
+      memberName: name,
+      memberEmail: user.email,
+      phone: user.phone,
+    })
+      .then((result) => {
+        if (!result.delivered) {
+          console.error("New-user admin email was not delivered.");
+        }
+      })
+      .catch((err) => {
+        console.error("New-user admin email failed:", err.message);
+      });
+  }
+
+  await Promise.all([notificationPromise, emailPromise]);
 };
 
 const sendWeeklyBmiReminders = async () => {
