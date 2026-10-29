@@ -730,8 +730,6 @@ const googleLogin = async (req, res) => {
     credential,
     intent,
     phone,
-    first_name,
-    last_name,
     termsAccepted,
     rememberMe,
   } = req.body || {};
@@ -849,17 +847,20 @@ const googleLogin = async (req, res) => {
         });
       }
 
+      const googleNameParts = typeof googleProfile.name === "string"
+        ? googleProfile.name.trim().split(/\s+/).filter(Boolean)
+        : [];
       const firstName = validateName(googleProfile.given_name)
         ? googleProfile.given_name
-        : first_name;
+        : googleNameParts[0];
       const lastName = validateName(googleProfile.family_name)
         ? googleProfile.family_name
-        : last_name;
+        : googleNameParts.slice(1).join(" ");
       if (!validateName(firstName) || !validateName(lastName)) {
         return res.status(400).json({
           success: false,
           code: "NAME_REQUIRED",
-          message: "Enter a valid first and last name to create your AveFit account.",
+          message: "Google did not provide a complete first and last name. Update your name in Google and try again.",
         });
       }
 

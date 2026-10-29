@@ -68,6 +68,7 @@ export default function UserLogin() {
   const [searchParams] = useSearchParams();
   const { loginUser } = useUserAuth();
   const [mode, setMode] = useState(searchParams.get("mode") === "signup" ? "signup" : "login");
+  const [useEmailSignup, setUseEmailSignup] = useState(false);
   const [rememberMe, setRememberMe] = useState(
     () => localStorage.getItem(USER_REMEMBER_ME_KEY) === "true"
   );
@@ -173,8 +174,6 @@ export default function UserLogin() {
         credential,
         intent: mode,
         phone: signupForm.phone || null,
-        first_name: signupForm.first_name,
-        last_name: signupForm.last_name,
         termsAccepted: signupForm.agreed,
         rememberMe,
       });
@@ -245,14 +244,19 @@ export default function UserLogin() {
     }
   };
 
-  const switchTab = (next) => {
-    setMode(next);
-    navigate(next === "signup" ? "/user/login?mode=signup" : "/user/login", { replace: true });
-    setError("");
-    setPendingNotice(false);
-    setResendNotice("");
-    setResetNotice("");
-  };
+const switchTab = (next) => {
+  setMode(next);
+  setUseEmailSignup(false);
+
+  navigate(
+    next === "signup" ? "/user/login?mode=signup" : "/user/login",
+    { replace: true }
+  );
+
+  setError("");
+  setPendingNotice(false);
+  setResendNotice("");
+};
 
   const googleButtonClasses =
     "flex min-h-12 w-full min-w-0 items-center justify-center gap-2 rounded-xl border border-orange-500 bg-orange-500 px-3 py-3 text-center text-sm font-semibold leading-tight text-white shadow-sm transition hover:border-orange-600 hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-60 sm:gap-3 sm:px-4";
@@ -473,88 +477,131 @@ export default function UserLogin() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field
-              label="First name"
-              htmlFor="signup-first"
-              autoComplete="given-name"
-              placeholder="Juan"
-              maxLength={50}
-              value={signupForm.first_name}
-              onChange={(e) => setSignupForm({ ...signupForm, first_name: e.target.value })}
-            />
-            <Field
-              label="Last name"
-              htmlFor="signup-last"
-              autoComplete="family-name"
-              placeholder="dela Cruz"
-              maxLength={50}
-              value={signupForm.last_name}
-              onChange={(e) => setSignupForm({ ...signupForm, last_name: e.target.value })}
-            />
-          </div>
+          {useEmailSignup ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setUseEmailSignup(false);
+                  setError("");
+                }}
+                className="text-sm font-semibold text-orange-600 transition hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+              >
+                Use Google instead
+              </button>
 
-          <Field
-            label="Email address"
-            htmlFor="signup-email"
-            type="email"
-            autoComplete="email"
-            placeholder="your@email.com"
-            required
-            value={signupForm.email}
-            onChange={(e) => setSignupForm({ ...signupForm, email: e.target.value })}
-          />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field
+                  label="First name"
+                  htmlFor="signup-first"
+                  autoComplete="given-name"
+                  placeholder="Juan"
+                  maxLength={50}
+                  value={signupForm.first_name}
+                  onChange={(e) => setSignupForm({ ...signupForm, first_name: e.target.value })}
+                />
+                <Field
+                  label="Last name"
+                  htmlFor="signup-last"
+                  autoComplete="family-name"
+                  placeholder="dela Cruz"
+                  maxLength={50}
+                  value={signupForm.last_name}
+                  onChange={(e) => setSignupForm({ ...signupForm, last_name: e.target.value })}
+                />
+              </div>
 
-          <Field
-            label="Phone number"
-            htmlFor="signup-phone"
-            type="tel"
-            inputMode="numeric"
-            autoComplete="tel"
-            minLength={11}
-            maxLength={11}
-            pattern="09[0-9]{9}"
-            placeholder="XXXXXXXXX"
-            required
-            value={signupForm.phone}
-            onChange={(e) => {
-              const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
-              const phone = digits.startsWith("0")
-                ? digits.length > 1 && digits[1] !== "9" ? "0" : digits
-                : "";
-              setSignupForm({ ...signupForm, phone });
-            }}
-          />
-          <PasswordField
-            label="Password"
-            htmlFor="signup-password"
-            autoComplete="new-password"
-            placeholder="••••••••"
-            minLength={8}
-            maxLength={12}
-            required
-            value={signupForm.password}
-            onChange={(e) => setSignupForm({ ...signupForm, password: e.target.value })}
-          />
-          <p className="-mt-3 text-xs text-slate-500">8–12 characters with a letter, number, and symbol.</p>
+              <Field
+                label="Email address"
+                htmlFor="signup-email"
+                type="email"
+                autoComplete="email"
+                placeholder="your@email.com"
+                required
+                value={signupForm.email}
+                onChange={(e) => setSignupForm({ ...signupForm, email: e.target.value })}
+              />
 
-          <label className="flex cursor-pointer items-start gap-2.5 pt-1 text-sm text-slate-600 dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={signupForm.agreed}
-              onChange={(e) => setSignupForm({ ...signupForm, agreed: e.target.checked })}
-              className="mt-0.5"
-            />
-            I agree to the Terms and Conditions of AveFit
-          </label>
+              <Field
+                label="Phone number"
+                htmlFor="signup-phone"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
+                minLength={11}
+                maxLength={11}
+                pattern="09[0-9]{9}"
+                placeholder="XXXXXXXXX"
+                required
+                value={signupForm.phone}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                  const phone = digits.startsWith("0")
+                    ? digits.length > 1 && digits[1] !== "9" ? "0" : digits
+                    : "";
+                  setSignupForm({ ...signupForm, phone });
+                }}
+              />
+              <PasswordField
+                label="Password"
+                htmlFor="signup-password"
+                autoComplete="new-password"
+                placeholder="••••••••"
+                minLength={8}
+                maxLength={12}
+                required
+                value={signupForm.password}
+                onChange={(e) => setSignupForm({ ...signupForm, password: e.target.value })}
+              />
+              <p className="-mt-3 text-xs text-slate-500">8–12 characters with a letter, number, and symbol.</p>
 
-          {googleButton}
+              <label className="flex cursor-pointer items-start gap-2.5 pt-1 text-sm text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={signupForm.agreed}
+                  onChange={(e) => setSignupForm({ ...signupForm, agreed: e.target.checked })}
+                  className="mt-0.5"
+                />
+                I agree to the Terms and Conditions of AveFit
+              </label>
 
-          {error && <Alert tone="error">{error}</Alert>}
+              {error && <Alert tone="error">{error}</Alert>}
 
-          <PrimaryButton type="submit" loading={loading} loadingText="Creating account…" className="mx-auto mt-2 !flex !h-12 !w-full !max-w-[400px] !px-4 !py-0">
-            Create account
-          </PrimaryButton>
+              <PrimaryButton type="submit" loading={loading} loadingText="Creating account…" className="mx-auto mt-2 !flex !h-12 !w-full !max-w-[400px] !px-4 !py-0">
+                Create account
+              </PrimaryButton>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Sign up with Google to use the name and verified email on your Google account.
+              </p>
+              <label className="flex cursor-pointer items-start gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={signupForm.agreed}
+                  onChange={(e) => setSignupForm({ ...signupForm, agreed: e.target.checked })}
+                  className="mt-0.5"
+                />
+                I agree to the Terms and Conditions of AveFit
+              </label>
+              {googleButton}
+              {error && <Alert tone="error">{error}</Alert>}
+              <p className="text-center text-sm text-slate-500">
+                Prefer to sign up with email?{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseEmailSignup(true);
+                    setError("");
+                  }}
+                  className="font-semibold text-orange-600 transition hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+                >
+                  Use email and password
+                </button>
+              </p>
+            </>
+          )}
         </form>
       )}
     </AuthShell>
