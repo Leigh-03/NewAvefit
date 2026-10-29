@@ -768,9 +768,15 @@ const googleLogin = async (req, res) => {
   if (typeof googleProfile.picture === "string") {
     try {
       const pictureUrl = new URL(googleProfile.picture);
+      const pictureHost = pictureUrl.hostname.toLowerCase();
       if (
         pictureUrl.protocol === "https:"
-        && /(^|\.)googleusercontent\.com$/i.test(pictureUrl.hostname)
+        && (
+          pictureHost === "googleusercontent.com"
+          || pictureHost.endsWith(".googleusercontent.com")
+          || pictureHost === "google.com"
+          || pictureHost.endsWith(".google.com")
+        )
       ) {
         googlePicture = pictureUrl.href;
       }
@@ -893,7 +899,13 @@ const googleLogin = async (req, res) => {
          SET google_sub = $1,
              email_verified = TRUE,
              email_verified_at = COALESCE(email_verified_at, NOW()),
-             profile_image = COALESCE(NULLIF(profile_image, ''), $2)
+             profile_image = CASE
+               WHEN profile_image IS NULL
+                 OR BTRIM(profile_image) = ''
+                 OR profile_image ~* '^https://([^.]+\\.)*(googleusercontent\\.com|google\\.com)/'
+               THEN COALESCE($2, profile_image)
+               ELSE profile_image
+             END
          WHERE user_id = $3
          RETURNING user_id, first_name, last_name, email, phone, google_sub,
                    account_status, email_verified, trainer_id, fitness_goal,
