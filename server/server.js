@@ -28,7 +28,7 @@ app.disable("x-powered-by");
 // Keep CORS explicit instead of allowing every website to call the API.
 const allowedOrigins = (
   process.env.CLIENT_ORIGINS ||
-  "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5178,http://localhost:5177,https://avenuepowerfitness.com,https://www.avenuepowerfitness.com"
+  "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5178,http://localhost:5177,https://avenuepowerfitness.com,https://www.avenuepowerfitness.com,https://newavefit.pages.dev"
 )
   .split(",")
   .map((value) => value.trim())
