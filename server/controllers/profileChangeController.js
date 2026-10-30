@@ -8,6 +8,7 @@ const {
 const {
   sendProfileChangeRequestEmail,
   sendProfileChangeDecisionEmail,
+  sendAccountPasswordChangedEmail,
 } = require("../utils/mailer");
 const { getConfiguredAdminEmail } = require("../utils/adminAccess");
 const { createNotification, notifyAdmins } = require("../utils/notifications");
@@ -488,13 +489,19 @@ const reviewChangeRequest = async (req, res) => {
   let emailSent = true;
   for (const recipient of recipients) {
     try {
-      const delivery = await sendProfileChangeDecisionEmail({
-        to: recipient,
-        memberName,
-        requestType: request.request_type,
-        approved,
-        emailVerificationRequired: approved && emailChanged && recipient === request.payload.email,
-      });
+      const delivery = approved && request.request_type === "password"
+        ? await sendAccountPasswordChangedEmail({
+          to: recipient,
+          accountName: memberName,
+          accountType: "user",
+        })
+        : await sendProfileChangeDecisionEmail({
+          to: recipient,
+          memberName,
+          requestType: request.request_type,
+          approved,
+          emailVerificationRequired: approved && emailChanged && recipient === request.payload.email,
+        });
       emailSent = emailSent && delivery.delivered;
     } catch (err) {
       emailSent = false;

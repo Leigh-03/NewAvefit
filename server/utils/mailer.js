@@ -490,6 +490,47 @@ async function sendAdminPasswordResetEmail({ to, firstName, token, expiresInMinu
   });
 }
 
+async function sendAccountPasswordChangedEmail({ to, accountName, accountType }) {
+  const safeName = escapeHtml(accountName || "there");
+  const safeAccountType = accountType === "coach" ? "coach" : "member";
+  const text = [
+    `Hi ${accountName || "there"},`,
+    "",
+    `The password for your AveFit ${safeAccountType} account was changed by the gym administrator.`,
+    "For your security, the new password is not included in this email.",
+    "",
+    "If you did not expect this change, contact the gym administrator immediately.",
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr>
+        <td style="background:${BRAND_COLOR};padding:22px 28px;color:#ffffff;">
+          <strong style="font-size:20px;">AveFit account security</strong>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:28px;">
+          <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+          <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">The password for your AveFit ${safeAccountType} account was changed by the gym administrator. For your security, the new password is not included in this email.</p>
+          <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">If you did not expect this change, contact the gym administrator immediately.</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({
+    to,
+    subject: "Your AveFit account password was changed",
+    text,
+    html,
+  });
+}
+
 async function sendMemberFeedbackEmail({ to, memberName, memberEmail, rating, message }) {
   const safeName = escapeHtml(memberName);
   const safeEmail = escapeHtml(memberEmail);
@@ -676,6 +717,7 @@ module.exports = {
   sendWeeklyBmiReminderEmail,
   sendPasswordChangeVerificationEmail,
   sendAdminPasswordResetEmail,
+  sendAccountPasswordChangedEmail,
   sendMemberFeedbackEmail,
   sendNewUserRegistrationEmail,
   sendProfileChangeRequestEmail,

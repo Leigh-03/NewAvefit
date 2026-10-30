@@ -3,7 +3,10 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const loadExerciseCatalog = require("../utils/exerciseCatalog");
 const { createNotification } = require("../utils/notifications");
-const { sendWorkoutPlanReadyEmail } = require("../utils/mailer");
+const {
+  sendWorkoutPlanReadyEmail,
+  sendAccountPasswordChangedEmail,
+} = require("../utils/mailer");
 
 const {
   validateEmail,
@@ -456,7 +459,7 @@ const updateTrainer = async (req, res) => {
     if (password) {
       const hashed = await bcrypt.hash(password, 12);
 
-      await pool.query(
+      const updateResult = await pool.query(
         `
         UPDATE trainers
         SET
@@ -486,6 +489,20 @@ const updateTrainer = async (req, res) => {
           id,
         ]
       );
+      if (updateResult.rowCount > 0) {
+        try {
+          const delivery = await sendAccountPasswordChangedEmail({
+            to: normalizeEmail(email),
+            accountName: String(full_name).trim(),
+            accountType: "coach",
+          });
+          if (!delivery.delivered) {
+            console.error(`Coach password change email was not delivered to ${normalizeEmail(email)}.`);
+          }
+        } catch (mailError) {
+          console.error("Coach password change email failed:", mailError.message);
+        }
+      }
     } else {
       await pool.query(
         `
