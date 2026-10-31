@@ -7,8 +7,11 @@ const { getExperienceRange } = require("./userWorkoutAvailabilityController");
 const {
   sendWorkoutPlanReadyEmail,
   sendAccountPasswordChangedEmail,
+  sendCoachAccountStatusEmail,
+  sendCoachAccountUpdatedEmail,
   sendExperienceLevelChangedEmail,
 } = require("../utils/mailer");
+const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const { getCapacityStatus } = require("../utils/coachAssignment");
 
 const {
@@ -435,7 +438,6 @@ const updateTrainer = async (req, res) => {
   let passwordWasUpdated = false;
   try {
     const { id } = req.params;
-
     const {
       full_name,
       email,
@@ -447,6 +449,9 @@ const updateTrainer = async (req, res) => {
       goal_specialty,
       bio,
     } = req.body;
+    const normalizedName = String(full_name).trim();
+    const normalizedTrainerEmail = normalizeEmail(email);
+    const normalizedPhone = phone ? String(phone).trim() : null;
 
     if (!validateName(full_name)) {
       return res.status(400).json({
@@ -533,7 +538,9 @@ const updateTrainer = async (req, res) => {
     await client.query("BEGIN");
     transactionStarted = true;
     const lockedTrainer = await client.query(
-      "SELECT trainer_id FROM trainers WHERE trainer_id = $1 FOR UPDATE",
+      `SELECT trainer_id, full_name, email, phone, specializations, status,
+              photo_url, goal_specialty, bio
+       FROM trainers WHERE trainer_id = $1 FOR UPDATE`,
       [id]
     );
     if (!lockedTrainer.rowCount) {
@@ -541,7 +548,25 @@ const updateTrainer = async (req, res) => {
       transactionStarted = false;
       return res.status(404).json({ success: false, message: "Coach not found." });
     }
-    if (status !== "Active") {
+    const previousTrainer = lockedTrainer.rows[0];
+    const changedAccountFields = [];
+    if (previousTrainer.full_name !== normalizedName) changedAccountFields.push("Full name");
+    if (String(previousTrainer.email || "").toLowerCase() !== normalizedTrainerEmail.toLowerCase()) {
+      changedAccountFields.push("Email address");
+    }
+    if ((previousTrainer.phone || null) !== normalizedPhone) changedAccountFields.push("Phone number");
+    if (
+      JSON.stringify([...specializationToArray(previousTrainer.specializations)].sort()) !==
+      JSON.stringify([...cleanSpecializations].sort())
+    ) {
+      changedAccountFields.push("Specializations");
+    }
+    if (photo_url && previousTrainer.photo_url !== photo_url) changedAccountFields.push("Profile photo");
+    if (previousTrainer.goal_specialty !== goal_specialty) changedAccountFields.push("Recommended-for goal");
+    if ((previousTrainer.bio || "") !== bioText) changedAccountFields.push("Profile bio");
+    const statusChanged = previousTrainer.status !== status;
+    const emailChanged = String(previousTrainer.email || "").toLowerCase() !== normalizedTrainerEmail.toLowerCase();
+    if (status !== "Active" && status !== "Inactive") {
       const assigned = await client.query(
         "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
         [id]
@@ -551,7 +576,7 @@ const updateTrainer = async (req, res) => {
         transactionStarted = false;
         return res.status(409).json({
           success: false,
-          message: `This coach still has ${assigned.rows[0].count} assigned member(s). Reassign them before deactivating the coach.`,
+          message: `This coach still has ${assigned.rows[0].count} assigned member(s). Reassign them before setting the account to Pending or Rejected.`,
         });
       }
     }
@@ -577,9 +602,9 @@ const updateTrainer = async (req, res) => {
         WHERE trainer_id = $10
         `,
         [
-          String(full_name).trim(),
-          normalizeEmail(email),
-          phone ? String(phone).trim() : null,
+          normalizedName,
+          normalizedTrainerEmail,
+          normalizedPhone,
           cleanSpecializations,
           status,
           hashed,
@@ -608,9 +633,9 @@ const updateTrainer = async (req, res) => {
         WHERE trainer_id = $9
         `,
         [
-          String(full_name).trim(),
-          normalizeEmail(email),
-          phone ? String(phone).trim() : null,
+          normalizedName,
+          normalizedTrainerEmail,
+          normalizedPhone,
           cleanSpecializations,
           status,
           photo_url || null,
@@ -623,15 +648,48 @@ const updateTrainer = async (req, res) => {
 
     await client.query("COMMIT");
     transactionStarted = false;
+    if (statusChanged) {
+      await deliverCoachEmail({
+        trainer: { ...previousTrainer, email: normalizedTrainerEmail },
+        event: "account status",
+        send: (to) => sendCoachAccountStatusEmail({
+          to,
+          accountName: normalizedName,
+          status,
+        }),
+      });
+    }
+    if (changedAccountFields.length) {
+      await deliverCoachEmail({
+        trainer: { ...previousTrainer, email: normalizedTrainerEmail },
+        event: "account update",
+        send: (to) => sendCoachAccountUpdatedEmail({
+          to,
+          accountName: normalizedName,
+          changedFields: changedAccountFields,
+        }),
+      });
+      if (emailChanged) {
+        await deliverCoachEmail({
+          trainer: previousTrainer,
+          event: "email address change",
+          send: (to) => sendCoachAccountUpdatedEmail({
+            to,
+            accountName: previousTrainer.full_name,
+            changedFields: ["Email address"],
+          }),
+        });
+      }
+    }
     if (passwordWasUpdated) {
       try {
         const delivery = await sendAccountPasswordChangedEmail({
-          to: normalizeEmail(email),
-          accountName: String(full_name).trim(),
+          to: normalizedTrainerEmail,
+          accountName: normalizedName,
           accountType: "coach",
         });
         if (!delivery.delivered) {
-          console.error(`Coach password change email was not delivered to ${normalizeEmail(email)}.`);
+          console.error(`Coach password change email was not delivered to ${normalizedTrainerEmail}.`);
         }
       } catch (mailError) {
         console.error("Coach password change email failed:", mailError.message);
@@ -667,26 +725,48 @@ const updateTrainer = async (req, res) => {
 // =========================================================
 
 const approveTrainer = async (req, res) => {
+  const client = await pool.connect();
+  let transactionStarted = false;
   try {
     const { id } = req.params;
 
-    const result = await pool.query(
-      `
-      UPDATE trainers
-      SET
-        status = 'Active',
-        token_version = COALESCE(token_version, 0) + 1,
-        updated_at = NOW()
-      WHERE trainer_id = $1
-      RETURNING trainer_id, status
-      `,
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const coach = await client.query(
+      "SELECT trainer_id, full_name, email, status FROM trainers WHERE trainer_id = $1 FOR UPDATE",
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (!coach.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
       return res.status(404).json({
         success: false,
         message: "Trainer not found.",
+      });
+    }
+
+    const result = await client.query(
+      `UPDATE trainers
+       SET status = 'Active',
+           token_version = COALESCE(token_version, 0) + 1,
+           updated_at = NOW()
+       WHERE trainer_id = $1
+       RETURNING trainer_id, status`,
+      [id]
+    );
+    await client.query("COMMIT");
+    transactionStarted = false;
+
+    if (coach.rows[0].status !== "Active") {
+      await deliverCoachEmail({
+        trainer: coach.rows[0],
+        event: "account activation",
+        send: (to) => sendCoachAccountStatusEmail({
+          to,
+          accountName: coach.rows[0].full_name,
+          status: "Active",
+        }),
       });
     }
 
@@ -696,12 +776,15 @@ const approveTrainer = async (req, res) => {
       trainer: result.rows[0],
     });
   } catch (err) {
+    if (transactionStarted) await client.query("ROLLBACK");
     console.error("approveTrainer error:", err.message);
 
     res.status(500).json({
       success: false,
       message: err.message,
     });
+  } finally {
+    client.release();
   }
 };
 
@@ -718,7 +801,7 @@ const rejectTrainer = async (req, res) => {
     await client.query("BEGIN");
     transactionStarted = true;
     const coach = await client.query(
-      "SELECT trainer_id FROM trainers WHERE trainer_id = $1 FOR UPDATE",
+      "SELECT trainer_id, full_name, email, status FROM trainers WHERE trainer_id = $1 FOR UPDATE",
       [id]
     );
     if (!coach.rowCount) {
@@ -754,6 +837,18 @@ const rejectTrainer = async (req, res) => {
     await client.query("COMMIT");
     transactionStarted = false;
 
+    if (coach.rows[0].status !== "Rejected") {
+      await deliverCoachEmail({
+        trainer: coach.rows[0],
+        event: "account status",
+        send: (to) => sendCoachAccountStatusEmail({
+          to,
+          accountName: coach.rows[0].full_name,
+          status: "Rejected",
+        }),
+      });
+    }
+
     res.json({
       success: true,
       message: "Coach rejected.",
@@ -785,7 +880,7 @@ const deactivateTrainer = async (req, res) => {
     await client.query("BEGIN");
     transactionStarted = true;
     const coach = await client.query(
-      "SELECT trainer_id FROM trainers WHERE trainer_id = $1 FOR UPDATE",
+      "SELECT trainer_id, full_name, email, status FROM trainers WHERE trainer_id = $1 FOR UPDATE",
       [id]
     );
     if (!coach.rowCount) {
@@ -796,19 +891,6 @@ const deactivateTrainer = async (req, res) => {
         message: "Coach not found.",
       });
     }
-    const assigned = await client.query(
-      "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
-      [id]
-    );
-    if (assigned.rows[0].count > 0) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(409).json({
-        success: false,
-        message: `This coach still has ${assigned.rows[0].count} assigned member(s). Reassign them before deactivation.`,
-      });
-    }
-
     const result = await client.query(
       `UPDATE trainers
        SET status = 'Inactive',
@@ -820,6 +902,18 @@ const deactivateTrainer = async (req, res) => {
     );
     await client.query("COMMIT");
     transactionStarted = false;
+
+    if (coach.rows[0].status !== "Inactive") {
+      await deliverCoachEmail({
+        trainer: coach.rows[0],
+        event: "account deactivation",
+        send: (to) => sendCoachAccountStatusEmail({
+          to,
+          accountName: coach.rows[0].full_name,
+          status: "Inactive",
+        }),
+      });
+    }
 
     res.json({
       success: true,

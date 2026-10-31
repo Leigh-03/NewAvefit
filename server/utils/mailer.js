@@ -559,6 +559,84 @@ async function sendAccountPasswordChangedEmail({ to, accountName, accountType })
   });
 }
 
+async function sendCoachAccountStatusEmail({ to, accountName, status }) {
+  const safeName = escapeHtml(accountName || "there");
+  const normalizedStatus = String(status || "").toLowerCase();
+  const isActive = normalizedStatus === "active";
+  const statusLabel = isActive ? "activated" : normalizedStatus === "inactive" ? "deactivated" : normalizedStatus;
+  const body = isActive
+    ? "Your coach account has been activated. You can sign in to AveFit and receive new member assignments, subject to your capacity."
+    : `Your coach account has been ${statusLabel} by the gym administrator. Contact the gym if you believe this change was made in error.`;
+  const text = [`Hi ${accountName || "there"},`, "", body, "", "Avenue Power & Fitness Gym"].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit coach account update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;">${escapeHtml(body)}</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({ to, subject: `Your AveFit coach account was ${statusLabel}`, text, html });
+}
+
+async function sendCoachCapacityStatusEmail({ to, accountName, status, assignedMembers, maxMembers }) {
+  const safeName = escapeHtml(accountName || "there");
+  const assigned = Number(assignedMembers) || 0;
+  const capacity = Number(maxMembers) || 0;
+  const isFull = status === "Full";
+  const body = isFull
+    ? `Your roster has reached full capacity (${assigned}/${capacity} members). You will not receive additional member assignments unless your available capacity changes.`
+    : `Your roster is no longer full (${assigned}/${capacity} members). You may receive new member assignments if your schedule and availability match.`;
+  const text = [`Hi ${accountName || "there"},`, "", body, "", "Avenue Power & Fitness Gym"].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit coach capacity update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;">${escapeHtml(body)}</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({ to, subject: `Your AveFit roster is ${isFull ? "at full capacity" : "no longer full"}`, text, html });
+}
+
+async function sendCoachAccountUpdatedEmail({ to, accountName, changedFields }) {
+  const safeName = escapeHtml(accountName || "there");
+  const safeFields = changedFields.map(escapeHtml);
+  const text = [
+    `Hi ${accountName || "there"},`,
+    "",
+    "The gym administrator updated details on your AveFit coach account:",
+    ...changedFields.map((field) => `- ${field}`),
+    "",
+    "If you did not expect these changes, contact the gym administrator.",
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit coach account update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0 0 12px;font-size:14px;line-height:1.6;">The gym administrator updated these details on your AveFit coach account:</p>
+        <ul style="margin:0 0 16px;padding-left:22px;font-size:14px;line-height:1.8;">${safeFields.map((field) => `<li>${field}</li>`).join("")}</ul>
+        <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">If you did not expect these changes, contact the gym administrator.</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({ to, subject: "Your AveFit coach account details were updated", text, html });
+}
+
 async function sendExperienceLevelChangedEmail({ to, memberName, previousLevel, newLevel }) {
   const safeName = escapeHtml(memberName || "AveFit member");
   const safePreviousLevel = escapeHtml(previousLevel || "unspecified");
@@ -831,6 +909,9 @@ module.exports = {
   sendPasswordChangeVerificationEmail,
   sendAdminPasswordResetEmail,
   sendAccountPasswordChangedEmail,
+  sendCoachAccountStatusEmail,
+  sendCoachCapacityStatusEmail,
+  sendCoachAccountUpdatedEmail,
   sendExperienceLevelChangedEmail,
   sendMemberFeedbackEmail,
   sendNewUserRegistrationEmail,
