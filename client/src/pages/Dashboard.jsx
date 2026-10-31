@@ -65,7 +65,7 @@ export default function Dashboard() {
       <section aria-label="Quick links" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { to: "/admin/members", title: "Review members", description: `${stats?.pendingMembers ?? 0} pending approval`, icon: Users },
-          { to: "/admin/trainers", title: "Manage trainers", description: "Profiles and assignments", icon: UserCheck },
+          { to: "/admin/coach", title: "Manage coaches", description: "Profiles and assignments", icon: UserCheck },
           { to: "/admin/workouts", title: "Exercise library", description: "Maintain workout exercises", icon: Dumbbell },
           { to: "/admin/analytics", title: "View analytics", description: "Explore gym activity", icon: BarChart3 },
         ].map(({ to, title, description, icon: Icon }) => (

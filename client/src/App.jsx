@@ -111,6 +111,18 @@ function TrainerProtectedRoute({ children }) {
   return children;
 }
 
+function CoachRoute() {
+  const savedUser = JSON.parse(localStorage.getItem("avefit_user") || "null");
+  if (savedUser?.setup_completed) {
+    return (
+      <DashboardProtectedRoute>
+        <UserLayout><Coaches /></UserLayout>
+      </DashboardProtectedRoute>
+    );
+  }
+  return <UserProtectedRoute><CoachSelect /></UserProtectedRoute>;
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -131,7 +143,8 @@ export default function App() {
                 <Routes>
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/members" element={<Members />} />
-                  <Route path="/trainers" element={<Trainers />} />
+                  <Route path="/coach" element={<Trainers />} />
+                  <Route path="/trainers" element={<Navigate to="/admin/coach" replace />} />
                   <Route path="/workouts" element={<Workouts />} />
                   <Route path="/nutrition" element={<Nutrition />} />
                   <Route path="/analytics" element={<Analytics />} />
@@ -175,6 +188,7 @@ export default function App() {
         <Route path="/user/health" element={<UserProtectedRoute><HealthConditions /></UserProtectedRoute>} />
         <Route path="/user/availability" element={<UserProtectedRoute><Availability /></UserProtectedRoute>} />
         <Route path="/user/coach" element={<UserProtectedRoute><CoachSelect /></UserProtectedRoute>} />
+        <Route path="/coach" element={<CoachRoute />} />
         <Route path="/user/confirm" element={<UserProtectedRoute><SetupConfirmation /></UserProtectedRoute>} />
 
         {/* User Portal (with bottom nav layout) */}
@@ -187,7 +201,7 @@ export default function App() {
                   <Route path="/workout" element={<WorkoutPage />} />
                   <Route path="/progress" element={<ProgressPage />} />
                   <Route path="/exercises" element={<ExerciseLibrary />} />
-                  <Route path="/coaches" element={<Coaches />} />
+                  <Route path="/coaches" element={<Navigate to="/coach" replace />} />
                   <Route path="/about" element={<AboutUs />} />
                   <Route path="/profile" element={<ProfilePage />} />
                   <Route path="/notifications" element={<Notifications audience="user" />} />
