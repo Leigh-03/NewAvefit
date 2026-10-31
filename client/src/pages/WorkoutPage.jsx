@@ -7,6 +7,12 @@ import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, phili
 import { getWorkoutDayGroups } from "../utils/workoutSessions";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const WORKOUT_STATUS_STYLES = {
+  Active: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300",
+  Complete: "border-green-200 bg-green-50 text-green-700 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300",
+  Incomplete: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300",
+  Absent: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300",
+};
 
 const formatWorkoutDate = (date) =>
   formatPhilippinesDate(date, {
@@ -137,14 +143,26 @@ export default function WorkoutPage() {
     }
   };
 
+  const today = philippinesDateString();
   const daySessions = sessions.filter((session) => (
     philippinesDateKey(session.session_date) === activeDay ||
     (!/^\d{4}-\d{2}-\d{2}$/.test(philippinesDateKey(session.session_date)) && session.day_of_week === getWeekday(activeDay))
   ));
+  const dayCompletedCount = daySessions.filter((session) => session.completed).length;
+  const dayWorkoutStatus = daySessions.length === 0
+    ? ""
+    : activeDay > today
+      ? "Active"
+      : dayCompletedCount === daySessions.length
+        ? "Complete"
+        : activeDay < today && dayCompletedCount === 0
+          ? "Absent"
+          : dayCompletedCount > 0
+            ? "Incomplete"
+            : "Active";
   const workoutDayGroups = getWorkoutDayGroups(sessions);
   const completedWorkoutDays = workoutDayGroups.filter((group) => group.isComplete);
   const completedCount = completedWorkoutDays.length;
-  const today = philippinesDateString();
   const weekStartDate = philippinesMondayString();
   const completedThisWeek = completedWorkoutDays.filter(
     (group) => group.completionDate >= weekStartDate && group.completionDate <= today
@@ -293,11 +311,16 @@ export default function WorkoutPage() {
 
       {/* Workout List */}
       <div className="mx-auto max-w-5xl space-y-3 px-5 py-3 sm:px-8">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Training plan</p>
             <h2 className="mt-0.5 font-bold text-slate-900 dark:text-white">{activeDayLabel}&apos;s workouts</h2>
           </div>
+          {dayWorkoutStatus && (
+            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${WORKOUT_STATUS_STYLES[dayWorkoutStatus]}`}>
+              {dayWorkoutStatus}
+            </span>
+          )}
           {!daySessions.some((session) => /^\d{4}-\d{2}-\d{2}$/.test(philippinesDateKey(session.session_date))) && isWorkoutDay(activeDay) && daySessions.length > 0 && (
             <button onClick={handleReset} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-400 transition">
               <RotateCcw size={14} /> Reset
@@ -338,6 +361,9 @@ export default function WorkoutPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${WORKOUT_STATUS_STYLES[session.completed ? "Complete" : dayWorkoutStatus]}`}>
+                    {session.completed ? "Complete" : dayWorkoutStatus}
+                  </span>
                   {!session.completed && (
                     isSessionScheduledForDate(session, today) ? (
                     session.started_at ? (

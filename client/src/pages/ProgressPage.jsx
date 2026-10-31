@@ -4,10 +4,20 @@ import { Line } from "react-chartjs-2";
 import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CheckCircle2, Scale, Target, TrendingUp } from "lucide-react";
 import userApi from "../userApi";
 import { useUserAuth } from "../context/UserAuthContext";
-import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString, philippinesPeriodRange } from "../utils/philippinesDate";
+import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
 import { getWorkoutDayGroups } from "../utils/workoutSessions";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+
+const addDateDays = (dateKey, amount) => {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + amount));
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+};
 
 const weightInput = (val, prev = "") => {
   const cleaned = String(val || "").replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
@@ -24,7 +34,8 @@ export default function ProgressPage() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [analyticsPeriod, setAnalyticsPeriod] = useState("weekly");
+  const [analyticsFrom, setAnalyticsFrom] = useState(() => addDateDays(philippinesDateString(), -7));
+  const [analyticsTo, setAnalyticsTo] = useState(() => philippinesDateString());
 
   // Log form
   const [logForm, setLogForm] = useState({ weight: "", bmi: "" });
@@ -164,7 +175,8 @@ export default function ProgressPage() {
     ? Math.max(0, Math.min(100, (goalChange / Math.abs(firstWeight - targetWeight)) * 100))
     : null;
 
-  const analyticsRange = philippinesPeriodRange(analyticsPeriod);
+  const today = philippinesDateString();
+  const analyticsRange = { start: analyticsFrom, end: analyticsTo };
   const periodLogs = logs.filter((log) => {
     const date = philippinesDateKey(log.log_date);
     return date && date >= analyticsRange.start && date <= analyticsRange.end;
@@ -175,9 +187,17 @@ export default function ProgressPage() {
     : null;
   const workoutDayGroups = getWorkoutDayGroups(sessions);
   const completedWorkoutDays = workoutDayGroups.filter((group) => group.isComplete);
-  const periodCompletedWorkouts = completedWorkoutDays.filter((group) => (
-    group.completionDate >= analyticsRange.start && group.completionDate <= analyticsRange.end
-  )).length;
+  const periodScheduledWorkouts = sessions.filter((session) => {
+    const date = philippinesDateKey(session.session_date);
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+      date >= analyticsRange.start &&
+      date <= analyticsRange.end &&
+      date <= today;
+  });
+  const periodCompletedScheduledWorkouts = periodScheduledWorkouts.filter((session) => session.completed).length;
+  const periodWorkoutRate = periodScheduledWorkouts.length
+    ? Math.round((periodCompletedScheduledWorkouts / periodScheduledWorkouts.length) * 100)
+    : null;
 
   const chartData = {
     labels: periodLogs.map((l) => formatPhilippinesDate(l.log_date, { month: "short", day: "numeric" })),
@@ -207,7 +227,6 @@ export default function ProgressPage() {
     ],
   };
 
-  const today = philippinesDateString();
   const weekStartString = philippinesMondayString();
   const scheduledThisWeek = workoutDayGroups.filter((group) => (
     group.scheduledDate >= weekStartString && group.scheduledDate <= today
@@ -257,26 +276,36 @@ export default function ProgressPage() {
                     {" · Philippines time"}
                   </p>
                 </div>
-                <div role="group" aria-label="Filter progress period" className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-white/5">
-                  {[
-                    { id: "weekly", label: "Weekly" },
-                    { id: "monthly", label: "Monthly" },
-                    { id: "yearly", label: "Yearly" },
-                  ].map((period) => (
-                    <button
-                      key={period.id}
-                      type="button"
-                      aria-pressed={analyticsPeriod === period.id}
-                      onClick={() => setAnalyticsPeriod(period.id)}
-                      className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition ${
-                        analyticsPeriod === period.id
-                          ? "bg-orange-500 text-white shadow-sm"
-                          : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-                      }`}
-                    >
-                      {period.label}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-2 gap-2 sm:min-w-[360px]">
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500">
+                    From
+                    <input
+                      type="date"
+                      value={analyticsFrom}
+                      max={addDateDays(today, -1)}
+                      onChange={(event) => {
+                        const nextFrom = event.target.value;
+                        if (!nextFrom || nextFrom >= today) return;
+                        setAnalyticsFrom(nextFrom);
+                        if (analyticsTo <= nextFrom) setAnalyticsTo(today);
+                      }}
+                      className="min-h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500">
+                    To
+                    <input
+                      type="date"
+                      value={analyticsTo}
+                      min={addDateDays(analyticsFrom, 1)}
+                      max={today}
+                      onChange={(event) => {
+                        const nextTo = event.target.value;
+                        if (nextTo > analyticsFrom && nextTo <= today) setAnalyticsTo(nextTo);
+                      }}
+                      className="min-h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+                    />
+                  </label>
                 </div>
               </div>
 
@@ -292,8 +321,13 @@ export default function ProgressPage() {
                   <p className="text-[11px] leading-snug text-slate-500">Weight change</p>
                 </div>
                 <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
-                  <p className="text-lg font-bold text-slate-900 dark:text-white">{periodCompletedWorkouts}</p>
-                  <p className="text-[11px] leading-snug text-slate-500">Workout days completed</p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{periodWorkoutRate == null ? "—" : `${periodWorkoutRate}%`}</p>
+                  <p className="text-[11px] leading-snug text-slate-500">Workout completion</p>
+                  <p className="mt-1 text-[10px] leading-snug text-slate-500">
+                    {periodScheduledWorkouts.length
+                      ? `${periodCompletedScheduledWorkouts} of ${periodScheduledWorkouts.length} workouts completed`
+                      : "No scheduled workouts in this date range"}
+                  </p>
                 </div>
               </div>
 

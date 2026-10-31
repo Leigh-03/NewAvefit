@@ -37,7 +37,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
-    if (status === 401 || status === 403) sessionStorage.removeItem("avefit_token");
+    if (status === 401 || status === 403) {
+      sessionStorage.removeItem("avefit_token");
+      localStorage.removeItem("avefit_admin");
+      if (window.location.pathname !== "/login") {
+        window.location.replace("/login");
+      }
+    }
     return Promise.reject(error);
   }
 );
