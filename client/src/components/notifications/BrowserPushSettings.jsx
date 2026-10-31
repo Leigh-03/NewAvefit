@@ -31,6 +31,7 @@ export default function BrowserPushSettings({ audience }) {
         return;
       }
       try {
+        await getWebPushPublicKey();
         const registration = await navigator.serviceWorker.getRegistration("/");
         const subscription = await registration?.pushManager.getSubscription();
         if (!active) return;
@@ -42,8 +43,9 @@ export default function BrowserPushSettings({ audience }) {
         }
       } catch (err) {
         if (!active) return;
-        setError(err.response?.data?.message || err.message || "Unable to check browser notification settings.");
-        setState("error");
+        const message = err.response?.data?.message || err.message || "Unable to check browser notification settings.";
+        setError(message);
+        setState(err.response?.status === 503 ? "unavailable" : "error");
       }
     };
     syncSubscription();
@@ -58,12 +60,12 @@ export default function BrowserPushSettings({ audience }) {
         setState("unsupported");
         return;
       }
+      const { data } = await getWebPushPublicKey();
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
         setState(permission === "denied" ? "denied" : "disabled");
         return;
       }
-      const { data } = await getWebPushPublicKey();
       const registration = await navigator.serviceWorker.register("/sw.js");
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -73,7 +75,7 @@ export default function BrowserPushSettings({ audience }) {
       setState("enabled");
     } catch (err) {
       setError(err.response?.data?.message || err.message || "Unable to enable browser notifications.");
-      setState("error");
+      setState(err.response?.status === 503 ? "unavailable" : "error");
     } finally {
       setBusy(false);
     }
@@ -107,6 +109,7 @@ export default function BrowserPushSettings({ audience }) {
             {state === "enabled" ? "Enabled on this browser." :
               state === "denied" ? "Permission is blocked. Change it in your browser site settings." :
                 state === "unsupported" ? "This browser does not support push notifications." :
+                  state === "unavailable" ? "Browser push is not configured on the server. In-app notifications still work." :
                   state === "checking" ? "Checking this browser…" :
                     state === "error" ? "Browser push is unavailable until server setup is complete. In-app notifications still work." :
                       "Get alerts even when AveFit is not open."}

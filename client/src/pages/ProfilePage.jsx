@@ -5,6 +5,7 @@ import { useUserAuth } from "../context/UserAuthContext";
 import { PasswordField } from "../components/ui/Form";
 import userApi from "../userApi";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
+import WeeklyWorkoutAvailability from "../components/WeeklyWorkoutAvailability";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -48,7 +49,6 @@ export default function ProfilePage() {
           weight: d.weight || "",
           fitness_goal: d.fitness_goal || "",
           activity_level: d.activity_level || "",
-          preferred_workout_time: d.preferred_workout_time || "",
         };
         originalFormRef.current = profileForm;
         setForm(profileForm);
@@ -113,7 +113,9 @@ export default function ProfilePage() {
     setSaving(true);
     setMsg("");
     try {
-      const res = await userApi.put("/profile", form);
+      const profileChanges = { ...form };
+      delete profileChanges.activity_level;
+      const res = await userApi.put("/profile", profileChanges);
       if (res.data.request) {
         setChangeRequests((current) => [res.data.request, ...current]);
         if (originalFormRef.current) {
@@ -374,7 +376,7 @@ export default function ProfilePage() {
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Dumbbell size={19} /></span>
             <div>
               <h2 className="font-bold text-slate-900 dark:text-white">Fitness settings</h2>
-              <p className="text-xs text-slate-500">Adjust your goal and experience level.</p>
+              <p className="text-xs text-slate-500">Adjust your goal. Your coach manages your experience level.</p>
             </div>
           </div>
           <div>
@@ -387,36 +389,15 @@ export default function ProfilePage() {
               ))}
             </select>
           </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">Experience level</p>
-            <div className="flex gap-2">
-              {["Beginner", "Intermediate", "Advanced"].map((l) => (
-                <button key={l} type="button" aria-pressed={form.activity_level === l} onClick={() => handleChange("activity_level", l)}
-                  className={`flex-1 py-2 rounded-xl text-xs font-semibold border-2 transition ${
-                    form.activity_level === l
-                      ? "border-orange-500 bg-orange-500/20 text-orange-500"
-                      : "border-slate-200 text-slate-500"
-                  }`}>
-                  {l}
-                </button>
-              ))}
-            </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+            <p className="text-xs font-medium text-slate-500">Experience level</p>
+            <p className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-200">{form.activity_level || "Not set"}</p>
+            <p className="mt-1 text-xs text-slate-500">Your coach can update this level as your training progresses.</p>
           </div>
-          <div>
-            <label htmlFor="profile-preferred-workout-time" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Preferred workout time</label>
-            <select
-              id="profile-preferred-workout-time"
-              value={form.preferred_workout_time}
-              onChange={(e) => handleChange("preferred_workout_time", e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
-            >
-              <option value="">Not set</option>
-              <option value="Morning">Morning (6:00 AM – 12:00 PM)</option>
-              <option value="Afternoon">Afternoon (12:00 PM – 5:00 PM)</option>
-              <option value="Evening">Evening (5:00 PM – 10:00 PM)</option>
-              <option value="Flexible">Flexible (6:00 AM – 10:00 PM)</option>
-            </select>
-          </div>
+        </section>
+
+        <section className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
+          <WeeklyWorkoutAvailability experienceLevel={form.activity_level || undefined} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">

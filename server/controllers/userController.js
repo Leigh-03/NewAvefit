@@ -24,6 +24,7 @@ const {
   sendUserCoachAssignedEmail,
 } = require("../utils/mailer");
 const { notifyNewUser, createNotification } = require("../utils/notifications");
+const { getExperienceRange } = require("./userWorkoutAvailabilityController");
 const {
   buildProfileChangePayload,
   createProfileChangeRequest,
@@ -1465,34 +1466,34 @@ const updateProfile = async (req, res) => {
       }
 
       const memberAvailabilityResult = await pool.query(
-        "SELECT preferred_days, preferred_workout_time FROM users WHERE user_id = $1",
+        `SELECT u.activity_level, u.workout_days_per_week, u.workout_duration,
+                a.day_of_week, TO_CHAR(a.start_time, 'HH24:MI') AS start_time,
+                TO_CHAR(a.end_time, 'HH24:MI') AS end_time
+         FROM users u
+         LEFT JOIN user_workout_availability a ON a.user_id = u.user_id
+         WHERE u.user_id = $1
+         ORDER BY a.day_of_week`,
         [req.user.user_id]
       );
-      const memberAvailability = memberAvailabilityResult.rows[0] || {};
-      const selectedDays = preferred_days !== undefined
-        ? preferred_days
-        : memberAvailability.preferred_days;
-      const selectedTime = preferred_workout_time !== undefined
-        ? preferred_workout_time
-        : memberAvailability.preferred_workout_time;
-      const timeWindows = {
-        Morning: [360, 720],
-        Afternoon: [720, 1020],
-        Evening: [1020, 1320],
-        Flexible: [360, 1320],
-      };
-      const dayIndexes = {
-        sunday: 0,
-        monday: 1,
-        tuesday: 2,
-        wednesday: 3,
-        thursday: 4,
-        friday: 5,
-        saturday: 6,
-      };
-      const workoutDays = Array.isArray(selectedDays) ? selectedDays : [];
-      const preferredWindow = timeWindows[selectedTime];
-
+      const memberAvailability = memberAvailabilityResult.rows;
+      const savedPreferences = memberAvailability[0] || {};
+      const level = activity_level || savedPreferences.activity_level || "Beginner";
+      const [minimumDays, maximumDays] = getExperienceRange(level);
+      const frequency = Number(workout_days_per_week ?? savedPreferences.workout_days_per_week);
+      const durationMinutes = Number(workout_duration ?? savedPreferences.workout_duration);
+      const availableDays = memberAvailability.filter((slot) => slot.day_of_week);
+      if (!Number.isInteger(frequency) || frequency < minimumDays || frequency > maximumDays) {
+        return res.status(400).json({
+          success: false,
+          message: `${level} users should select ${minimumDays}–${maximumDays} workout days per week.`,
+        });
+      }
+      if (frequency > availableDays.length) {
+        return res.status(400).json({
+          success: false,
+          message: `You selected ${frequency} workout days per week, but you are only available on ${availableDays.length} days. Please update your availability or workout frequency.`,
+        });
+      }
       const coachAvailabilityResult = await pool.query(
         `SELECT day_of_week,
                 TO_CHAR(start_time, 'HH24:MI') AS start_time,
@@ -1506,23 +1507,21 @@ const updateProfile = async (req, res) => {
         const [hours, minutes] = value.split(":").map(Number);
         return hours * 60 + minutes;
       };
-      const matchesAvailability = preferredWindow &&
-        workoutDays.length > 0 &&
-        workoutDays.every((day) => {
-          const dayIndex = dayIndexes[String(day).toLowerCase()];
-          return coachAvailability.some((slot) => {
-            const start = timeToMinutes(slot.start_time);
-            const end = timeToMinutes(slot.end_time);
-            return Number(slot.day_of_week) === dayIndex &&
-              start < preferredWindow[1] &&
-              preferredWindow[0] < end;
-          });
-        });
+      const dayIndexes = Object.fromEntries(
+        ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+          .map((day, index) => [day, index])
+      );
+      const compatibleDays = availableDays.filter((memberSlot) => coachAvailability.some((coachSlot) => {
+        const start = Math.max(timeToMinutes(memberSlot.start_time), timeToMinutes(coachSlot.start_time));
+        const end = Math.min(timeToMinutes(memberSlot.end_time), timeToMinutes(coachSlot.end_time));
+        return Number(coachSlot.day_of_week) === dayIndexes[memberSlot.day_of_week] &&
+          end - start >= durationMinutes;
+      })).length;
 
-      if (!matchesAvailability) {
+      if (compatibleDays < frequency) {
         return res.status(400).json({
           success: false,
-          message: "The selected coach is not available on every preferred workout day during your preferred time. Choose another coach or update your availability.",
+          message: "The selected coach does not have enough overlapping availability for your requested workout frequency and session duration. Choose another coach or update your availability.",
         });
       }
     }
@@ -1698,6 +1697,17 @@ const updateProfile = async (req, res) => {
       if (coach) {
         const memberName = `${first_name || current.rows[0].first_name || ""} ${last_name || current.rows[0].last_name || ""}`.trim();
         try {
+          const weeklyAvailabilityResult = await pool.query(
+            `SELECT day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
+                    TO_CHAR(end_time, 'HH24:MI') AS end_time
+             FROM user_workout_availability
+             WHERE user_id = $1
+             ORDER BY ARRAY_POSITION(
+               ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+               day_of_week
+             )`,
+            [req.user.user_id]
+          );
           const delivery = await sendCoachAssignmentEmail({
             to: coach.email,
             trainerName: coach.full_name,
@@ -1707,6 +1717,7 @@ const updateProfile = async (req, res) => {
               ? preferred_days
               : current.rows[0].preferred_days,
             preferredWorkoutTime: preferred_workout_time || current.rows[0].preferred_workout_time,
+            weeklyAvailability: weeklyAvailabilityResult.rows,
           });
           coachAssignmentEmailSent = delivery.delivered;
           if (!delivery.delivered) {
