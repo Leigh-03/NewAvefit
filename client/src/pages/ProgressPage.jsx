@@ -31,10 +31,10 @@ const shiftMonth = (monthKey, amount) => {
 };
 
 function AnalyticsDatePicker({
-  field,
   from,
   to,
   today,
+  selectingEnd,
   month,
   onMonthChange,
   onSelect,
@@ -50,7 +50,6 @@ function AnalyticsDatePicker({
       `${month}-${String(index + 1).padStart(2, "0")}`
     )),
   ];
-  const selectedDate = field === "from" ? from : to;
   const monthLabel = new Intl.DateTimeFormat("en-US", {
     month: "long",
     year: "numeric",
@@ -58,9 +57,9 @@ function AnalyticsDatePicker({
   }).format(firstDay);
 
   const isDisabled = (date) => (
-    field === "from"
-      ? date >= today
-      : date <= from || date > today
+    selectingEnd
+      ? date <= from || date > today
+      : date >= today
   );
   const choosePreset = (preset) => {
     let start;
@@ -80,12 +79,12 @@ function AnalyticsDatePicker({
   return (
     <div
       role="dialog"
-      aria-label={field === "from" ? "Choose start date" : "Choose end date"}
+      aria-label="Choose analytics date range"
       className="absolute right-0 top-full z-30 mt-2 w-[min(21rem,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-white/10 dark:bg-[#151515]"
     >
       <div className="mb-4 flex items-center justify-between gap-3">
         <p className="text-sm font-bold text-slate-900 dark:text-white">
-          {field === "from" ? "Select start date" : "Select end date"}
+          {selectingEnd ? "Select end date" : "Select start date"}
         </p>
         <div className="flex items-center gap-1">
           <button
@@ -119,7 +118,7 @@ function AnalyticsDatePicker({
         {dates.map((date, index) => {
           if (!date) return <span key={`empty-${index}`} />;
           const disabled = isDisabled(date);
-          const isSelected = date === selectedDate;
+          const isSelected = date === from || date === to;
           const isInRange = date >= from && date <= to;
           return (
             <button
@@ -183,7 +182,8 @@ export default function ProgressPage() {
   const [loadError, setLoadError] = useState("");
   const [analyticsFrom, setAnalyticsFrom] = useState(() => addDateDays(philippinesDateString(), -7));
   const [analyticsTo, setAnalyticsTo] = useState(() => philippinesDateString());
-  const [openDateField, setOpenDateField] = useState("");
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [selectingEnd, setSelectingEnd] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => philippinesDateString().slice(0, 7));
   const datePickerRef = useRef(null);
 
@@ -222,12 +222,12 @@ export default function ProgressPage() {
   useEffect(() => { fetchProgress(); }, [fetchProgress]);
 
   useEffect(() => {
-    if (!openDateField) return undefined;
+    if (!datePickerOpen) return undefined;
     const handlePointerDown = (event) => {
-      if (!datePickerRef.current?.contains(event.target)) setOpenDateField("");
+      if (!datePickerRef.current?.contains(event.target)) setDatePickerOpen(false);
     };
     const handleKeyDown = (event) => {
-      if (event.key === "Escape") setOpenDateField("");
+      if (event.key === "Escape") setDatePickerOpen(false);
     };
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
@@ -235,7 +235,7 @@ export default function ProgressPage() {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [openDateField]);
+  }, [datePickerOpen]);
 
   // Auto-calc BMI when weight changes
   const handleWeightChange = (val) => {
@@ -444,49 +444,50 @@ export default function ProgressPage() {
                     {" · Philippines time"}
                   </p>
                 </div>
-                <div ref={datePickerRef} className="relative grid grid-cols-2 gap-2 sm:min-w-[360px]">
-                  {[
-                    ["from", "From", analyticsFrom],
-                    ["to", "To", analyticsTo],
-                  ].map(([field, label, date]) => (
-                    <div key={field}>
-                      <span className="mb-1 block text-[11px] font-semibold text-slate-500">{label}</span>
-                      <button
-                        type="button"
-                        aria-haspopup="dialog"
-                        aria-expanded={openDateField === field}
-                        onClick={() => {
-                          setCalendarMonth(date.slice(0, 7));
-                          setOpenDateField((current) => current === field ? "" : field);
-                        }}
-                        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-xs font-semibold text-slate-800 transition hover:border-orange-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
-                      >
-                        {formatDateInput(date)}
-                        <CalendarDays size={16} className="text-slate-400" />
-                      </button>
-                    </div>
-                  ))}
-                  {openDateField && (
+                <div ref={datePickerRef} className="relative sm:min-w-[360px]">
+                  <span className="mb-1 block text-[11px] font-semibold text-slate-500">Date range</span>
+                  <button
+                    type="button"
+                    aria-haspopup="dialog"
+                    aria-expanded={datePickerOpen}
+                    onClick={() => {
+                      setCalendarMonth(analyticsFrom.slice(0, 7));
+                      setSelectingEnd(false);
+                      setDatePickerOpen((current) => !current);
+                    }}
+                    className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 text-left text-xs font-semibold text-slate-800 transition hover:border-orange-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+                  >
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                      <span><span className="mr-2 text-slate-400">From</span>{formatDateInput(analyticsFrom)}</span>
+                      <span aria-hidden="true" className="text-slate-400">–</span>
+                      <span><span className="mr-2 text-slate-400">To</span>{formatDateInput(analyticsTo)}</span>
+                    </span>
+                    <CalendarDays size={16} className="shrink-0 text-slate-400" />
+                  </button>
+                  {datePickerOpen && (
                     <AnalyticsDatePicker
-                      field={openDateField}
                       from={analyticsFrom}
                       to={analyticsTo}
                       today={today}
+                      selectingEnd={selectingEnd}
                       month={calendarMonth}
                       onMonthChange={setCalendarMonth}
                       onSelect={(date) => {
-                        if (openDateField === "from") {
+                        if (!selectingEnd) {
                           setAnalyticsFrom(date);
                           if (analyticsTo <= date) setAnalyticsTo(today);
+                          setSelectingEnd(true);
                         } else {
                           setAnalyticsTo(date);
+                          setSelectingEnd(false);
+                          setDatePickerOpen(false);
                         }
-                        setOpenDateField("");
                       }}
                       onPreset={(start, end) => {
                         setAnalyticsFrom(start);
                         setAnalyticsTo(end);
-                        setOpenDateField("");
+                        setSelectingEnd(false);
+                        setDatePickerOpen(false);
                       }}
                     />
                   )}

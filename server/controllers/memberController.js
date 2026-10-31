@@ -3,10 +3,12 @@ const { createNotification } = require("../utils/notifications");
 const { validateAge } = require("../utils/security");
 const {
   sendCoachAssignmentEmail,
+  sendCoachCapacityStatusEmail,
   sendUserCoachAssignedEmail,
   sendMemberAccountDecisionEmail,
 } = require("../utils/mailer");
-const { getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
+const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
+const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 
 // =====================================================
 // GET ALL MEMBERS FROM USERS TABLE
@@ -259,38 +261,60 @@ const assignTrainer = async (req, res) => {
     member.weekly_availability = availabilityResult.rows;
     const previousTrainerId = member.trainer_id;
     let nextTrainer = null;
+    let previousTrainer = null;
+    let previousAssignedCount = 0;
+    let nextAssignedCount = 0;
+    const involvedTrainerIds = [...new Set([previousTrainerId, trainerIdValue]
+      .filter((trainerId) => trainerId !== null && trainerId !== undefined)
+      .map(Number))].sort((a, b) => a - b);
+    const trainersById = new Map();
+    if (involvedTrainerIds.length) {
+      const trainerRows = await client.query(
+        `SELECT trainer_id, full_name, email, status, max_members
+         FROM trainers
+         WHERE trainer_id = ANY($1::int[])
+         ORDER BY trainer_id
+         FOR UPDATE`,
+        [involvedTrainerIds]
+      );
+      for (const trainer of trainerRows.rows) trainersById.set(Number(trainer.trainer_id), trainer);
+    }
+
+    if (previousTrainerId !== null) {
+      previousTrainer = trainersById.get(Number(previousTrainerId)) || null;
+    }
+    const assignmentChanged = Number(previousTrainerId || 0) !== Number(trainerIdValue || 0);
+    if (assignmentChanged && previousTrainer) {
+      const assigned = await client.query(
+        "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
+        [previousTrainerId]
+      );
+      previousAssignedCount = assigned.rows[0].count;
+    }
 
     if (trainerIdValue !== null) {
-      const trainerCheck = await client.query(
-        `
-        SELECT trainer_id, full_name, email, status, max_members
-        FROM trainers
-        WHERE trainer_id = $1
-        FOR UPDATE
-        `,
-        [trainerIdValue]
-      );
-
-      if (trainerCheck.rows.length === 0) {
+      const trainer = trainersById.get(trainerIdValue);
+      if (!trainer) {
         await client.query("ROLLBACK");
         transactionStarted = false;
         return res.status(404).json({
           message: "Trainer not found or inactive"
         });
       }
-      nextTrainer = trainerCheck.rows[0];
+      nextTrainer = trainer;
       if (nextTrainer.status !== "Active") {
         await client.query("ROLLBACK");
         transactionStarted = false;
         return res.status(409).json({ success: false, message: "This coach is inactive and cannot receive member assignments." });
       }
 
-      if (Number(previousTrainerId) !== trainerIdValue) {
+      if (assignmentChanged) {
         const assignedCountResult = await client.query(
           "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
           [trainerIdValue]
         );
         const assignedCount = assignedCountResult.rows[0].count;
+        nextAssignedCount = assignedCount;
         if (assignedCount >= Number(nextTrainer.max_members)) {
           await client.query("ROLLBACK");
           transactionStarted = false;
@@ -343,7 +367,6 @@ const assignTrainer = async (req, res) => {
     transactionStarted = false;
 
     const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || "A member";
-    const assignmentChanged = Number(previousTrainerId || 0) !== Number(trainerIdValue || 0);
     let coachAssignmentEmailSent = null;
     let userAssignmentEmailSent = null;
     if (assignmentChanged) {
@@ -436,6 +459,58 @@ const assignTrainer = async (req, res) => {
         });
       } catch (error) {
         console.error(`Member coach assignment notification failed for user ${member.user_id}:`, error.message);
+      }
+
+      if (previousTrainer && Number(previousTrainerId) !== Number(trainerIdValue || 0)) {
+        const previousCapacityBefore = getCapacityStatus(
+          previousAssignedCount,
+          previousTrainer.max_members,
+          previousTrainer.status
+        );
+        const previousCapacityAfter = getCapacityStatus(
+          previousAssignedCount - 1,
+          previousTrainer.max_members,
+          previousTrainer.status
+        );
+        if ((previousCapacityBefore === "Full") !== (previousCapacityAfter === "Full")) {
+          await deliverCoachEmail({
+            trainer: previousTrainer,
+            event: "capacity status",
+            send: (to) => sendCoachCapacityStatusEmail({
+              to,
+              accountName: previousTrainer.full_name,
+              status: previousCapacityAfter,
+              assignedMembers: previousAssignedCount - 1,
+              maxMembers: previousTrainer.max_members,
+            }),
+          });
+        }
+      }
+
+      if (nextTrainer && Number(previousTrainerId || 0) !== trainerIdValue) {
+        const nextCapacityBefore = getCapacityStatus(
+          nextAssignedCount,
+          nextTrainer.max_members,
+          nextTrainer.status
+        );
+        const nextCapacityAfter = getCapacityStatus(
+          nextAssignedCount + 1,
+          nextTrainer.max_members,
+          nextTrainer.status
+        );
+        if ((nextCapacityBefore === "Full") !== (nextCapacityAfter === "Full")) {
+          await deliverCoachEmail({
+            trainer: nextTrainer,
+            event: "capacity status",
+            send: (to) => sendCoachCapacityStatusEmail({
+              to,
+              accountName: nextTrainer.full_name,
+              status: nextCapacityAfter,
+              assignedMembers: nextAssignedCount + 1,
+              maxMembers: nextTrainer.max_members,
+            }),
+          });
+        }
       }
     }
 

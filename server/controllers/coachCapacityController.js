@@ -1,4 +1,7 @@
 const pool = require("../db");
+const { getCapacityStatus } = require("../utils/coachAssignment");
+const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
+const { sendCoachCapacityStatusEmail } = require("../utils/mailer");
 
 const updateCapacity = async (req, res) => {
   const trainerId = Number(req.params.id);
@@ -14,7 +17,7 @@ const updateCapacity = async (req, res) => {
   try {
     await client.query("BEGIN");
     const coach = await client.query(
-      "SELECT trainer_id FROM trainers WHERE trainer_id = $1 FOR UPDATE",
+      "SELECT trainer_id, full_name, email, status, max_members FROM trainers WHERE trainer_id = $1 FOR UPDATE",
       [trainerId]
     );
     if (!coach.rowCount) {
@@ -44,6 +47,29 @@ const updateCapacity = async (req, res) => {
       [maxMembers, trainerId]
     );
     await client.query("COMMIT");
+    const previousStatus = getCapacityStatus(
+      assignedMemberCount,
+      coach.rows[0].max_members,
+      coach.rows[0].status
+    );
+    const nextStatus = getCapacityStatus(
+      assignedMemberCount,
+      result.rows[0].max_members,
+      coach.rows[0].status
+    );
+    if ((previousStatus === "Full") !== (nextStatus === "Full")) {
+      await deliverCoachEmail({
+        trainer: coach.rows[0],
+        event: "capacity status",
+        send: (to) => sendCoachCapacityStatusEmail({
+          to,
+          accountName: coach.rows[0].full_name,
+          status: nextStatus,
+          assignedMembers: assignedMemberCount,
+          maxMembers: result.rows[0].max_members,
+        }),
+      });
+    }
     res.json({
       success: true,
       message: "Coach capacity updated.",
