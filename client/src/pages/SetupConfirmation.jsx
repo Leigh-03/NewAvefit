@@ -69,8 +69,10 @@ export default function SetupConfirmation() {
   const handleConfirm = async () => {
     setSaving(true);
     try {
+      const setupProfile = { ...profile };
+      delete setupProfile.trainer_id;
       await userApi.put("/profile", {
-        ...profile,
+        ...setupProfile,
         fitness_goal: goalData.goal || "General Fitness",
         activity_level: healthData.experience || "Beginner",
         target_weight: goalData.targetWeight || null,
