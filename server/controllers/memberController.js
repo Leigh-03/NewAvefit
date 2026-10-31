@@ -6,6 +6,7 @@ const {
   sendUserCoachAssignedEmail,
   sendMemberAccountDecisionEmail,
 } = require("../utils/mailer");
+const { getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
 
 // =====================================================
 // GET ALL MEMBERS FROM USERS TABLE
@@ -226,7 +227,9 @@ const assignTrainer = async (req, res) => {
          u.last_name,
          u.email,
          u.preferred_days,
-         u.preferred_workout_time
+         u.preferred_workout_time,
+         u.workout_days_per_week,
+         u.workout_duration
        FROM users u
        WHERE u.user_id = $1
        FOR UPDATE`,
@@ -260,10 +263,10 @@ const assignTrainer = async (req, res) => {
     if (trainerIdValue !== null) {
       const trainerCheck = await client.query(
         `
-        SELECT trainer_id, full_name, email
+        SELECT trainer_id, full_name, email, status, max_members
         FROM trainers
         WHERE trainer_id = $1
-          AND COALESCE(status, 'Active') = 'Active'
+        FOR UPDATE
         `,
         [trainerIdValue]
       );
@@ -276,6 +279,51 @@ const assignTrainer = async (req, res) => {
         });
       }
       nextTrainer = trainerCheck.rows[0];
+      if (nextTrainer.status !== "Active") {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(409).json({ success: false, message: "This coach is inactive and cannot receive member assignments." });
+      }
+
+      if (Number(previousTrainerId) !== trainerIdValue) {
+        const assignedCountResult = await client.query(
+          "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
+          [trainerIdValue]
+        );
+        const assignedCount = assignedCountResult.rows[0].count;
+        if (assignedCount >= Number(nextTrainer.max_members)) {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(409).json({
+            success: false,
+            message: `${nextTrainer.full_name} is at capacity (${assignedCount}/${nextTrainer.max_members}). Choose another recommended coach.`,
+          });
+        }
+
+        const memberSlots = getMemberAvailability(member, member.weekly_availability);
+        const coachSlotsResult = await client.query(
+          `SELECT day_of_week,
+                  TO_CHAR(start_time, 'HH24:MI') AS start_time,
+                  TO_CHAR(end_time, 'HH24:MI') AS end_time
+           FROM trainer_availability
+           WHERE trainer_id = $1`,
+          [trainerIdValue]
+        );
+        const scheduleMatch = getScheduleMatch(
+          memberSlots,
+          coachSlotsResult.rows,
+          member.workout_duration,
+          member.workout_days_per_week
+        );
+        if (!scheduleMatch.compatible) {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(409).json({
+            success: false,
+            message: "This coach's schedule does not overlap your member's saved workout availability for the required number and duration of sessions.",
+          });
+        }
+      }
     }
 
     const result = await client.query(
@@ -416,6 +464,92 @@ const assignTrainer = async (req, res) => {
     });
   } finally {
     client.release();
+  }
+};
+
+const getCoachRecommendations = async (req, res) => {
+  const memberId = Number(req.params.id);
+  if (!Number.isInteger(memberId) || memberId < 1) {
+    return res.status(400).json({ success: false, message: "Invalid member ID." });
+  }
+  try {
+    const memberResult = await pool.query(
+      `SELECT user_id, trainer_id, preferred_days, preferred_workout_time,
+              workout_days_per_week, workout_duration
+       FROM users WHERE user_id = $1`,
+      [memberId]
+    );
+    if (!memberResult.rowCount) {
+      return res.status(404).json({ success: false, message: "Member not found." });
+    }
+
+    const member = memberResult.rows[0];
+    const availabilityResult = await pool.query(
+      `SELECT day_of_week,
+              TO_CHAR(start_time, 'HH24:MI') AS start_time,
+              TO_CHAR(end_time, 'HH24:MI') AS end_time
+       FROM user_workout_availability
+       WHERE user_id = $1
+       ORDER BY day_of_week`,
+      [memberId]
+    );
+    const memberSlots = getMemberAvailability(member, availabilityResult.rows);
+    const coachesResult = await pool.query(
+      `SELECT t.trainer_id, t.full_name, t.status, t.max_members,
+              (SELECT COUNT(*)::integer FROM users u WHERE u.trainer_id = t.trainer_id) AS assigned_member_count,
+              (
+                SELECT COALESCE(
+                  json_agg(json_build_object(
+                    'day_of_week', ta.day_of_week,
+                    'start_time', TO_CHAR(ta.start_time, 'HH24:MI'),
+                    'end_time', TO_CHAR(ta.end_time, 'HH24:MI')
+                  ) ORDER BY ta.day_of_week, ta.start_time),
+                  '[]'::json
+                )
+                FROM trainer_availability ta
+                WHERE ta.trainer_id = t.trainer_id
+              ) AS availability
+       FROM trainers t
+       WHERE t.status = 'Active'
+       ORDER BY t.trainer_id`
+    );
+    const recommendations = coachesResult.rows
+      .filter((coach) => Number(coach.assigned_member_count) < Number(coach.max_members))
+      .map((coach) => {
+        const scheduleMatch = getScheduleMatch(
+          memberSlots,
+          coach.availability || [],
+          member.workout_duration,
+          member.workout_days_per_week
+        );
+        return {
+          ...coach,
+          capacity_percent: Math.round(
+            (Number(coach.assigned_member_count) / Number(coach.max_members)) * 100
+          ),
+          matched_days: scheduleMatch.matchedDays,
+          schedule_compatible: scheduleMatch.compatible,
+        };
+      })
+      .filter((coach) => coach.schedule_compatible)
+      .sort((first, second) => (
+        first.assigned_member_count / first.max_members -
+          second.assigned_member_count / second.max_members ||
+        first.assigned_member_count - second.assigned_member_count
+      ));
+
+    res.json({
+      success: true,
+      data: {
+        recommendations,
+        message: recommendations.length
+          ? null
+          : "No active coach has both available capacity and a schedule compatible with this member.",
+      },
+    });
+  } catch (error) {
+    console.error("get coach recommendations error:", error.message);
+    res.status(500).json({ success: false, message: "Unable to generate coach recommendations." });
   }
 };
 
@@ -915,6 +1049,7 @@ module.exports = {
   updateMember,
   updateMemberMembership,
   assignTrainer,
+  getCoachRecommendations,
   approveMember,
   rejectMember,
   deleteMember,

@@ -163,20 +163,38 @@ function MemberModal({ member, onClose, onSave }) {
 function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUpdate }) {
   const bmiInfo = getBMICategory(member.bmi);
   const [selectedTrainer, setSelectedTrainer] = useState(member.trainer_id || "");
+  const [recommendations, setRecommendations] = useState([]);
+  const [recommendationMessage, setRecommendationMessage] = useState("");
+  const [recommendationsLoading, setRecommendationsLoading] = useState(true);
   const [membershipMonths, setMembershipMonths] = useState(member.membership_months || "");
   const [saving, setSaving] = useState(false);
   const [savingMembership, setSavingMembership] = useState(false);
   const [error, setError] = useState("");
   const [membershipError, setMembershipError] = useState("");
+  const [confirmAssignment, setConfirmAssignment] = useState(false);
   const assignedTrainer = trainers.find(t => Number(t.trainer_id) === Number(member.trainer_id));
   const canEditMembershipAndCoach = String(member.status || "").trim() === "Active";
 
   useEffect(() => {
     setMembershipMonths(member.membership_months || "");
     setSelectedTrainer(member.trainer_id || "");
+    let active = true;
+    setRecommendationsLoading(true);
+    api.get(`/members/${member.member_id}/coach-recommendations`)
+      .then(({ data }) => {
+        if (!active) return;
+        setRecommendations(data.data?.recommendations || []);
+        setRecommendationMessage(data.data?.message || "");
+      })
+      .catch((err) => {
+        if (active) setRecommendationMessage(err.response?.data?.message || "Unable to load coach recommendations.");
+      })
+      .finally(() => active && setRecommendationsLoading(false));
+    return () => { active = false; };
   }, [member.member_id, member.membership_months, member.trainer_id]);
 
   const saveCoach = async () => {
+    setConfirmAssignment(false);
     setSaving(true); setError("");
     try { await onAssign(member, selectedTrainer || null); }
     catch (err) { setError(err.response?.data?.message || "Failed to update coach."); }
@@ -206,6 +224,19 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white dark:bg-[#151515] rounded-3xl shadow-2xl w-full max-w-2xl max-h-[94vh] overflow-y-auto border border-slate-200 dark:border-gray-800" onClick={e=>e.stopPropagation()}>
+        {confirmAssignment && (
+          <ConfirmDialog
+            title={selectedTrainer ? "Confirm coach assignment?" : "Remove the designated coach?"}
+            description={selectedTrainer
+              ? `Assign ${recommendations.find((coach) => String(coach.trainer_id) === String(selectedTrainer))?.full_name || assignedTrainer?.full_name || "the selected coach"} to ${member.full_name}? Capacity and schedule eligibility will be checked again before saving.`
+              : `Remove the current coach assignment for ${member.full_name}?`}
+            confirmLabel={selectedTrainer ? "Confirm assignment" : "Remove assignment"}
+            isLoading={saving}
+            error={error}
+            onCancel={() => !saving && setConfirmAssignment(false)}
+            onConfirm={saveCoach}
+          />
+        )}
         <div className="relative bg-slate-950 min-h-[280px] flex items-center justify-center overflow-hidden">
           {member.profile_image ? <>
             <img src={member.profile_image} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-35" />
@@ -283,12 +314,33 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
               {assignedTrainer.photo_url ? <img src={assignedTrainer.photo_url} alt="" className="w-14 h-14 rounded-full object-contain bg-black"/> : <div className="w-14 h-14 rounded-full bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-500"><UserRound/></div>}
               <div className="min-w-0"><p className="text-xs font-medium text-slate-500 dark:text-slate-300">Current Coach</p><p className="font-bold text-slate-900 dark:text-white truncate">{assignedTrainer.full_name}</p><p className="text-xs text-orange-700 dark:text-orange-400 truncate">{assignedTrainer.goal_specialty || "General Fitness"}</p></div>
             </div>}
-            <select value={selectedTrainer} onChange={e=>setSelectedTrainer(e.target.value)} disabled={!canEditMembershipAndCoach} className="w-full border border-slate-300 dark:border-gray-700 rounded-2xl bg-white dark:bg-[#111] text-slate-900 dark:text-white px-5 py-4 text-base font-medium outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 dark:[color-scheme:dark]">
-              {trainers.filter(t=>!t.status || t.status === "Active").map(t=><option key={t.trainer_id} value={t.trainer_id} className="bg-white text-gray-900 dark:bg-[#111] dark:text-white">{t.full_name} — {t.goal_specialty || "General Fitness"}</option>)}
+            <label htmlFor="member-coach-recommendations" className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">Eligible recommendations</label>
+            <select id="member-coach-recommendations" value={selectedTrainer} onChange={e=>setSelectedTrainer(e.target.value)} disabled={!canEditMembershipAndCoach || recommendationsLoading} className="w-full border border-slate-300 dark:border-gray-700 rounded-2xl bg-white dark:bg-[#111] text-slate-900 dark:text-white px-5 py-4 text-base font-medium outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 dark:[color-scheme:dark]">
+              <option value="">Unassign current coach</option>
+              {assignedTrainer && !recommendations.some((coach) => Number(coach.trainer_id) === Number(assignedTrainer.trainer_id)) && (
+                <option value={assignedTrainer.trainer_id} className="bg-white text-gray-900 dark:bg-[#111] dark:text-white">
+                  Current assignment · {assignedTrainer.full_name}
+                </option>
+              )}
+              {recommendations.map((coach) => (
+                <option key={coach.trainer_id} value={coach.trainer_id} className="bg-white text-gray-900 dark:bg-[#111] dark:text-white">
+                  {coach.full_name} · {coach.assigned_member_count}/{coach.max_members} members · {coach.capacity_percent}% capacity
+                </option>
+              ))}
             </select>
+            {recommendationsLoading && <p className="mt-2 text-xs text-slate-500">Checking coach capacity and schedule compatibility…</p>}
+            {!recommendationsLoading && !recommendations.length && recommendationMessage && (
+              <p role="status" className="mt-2 rounded-lg border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">{recommendationMessage}</p>
+            )}
+            {selectedTrainer && recommendations.some((coach) => String(coach.trainer_id) === String(selectedTrainer)) && (
+              <p className="mt-2 text-xs text-slate-500">
+                Compatible days: {recommendations.find((coach) => String(coach.trainer_id) === String(selectedTrainer)).matched_days
+                  .map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ")}
+              </p>
+            )}
             {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
             {!canEditMembershipAndCoach && <p className="mt-2 text-xs text-slate-500">Coach assignment is locked until this member is active.</p>}
-            <button onClick={saveCoach} disabled={!canEditMembershipAndCoach || saving} className="w-full mt-4 flex items-center justify-center gap-2 py-4 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"><Save size={18}/>{saving?"Saving...":"Save Designated Coach"}</button>
+            <button onClick={() => setConfirmAssignment(true)} disabled={!canEditMembershipAndCoach || saving || recommendationsLoading || String(selectedTrainer || "") === String(member.trainer_id || "")} className="w-full mt-4 flex items-center justify-center gap-2 py-4 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"><Save size={18}/>{saving?"Saving...":"Confirm Designated Coach"}</button>
           </div>
         </div>
 

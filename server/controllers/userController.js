@@ -20,11 +20,8 @@ const {
   sendMail,
   sendVerificationEmail,
   sendPasswordChangeVerificationEmail,
-  sendCoachAssignmentEmail,
-  sendUserCoachAssignedEmail,
 } = require("../utils/mailer");
 const { notifyNewUser, createNotification } = require("../utils/notifications");
-const { getExperienceRange } = require("./userWorkoutAvailabilityController");
 const {
   buildProfileChangePayload,
   createProfileChangeRequest,
@@ -1442,90 +1439,6 @@ const updateProfile = async (req, res) => {
       }
     }
 
-    // When onboarding selects a coach, make sure the coach is still active.
-    if (
-      trainer_id !== undefined &&
-      trainer_id !== null &&
-      trainer_id !== ""
-    ) {
-      const trainerCheck = await pool.query(
-        `
-        SELECT trainer_id
-        FROM trainers
-        WHERE trainer_id = $1
-          AND (status = 'Active' OR status IS NULL)
-        `,
-        [trainer_id]
-      );
-
-      if (trainerCheck.rows.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: "The selected coach is not available.",
-        });
-      }
-
-      const memberAvailabilityResult = await pool.query(
-        `SELECT u.activity_level, u.workout_days_per_week, u.workout_duration,
-                a.day_of_week, TO_CHAR(a.start_time, 'HH24:MI') AS start_time,
-                TO_CHAR(a.end_time, 'HH24:MI') AS end_time
-         FROM users u
-         LEFT JOIN user_workout_availability a ON a.user_id = u.user_id
-         WHERE u.user_id = $1
-         ORDER BY a.day_of_week`,
-        [req.user.user_id]
-      );
-      const memberAvailability = memberAvailabilityResult.rows;
-      const savedPreferences = memberAvailability[0] || {};
-      const level = activity_level || savedPreferences.activity_level || "Beginner";
-      const [minimumDays, maximumDays] = getExperienceRange(level);
-      const frequency = Number(workout_days_per_week ?? savedPreferences.workout_days_per_week);
-      const durationMinutes = Number(workout_duration ?? savedPreferences.workout_duration);
-      const availableDays = memberAvailability.filter((slot) => slot.day_of_week);
-      if (!Number.isInteger(frequency) || frequency < minimumDays || frequency > maximumDays) {
-        return res.status(400).json({
-          success: false,
-          message: `${level} users should select ${minimumDays}–${maximumDays} workout days per week.`,
-        });
-      }
-      if (frequency > availableDays.length) {
-        return res.status(400).json({
-          success: false,
-          message: `You selected ${frequency} workout days per week, but you are only available on ${availableDays.length} days. Please update your availability or workout frequency.`,
-        });
-      }
-      const coachAvailabilityResult = await pool.query(
-        `SELECT day_of_week,
-                TO_CHAR(start_time, 'HH24:MI') AS start_time,
-                TO_CHAR(end_time, 'HH24:MI') AS end_time
-         FROM trainer_availability
-         WHERE trainer_id = $1`,
-        [trainer_id]
-      );
-      const coachAvailability = coachAvailabilityResult.rows;
-      const timeToMinutes = (value) => {
-        const [hours, minutes] = value.split(":").map(Number);
-        return hours * 60 + minutes;
-      };
-      const dayIndexes = Object.fromEntries(
-        ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-          .map((day, index) => [day, index])
-      );
-      const compatibleDays = availableDays.filter((memberSlot) => coachAvailability.some((coachSlot) => {
-        const start = Math.max(timeToMinutes(memberSlot.start_time), timeToMinutes(coachSlot.start_time));
-        const end = Math.min(timeToMinutes(memberSlot.end_time), timeToMinutes(coachSlot.end_time));
-        return Number(coachSlot.day_of_week) === dayIndexes[memberSlot.day_of_week] &&
-          end - start >= durationMinutes;
-      })).length;
-
-      if (compatibleDays < frequency) {
-        return res.status(400).json({
-          success: false,
-          message: "The selected coach does not have enough overlapping availability for your requested workout frequency and session duration. Choose another coach or update your availability.",
-        });
-      }
-    }
-
     // Normalize workout duration so PostgreSQL accepts both UI values like
     // "45 mins" and numeric values. The database stores the duration in minutes.
     let normalizedWorkoutDuration = null;
@@ -1570,6 +1483,18 @@ const updateProfile = async (req, res) => {
     "SELECT * FROM users WHERE user_id = $1",
       [req.user.user_id]
     );
+    if (!current.rowCount) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    if (
+      trainer_id !== undefined &&
+      String(trainer_id ?? "") !== String(current.rows[0].trainer_id ?? "")
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Coach assignments are managed by the gym administrator. Contact the administrator to request a coach or reassignment.",
+      });
+    }
 
     const currentEmail =
       current.rows[0]?.email || null;
@@ -1613,16 +1538,6 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    const selectedNewCoach = setup_completed === true &&
-      trainer_id !== undefined &&
-      trainer_id !== null &&
-      trainer_id !== "" &&
-      !current.rows[0]?.trainer_id &&
-      Number.isInteger(Number(trainer_id)) &&
-      Number(trainer_id) > 0;
-    let coachAssignmentEmailSent = null;
-    let userCoachAssignmentEmailSent = null;
-
     await pool.query(
       `
       UPDATE users
@@ -1645,11 +1560,10 @@ const updateProfile = async (req, res) => {
           intensity=COALESCE($17, intensity),
           injuries=COALESCE($18, injuries),
           health_conditions=COALESCE($19, health_conditions),
-          trainer_id=COALESCE($20, trainer_id),
-          setup_completed=COALESCE($21, setup_completed),
-          profile_image=COALESCE($22, profile_image),
+          setup_completed=COALESCE($20, setup_completed),
+          profile_image=COALESCE($21, profile_image),
           updated_at=NOW()
-      WHERE user_id=$23
+      WHERE user_id=$22
       `,
       [
         first_name
@@ -1677,7 +1591,6 @@ const updateProfile = async (req, res) => {
         intensity ?? null,
         injuries ?? null,
         health_conditions ?? null,
-        trainer_id ?? null,
         typeof setup_completed === "boolean"
           ? setup_completed
           : null,
@@ -1685,91 +1598,6 @@ const updateProfile = async (req, res) => {
         req.user.user_id,
       ]
     );
-
-    if (selectedNewCoach) {
-      const coachResult = await pool.query(
-        `SELECT trainer_id, full_name, email
-         FROM trainers
-         WHERE trainer_id = $1`,
-        [trainer_id]
-      );
-      const coach = coachResult.rows[0];
-      if (coach) {
-        const memberName = `${first_name || current.rows[0].first_name || ""} ${last_name || current.rows[0].last_name || ""}`.trim();
-        try {
-          const weeklyAvailabilityResult = await pool.query(
-            `SELECT day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
-                    TO_CHAR(end_time, 'HH24:MI') AS end_time
-             FROM user_workout_availability
-             WHERE user_id = $1
-             ORDER BY ARRAY_POSITION(
-               ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
-               day_of_week
-             )`,
-            [req.user.user_id]
-          );
-          const delivery = await sendCoachAssignmentEmail({
-            to: coach.email,
-            trainerName: coach.full_name,
-            memberName,
-            memberEmail: nextEmail || current.rows[0].email,
-            preferredDays: Array.isArray(preferred_days)
-              ? preferred_days
-              : current.rows[0].preferred_days,
-            preferredWorkoutTime: preferred_workout_time || current.rows[0].preferred_workout_time,
-            weeklyAvailability: weeklyAvailabilityResult.rows,
-          });
-          coachAssignmentEmailSent = delivery.delivered;
-          if (!delivery.delivered) {
-            console.error(`Coach assignment email for trainer ${coach.trainer_id} was not delivered.`);
-          }
-        } catch (err) {
-          coachAssignmentEmailSent = false;
-          console.error(`Coach assignment email for trainer ${coach.trainer_id} failed:`, err.message);
-        }
-        try {
-          const delivery = await sendUserCoachAssignedEmail({
-            to: nextEmail || current.rows[0].email,
-            firstName: first_name || current.rows[0].first_name,
-            trainerName: coach.full_name,
-          });
-          userCoachAssignmentEmailSent = delivery.delivered;
-          if (!delivery.delivered) {
-            console.error(`Coach assignment email for user ${req.user.user_id} was not delivered.`);
-          }
-        } catch (err) {
-          userCoachAssignmentEmailSent = false;
-          console.error(`Coach assignment email for user ${req.user.user_id} failed:`, err.message);
-        }
-        try {
-          await createNotification({
-            audience: "trainer",
-            recipientId: coach.trainer_id,
-            message: `${memberName || "A new member"} has been assigned to you as their coach. Assign their workout plan.`,
-            notificationType: "workout",
-            userName: memberName || "New member",
-            targetUrl: "/trainer/workout-plans",
-          });
-        } catch (err) {
-          console.error(`Coach assignment notification for trainer ${coach.trainer_id} failed:`, err.message);
-        }
-        try {
-          await createNotification({
-            audience: "user",
-            recipientId: req.user.user_id,
-            message: `${coach.full_name || "Your new coach"} has been assigned to you.`,
-            notificationType: "coach_assignment",
-            userName: memberName || "Member",
-            targetUrl: "/user/coaches",
-          });
-        } catch (err) {
-          console.error(`Coach assignment notification for user ${req.user.user_id} failed:`, err.message);
-        }
-      } else {
-        coachAssignmentEmailSent = false;
-        console.error(`Selected coach ${trainer_id} could not be found after the profile was saved.`);
-      }
-    }
 
     // Keep the admin member record synchronized with the registered user.
     // A member record is created the first time onboarding is completed;
@@ -1914,17 +1742,9 @@ const updateProfile = async (req, res) => {
       success: true,
       message: emailChanged
         ? "Profile updated. Enter the verification code sent to your new email address."
-        : coachAssignmentEmailSent === false
-          ? "Profile updated, but the coach assignment email could not be delivered."
-          : "Profile updated.",
+        : "Profile updated.",
       ...(emailChanged
         ? { email_verification_required: true }
-        : {}),
-      ...(coachAssignmentEmailSent !== null
-        ? { coach_assignment_email_sent: coachAssignmentEmailSent }
-        : {}),
-      ...(userCoachAssignmentEmailSent !== null
-        ? { user_coach_assignment_email_sent: userCoachAssignmentEmailSent }
         : {}),
     });
   } catch (err) {

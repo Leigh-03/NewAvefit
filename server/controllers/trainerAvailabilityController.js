@@ -139,4 +139,22 @@ const saveForTrainer = async (req, res) => {
   }
 };
 
-module.exports = { getForAdmin, getForTrainer, saveForTrainer, validateAvailability };
+const saveForAdmin = async (req, res) => {
+  const { id } = req.params;
+  const validationError = validateAvailability(req.body?.availability);
+  if (validationError) {
+    return res.status(400).json({ success: false, message: validationError });
+  }
+  try {
+    const saved = await replaceAvailability(id, req.body.availability);
+    if (!saved) {
+      return res.status(404).json({ success: false, message: "Coach not found." });
+    }
+    res.json({ success: true, data: await listAvailability(id) });
+  } catch (err) {
+    console.error("save coach availability as admin error:", err.message);
+    res.status(500).json({ success: false, message: "Unable to save coach availability." });
+  }
+};
+
+module.exports = { getForAdmin, getForTrainer, saveForAdmin, saveForTrainer, validateAvailability };

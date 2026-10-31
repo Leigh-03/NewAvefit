@@ -405,6 +405,47 @@ function TrainerModal({ trainer, onClose, onSave }) {
   );
 }
 
+function CapacityModal({ trainer, onClose, onSaved }) {
+  const [maxMembers, setMaxMembers] = useState(String(trainer.max_members ?? 15));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSave = async () => {
+    const capacity = Number(maxMembers);
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 10000) {
+      setError("Enter a whole-number capacity between 1 and 10,000.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await api.put(`/trainers/${trainer.trainer_id}/capacity`, { max_members: capacity });
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to update coach capacity.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <section role="dialog" aria-modal="true" aria-labelledby="coach-capacity-title" className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-[#151515]" onClick={(event) => event.stopPropagation()}>
+        <h2 id="coach-capacity-title" className="text-xl font-bold text-slate-900 dark:text-white">Coach member capacity</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{trainer.full_name} currently has {trainer.assigned_member_count} assigned member(s).</p>
+        <label htmlFor="coach-max-members" className="mt-5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Maximum members</label>
+        <input id="coach-max-members" type="number" min="1" max="10000" step="1" value={maxMembers} onChange={(event) => setMaxMembers(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-white" />
+        {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 disabled:opacity-50 dark:border-white/10 dark:text-slate-300">Cancel</button>
+          <button type="button" onClick={handleSave} disabled={saving} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50">{saving ? "Saving..." : "Save capacity"}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function TrainerProfileModal({ trainer, onClose, onEdit }) {
   const specializations = normalizeSpecializations(trainer);
   const expertise = [...new Set([...specializations, trainer.goal_specialty].filter(Boolean))];
@@ -567,6 +608,7 @@ export default function Trainers() {
   const [rosterTrainer, setRosterTrainer] = useState(null);
   const [profileTrainer, setProfileTrainer] = useState(null);
   const [availabilityTrainer, setAvailabilityTrainer] = useState(null);
+  const [capacityTrainer, setCapacityTrainer] = useState(null);
   const [trainerAction, setTrainerAction] = useState(null);
   const [trainerActionLoading, setTrainerActionLoading] = useState(false);
   const [trainerActionError, setTrainerActionError] = useState("");
@@ -674,6 +716,13 @@ export default function Trainers() {
           onClose={() => setAvailabilityTrainer(null)}
         />
       )}
+      {capacityTrainer && (
+        <CapacityModal
+          trainer={capacityTrainer}
+          onClose={() => setCapacityTrainer(null)}
+          onSaved={fetchTrainers}
+        />
+      )}
 
       {trainerAction && (
         <ConfirmDialog
@@ -717,8 +766,8 @@ export default function Trainers() {
         </div>
       )}
 
-      <section aria-label="Trainer summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {[{label:"Total trainers",value:trainers.length},{label:"Active trainers",value:activeCount},{label:"Pending approval",value:pendingCount}].map(item=><div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading?"—":item.value}</p></div>)}
+      <section aria-label="Coach summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {[{label:"Total coaches",value:trainers.length},{label:"Active coaches",value:activeCount},{label:"Pending approval",value:pendingCount}].map(item=><div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading?"—":item.value}</p></div>)}
       </section>
 
       {/* Search */}
@@ -751,9 +800,10 @@ export default function Trainers() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="text-left px-6 py-4 font-semibold text-slate-600">Trainer</th>
+                <th className="text-left px-6 py-4 font-semibold text-slate-600">Coach</th>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Specialization</th>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Phone</th>
+                <th className="text-left px-6 py-4 font-semibold text-slate-600">Member capacity</th>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Status</th>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Joined</th>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Actions</th>
@@ -762,7 +812,7 @@ export default function Trainers() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-slate-400">No trainers found.</td>
+                  <td colSpan={7} className="text-center py-12 text-slate-400">No coaches found.</td>
                 </tr>
               ) : (
                 filtered.map((trainer, index) => (
@@ -786,6 +836,18 @@ export default function Trainers() {
                     </td>
                     <td className="px-6 py-4 text-slate-600"><div className="flex flex-wrap gap-1.5 max-w-sm">{(trainer.specializations || normalizeSpecializations(trainer)).length ? (trainer.specializations || normalizeSpecializations(trainer)).slice(0, 3).map((item) => <span key={item} className="px-2 py-1 rounded-full bg-orange-50 text-orange-700 text-xs font-medium">{item}</span>) : <span>—</span>}{(trainer.specializations || normalizeSpecializations(trainer)).length > 3 && <span className="text-xs text-slate-400">+{(trainer.specializations || normalizeSpecializations(trainer)).length - 3} more</span>}</div></td>
                     <td className="px-6 py-4 text-slate-600">{trainer.phone || "—"}</td>
+                    <td className="px-6 py-4">
+                      <div className="min-w-36">
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="font-semibold text-slate-700 dark:text-slate-200">{trainer.assigned_member_count ?? 0}/{trainer.max_members ?? 15} members</span>
+                          <button type="button" onClick={() => setCapacityTrainer(trainer)} className="font-semibold text-orange-600 hover:underline dark:text-orange-400" aria-label={`Edit ${trainer.full_name}'s capacity`}>Edit</button>
+                        </div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+                          <div className={`h-full rounded-full ${trainer.capacity_status === "Full" ? "bg-red-500" : trainer.capacity_status === "Near Capacity" ? "bg-orange-500" : trainer.capacity_status === "Inactive" ? "bg-slate-400" : "bg-green-500"}`} style={{ width: `${Math.min(Number(trainer.capacity_percent) || 0, 100)}%` }} />
+                        </div>
+                        <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${trainer.capacity_status === "Full" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300" : trainer.capacity_status === "Near Capacity" ? "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300" : trainer.capacity_status === "Inactive" ? "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300" : "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"}`}>{trainer.capacity_status || "Available"}</span>
+                      </div>
+                    </td>
                     <td className="px-6 py-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[trainer.status] || statusColors.Inactive}`}>
                         {trainer.status}
@@ -860,7 +922,7 @@ export default function Trainers() {
           </table>
         )}
         <div className="px-6 py-3 border-t border-slate-100 text-sm text-slate-400">
-          {filtered.length} of {trainers.length} trainers
+          {filtered.length} of {trainers.length} coaches
         </div>
       </div>
     </div>

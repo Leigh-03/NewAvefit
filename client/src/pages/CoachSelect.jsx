@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import OnboardingShell from "../components/layout/OnboardingShell";
 import ScrollReveal from "../components/ScrollReveal";
 import { useNavigate } from "react-router-dom";
-import { Briefcase, Check, Search, Sparkles, User, X } from "lucide-react";
+import { Briefcase, Search, Sparkles, User, X } from "lucide-react";
 import userApi from "../userApi";
 
 const GOAL_ALIASES = {
@@ -104,7 +104,7 @@ function Photo({ trainer, compact = false, fit = "contain", className = "" }) {
   );
 }
 
-function ProfileModal({ trainer, onClose, onSelect, selected }) {
+function ProfileModal({ trainer, onClose }) {
   const [photoOpen, setPhotoOpen] = useState(false);
   if (!trainer) return null;
 
@@ -140,11 +140,6 @@ function ProfileModal({ trainer, onClose, onSelect, selected }) {
                   <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach profile</p>
                   <h2 id="selection-coach-profile-title" className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">{trainer.full_name}</h2>
                   <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{trainer.goal_specialty || "General Fitness Coach"}</p>
-                  {selected && (
-                    <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300">
-                      <Check size={14} /> Your selected coach
-                    </p>
-                  )}
                 </header>
                 <section>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">About the coach</h3>
@@ -174,16 +169,6 @@ function ProfileModal({ trainer, onClose, onSelect, selected }) {
                   ) : <p className="text-sm text-slate-500 dark:text-slate-400">Availability has not been posted yet.</p>}
                 </section>
               </div>
-              <div className="border-t border-slate-200 p-4 dark:border-white/10 sm:px-7 lg:px-8">
-                <button
-                  type="button"
-                  onClick={() => { onSelect(trainer); onClose(); }}
-                  aria-pressed={selected}
-                  className={`w-full rounded-xl py-3 font-bold transition ${selected ? "bg-orange-700 text-white" : "bg-orange-500 text-white hover:bg-orange-600"}`}
-                >
-                  {selected ? "Coach Selected ✓" : "Select This Coach"}
-                </button>
-              </div>
             </div>
           </div>
       {photoOpen && trainer.photo_url && (
@@ -211,9 +196,9 @@ function ProfileModal({ trainer, onClose, onSelect, selected }) {
   );
 }
 
-function CoachCard({ trainer, selected, recommended, goalMatch, onSelect, onProfile }) {
+function CoachCard({ trainer, recommended, goalMatch, onProfile }) {
   return (
-    <div className={`coach-card-interactive overflow-hidden rounded-2xl border bg-white shadow-sm dark:bg-[#171717] ${selected ? "border-orange-500 ring-2 ring-orange-500/20" : "border-slate-200 dark:border-slate-800 hover:border-orange-500/60"}`}>
+    <div className="coach-card-interactive overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-orange-500/60 dark:bg-[#171717] dark:border-slate-800">
       <Photo trainer={trainer} compact />
       <div className="p-4">
         <div className="flex flex-wrap gap-2 mb-2">
@@ -222,17 +207,12 @@ function CoachCard({ trainer, selected, recommended, goalMatch, onSelect, onProf
               <Sparkles size={11} /> Recommended
             </span>
           )}
-          {selected && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-orange-500 text-white px-2.5 py-1 text-[11px] font-bold">
-              <Check size={11} /> Selected
-            </span>
-          )}
         </div>
         <h3 className="text-lg font-bold text-slate-900 dark:text-white truncate">{trainer.full_name}</h3>
         <p className="text-orange-500 text-sm font-semibold mt-0.5">{trainer.goal_specialty || "General Fitness Coach"}</p>
         {!goalMatch && (
           <p className="mt-2 rounded-lg border border-amber-300/50 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
-            This coach’s specialty may not match your selected goal. You can still choose this coach.
+            This coach’s specialty may not match your selected goal.
           </p>
         )}
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 line-clamp-2 min-h-[32px]">
@@ -245,13 +225,6 @@ function CoachCard({ trainer, selected, recommended, goalMatch, onSelect, onProf
           >
             View Profile
           </button>
-          <button
-            onClick={() => onSelect(trainer)}
-            aria-pressed={selected}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition ${selected ? "bg-orange-700 text-white" : "bg-orange-500 hover:bg-orange-600 text-white"}`}
-          >
-            {selected ? "Selected ✓" : "Choose"}
-          </button>
         </div>
       </div>
     </div>
@@ -262,7 +235,6 @@ export default function CoachSelect() {
   const navigate = useNavigate();
   const [trainers, setTrainers] = useState([]);
   const [goal, setGoal] = useState("General Fitness");
-  const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [profile, setProfile] = useState(null);
@@ -279,10 +251,9 @@ export default function CoachSelect() {
     };
     const goalData = readSessionValue("avefit_goal", {});
     const availabilityData = readSessionValue("avefit_availability", {});
-    const savedCoach = readSessionValue("avefit_trainer", null);
     setGoal(goalData.goal || "General Fitness");
     setAvailability(availabilityData);
-    if (savedCoach?.trainer_id) setSelectedId(savedCoach.trainer_id);
+    sessionStorage.removeItem("avefit_trainer");
 
     userApi.get("/trainers")
       .then((res) => setTrainers(res.data?.data || []))
@@ -307,30 +278,8 @@ export default function CoachSelect() {
   const recommended = visibleCoaches[0];
   const otherCoaches = visibleCoaches.slice(1);
   const selectedDays = Array.isArray(availability.days) ? availability.days : [];
-  const recommendedSectionRef = useRef(null);
-  const alternativesSectionRef = useRef(null);
-  const selectedCoach = ranked.find((trainer) => trainer.trainer_id === selectedId);
-  const selectedGoalMatch = selectedCoach ? scoreTrainer(selectedCoach, goal) > 0 : true;
-
-  const changeCoach = () => {
-    const target = alternativesSectionRef.current || recommendedSectionRef.current;
-    target?.scrollIntoView({
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-      block: "start",
-    });
-  };
-
-  const chooseCoach = (trainer) => {
-    setSelectedId(trainer.trainer_id);
-    sessionStorage.setItem("avefit_trainer", JSON.stringify(trainer));
-    setError("");
-  };
 
   const handleContinue = () => {
-    if (!ranked.some((trainer) => trainer.trainer_id === selectedId)) {
-      setError("Please select a coach who matches your workout days and preferred time.");
-      return;
-    }
     navigate("/user/confirm");
   };
 
@@ -343,9 +292,9 @@ export default function CoachSelect() {
 
         <div className="mb-6">
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Your training team</p>
-          <h2 className="mt-1 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Choose Your Coach</h2>
+          <h2 className="mt-1 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Meet Your Coaches</h2>
           <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
-            Find the coach who fits your goals and schedule.
+            Browse coach profiles. The gym administrator will assign your designated coach based on your goals, schedule, and coach availability.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300">
@@ -409,7 +358,7 @@ export default function CoachSelect() {
           </div>
         ) : (
           <>
-            <section ref={recommendedSectionRef} className="scroll-mt-6">
+            <section className="scroll-mt-6">
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <p className="text-xs uppercase tracking-wider text-orange-500 font-bold">Your best match</p>
@@ -419,7 +368,7 @@ export default function CoachSelect() {
               </div>
 
               <ScrollReveal>
-                <div className={`coach-card-interactive overflow-hidden rounded-2xl border bg-white shadow-lg dark:bg-[#171717] md:grid md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] ${selectedId === recommended.trainer_id ? "border-orange-500 ring-2 ring-orange-500/20" : "border-slate-200 dark:border-slate-800"}`}>
+                <div className="coach-card-interactive overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-[#171717] md:grid md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
                   <div className="relative">
                     <Photo trainer={recommended} className="h-64 sm:h-72 md:h-full md:min-h-[390px]" />
                     <div className="absolute top-4 left-4 z-20 inline-flex items-center gap-1.5 rounded-full bg-orange-500 text-white px-3 py-1.5 text-xs font-bold shadow-lg">
@@ -434,15 +383,10 @@ export default function CoachSelect() {
                       <p className="text-orange-500 font-semibold mt-1">{recommended.goal_specialty || "General Fitness Coach"}</p>
                       {scoreTrainer(recommended, goal) === 0 && (
                         <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
-                          This coach’s specialty may not match your selected goal. You can still choose this coach.
+                          This coach’s specialty may not match your selected goal.
                         </p>
                       )}
                     </div>
-                    {selectedId === recommended.trainer_id && (
-                      <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-orange-500 text-white px-3 py-1.5 text-xs font-bold">
-                        <Check size={13} /> Your selected coach
-                      </span>
-                    )}
                   </div>
 
                   <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mt-4">
@@ -467,25 +411,18 @@ export default function CoachSelect() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
                     <button
                       onClick={() => setProfile(recommended)}
-                      className="py-3 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold hover:border-orange-500 hover:text-orange-500 transition"
+                      className="w-full py-3 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold hover:border-orange-500 hover:text-orange-500 transition"
                     >
                       View Full Profile
                     </button>
-                    <button
-                      onClick={() => chooseCoach(recommended)}
-                      aria-pressed={selectedId === recommended.trainer_id}
-                      className={`py-3 rounded-xl font-bold transition ${selectedId === recommended.trainer_id ? "bg-orange-700 text-white" : "bg-orange-500 hover:bg-orange-600 text-white"}`}
-                    >
-                      {selectedId === recommended.trainer_id ? "Coach Selected ✓" : "Choose This Coach"}
-                    </button>
-                    </div>
+                  </div>
                   </div>
                 </div>
                 </ScrollReveal>
             </section>
 
             {otherCoaches.length > 0 && (
-              <section ref={alternativesSectionRef} className="mt-8 scroll-mt-6">
+              <section className="mt-8 scroll-mt-6">
                 <div className="mb-4">
                   <p className="text-xs uppercase tracking-wider text-slate-400 font-bold">Your options</p>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">Other Available Coaches</h3>
@@ -496,10 +433,8 @@ export default function CoachSelect() {
                     <ScrollReveal key={trainer.trainer_id} delay={Math.min(index + 1, 4) * 100}>
                       <CoachCard
                         trainer={trainer}
-                        selected={selectedId === trainer.trainer_id}
                         recommended={false}
                         goalMatch={scoreTrainer(trainer, goal) > 0}
-                        onSelect={chooseCoach}
                         onProfile={setProfile}
                       />
                     </ScrollReveal>
@@ -512,29 +447,6 @@ export default function CoachSelect() {
 
         {error && <p className="text-red-500 text-xs mt-4">{error}</p>}
 
-        {selectedCoach && (
-          <section className="mt-7 flex flex-col gap-4 rounded-2xl border border-orange-200 bg-orange-50/80 p-4 dark:border-orange-500/20 dark:bg-orange-500/[0.06] sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-orange-500 text-white">
-                <Check size={19} />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-orange-700 dark:text-orange-300">Your selected coach</p>
-                <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{selectedCoach.full_name}</p>
-                <p className="truncate text-xs text-slate-600 dark:text-slate-400">{selectedCoach.goal_specialty || "General Fitness Coach"}</p>
-                {!selectedGoalMatch && (
-                  <p role="status" className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
-                    This coach’s specialty may not match your selected goal. You can continue with this coach.
-                  </p>
-                )}
-              </div>
-            </div>
-            <button type="button" onClick={changeCoach} className="min-h-10 shrink-0 rounded-xl border border-orange-300 bg-white px-4 text-sm font-bold text-orange-700 transition hover:bg-orange-100 dark:border-orange-500/30 dark:bg-white/[0.04] dark:text-orange-300 dark:hover:bg-orange-500/10">
-              Change coach
-            </button>
-          </section>
-        )}
-
         <button
           onClick={handleContinue}
           className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3.5 rounded-xl transition mt-7 shadow-lg shadow-orange-500/10"
@@ -542,7 +454,7 @@ export default function CoachSelect() {
           Continue to Confirmation →
         </button>
         <p className="text-center text-xs text-slate-400 mt-3">
-          You can review your selected coach before completing setup.
+          Your coach will be assigned by the gym administrator after setup.
         </p>
       </OnboardingShell>
 
@@ -550,8 +462,6 @@ export default function CoachSelect() {
         <ProfileModal
           trainer={profile}
           onClose={() => setProfile(null)}
-          onSelect={chooseCoach}
-          selected={selectedId === profile.trainer_id}
         />
       )}
     </>
