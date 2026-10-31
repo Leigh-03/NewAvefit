@@ -1116,6 +1116,16 @@ const getMyWorkoutPlans = async (req, res) => {
         u.user_id,
         plan_sessions.scheduled_date,
         plan_sessions.exercise_count,
+        plan_sessions.completed_count,
+        CASE
+          WHEN plan_sessions.exercise_count > 0
+            AND plan_sessions.completed_count = plan_sessions.exercise_count
+            THEN 'Complete'
+          WHEN plan_sessions.scheduled_date IS NULL
+            OR plan_sessions.scheduled_date > TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD')
+            THEN 'Active'
+          ELSE 'Incomplete'
+        END AS activity_status,
         CASE
           WHEN u.user_id IS NULL THEN NULL
           ELSE CONCAT_WS(' ', u.first_name, u.last_name)
@@ -1130,6 +1140,7 @@ const getMyWorkoutPlans = async (req, res) => {
             WHERE ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
           ) AS scheduled_date,
           COUNT(ws.session_id)::int AS exercise_count,
+          COUNT(ws.session_id) FILTER (WHERE ws.completed = TRUE)::int AS completed_count,
           COALESCE(
             JSON_AGG(
               JSON_BUILD_OBJECT(
@@ -1597,11 +1608,20 @@ const deleteMyWorkoutPlan = async (req, res) => {
       `SELECT MIN(session_date) FILTER (
          WHERE session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
        ) AS scheduled_date,
+       COALESCE(BOOL_OR(started_at IS NOT NULL OR completed = TRUE), FALSE) AS has_started,
        TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today
        FROM workout_sessions
        WHERE workout_plan_id = $1`,
       [plan.rows[0].workout_plan_id]
     );
+    if (planDate.rows[0].has_started) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: "This workout plan has started or finished and can no longer be changed.",
+      });
+    }
     if (planDate.rows[0].scheduled_date && planDate.rows[0].scheduled_date < planDate.rows[0].today) {
       await client.query("ROLLBACK");
       transactionStarted = false;

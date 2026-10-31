@@ -38,20 +38,31 @@ const getPeakLabel = (rows, labelForRow) => {
     .join(", ");
 };
 
+const manilaDateString = () => {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
 export default function Analytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
   const [equipmentDay, setEquipmentDay] = useState("");
-  const [equipmentHour, setEquipmentHour] = useState("");
-  const [appliedEquipmentFilters, setAppliedEquipmentFilters] = useState({ day: "", hour: "" });
+  const [equipmentTimePeriod, setEquipmentTimePeriod] = useState("");
+  const [appliedEquipmentFilters, setAppliedEquipmentFilters] = useState({ day: "", timePeriod: "" });
 
   useEffect(() => {
     let active = true;
     const fetchAnalytics = () => {
       const params = {};
       if (appliedEquipmentFilters.day) params.equipment_day = appliedEquipmentFilters.day;
-      if (appliedEquipmentFilters.hour !== "") params.equipment_hour = appliedEquipmentFilters.hour;
+      if (appliedEquipmentFilters.timePeriod) params.equipment_time_period = appliedEquipmentFilters.timePeriod;
       api.get("/analytics", { params })
         .then((res) => {
           if (!active) return;
@@ -209,7 +220,7 @@ export default function Analytics() {
           className="mb-5 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/[0.03]"
           onSubmit={(event) => {
             event.preventDefault();
-            setAppliedEquipmentFilters({ day: equipmentDay, hour: equipmentHour });
+            setAppliedEquipmentFilters({ day: equipmentDay, timePeriod: equipmentTimePeriod });
           }}
         >
           <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
@@ -217,33 +228,35 @@ export default function Analytics() {
             <input
               type="date"
               value={equipmentDay}
+              max={manilaDateString()}
               onChange={(event) => setEquipmentDay(event.target.value)}
               className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
             />
           </label>
           <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Hour (Philippines time)
+            Workout time
             <select
-              value={equipmentHour}
-              onChange={(event) => setEquipmentHour(event.target.value)}
+              value={equipmentTimePeriod}
+              onChange={(event) => setEquipmentTimePeriod(event.target.value)}
               className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
             >
-              <option value="">All hours</option>
-              {Array.from({ length: 24 }, (_, hour) => (
-                <option key={hour} value={hour}>{formatHour(hour)}</option>
-              ))}
+              <option value="">All times</option>
+              <option value="Morning">Morning (6:00 AM – 12:00 PM)</option>
+              <option value="Afternoon">Afternoon (12:00 PM – 5:00 PM)</option>
+              <option value="Evening">Evening (5:00 PM – 10:00 PM)</option>
+              <option value="Flexible">Flexible (6:00 AM – 10:00 PM)</option>
             </select>
           </label>
           <button type="submit" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-bold text-white transition hover:bg-orange-600">
             <Filter size={15} /> Apply filters
           </button>
-          {(equipmentDay || equipmentHour) && (
+          {(equipmentDay || equipmentTimePeriod) && (
             <button
               type="button"
               onClick={() => {
                 setEquipmentDay("");
-                setEquipmentHour("");
-                setAppliedEquipmentFilters({ day: "", hour: "" });
+                setEquipmentTimePeriod("");
+                setAppliedEquipmentFilters({ day: "", timePeriod: "" });
               }}
               className="min-h-10 rounded-lg px-3 text-sm font-semibold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-white/10"
             >

@@ -44,6 +44,15 @@ const getAnalytics = async (req, res) => {
   try {
     const equipmentDay = req.query.equipment_day || "";
     const equipmentHour = req.query.equipment_hour || "";
+    const equipmentTimePeriod = req.query.equipment_time_period || "";
+    const manilaDateParts = new Intl.DateTimeFormat("en", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const manilaDateValues = Object.fromEntries(manilaDateParts.map(({ type, value }) => [type, value]));
+    const todayInManila = `${manilaDateValues.year}-${manilaDateValues.month}-${manilaDateValues.day}`;
     const parsedEquipmentDay = typeof equipmentDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(equipmentDay)
       ? new Date(`${equipmentDay}T00:00:00.000Z`)
       : null;
@@ -54,11 +63,20 @@ const getAnalytics = async (req, res) => {
     )) {
       return res.status(400).json({ success: false, message: "Equipment day must be a valid date." });
     }
+    if (equipmentDay && equipmentDay > todayInManila) {
+      return res.status(400).json({ success: false, message: "Equipment day can't be in the future." });
+    }
     if (equipmentHour && (
       typeof equipmentHour !== "string" ||
       !/^(?:[0-9]|1[0-9]|2[0-3])$/.test(equipmentHour)
     )) {
       return res.status(400).json({ success: false, message: "Equipment hour must be between 0 and 23." });
+    }
+    if (equipmentTimePeriod && !["Morning", "Afternoon", "Evening", "Flexible"].includes(equipmentTimePeriod)) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose Morning, Afternoon, Evening, or Flexible for the equipment time period.",
+      });
     }
 
     const growthPeriods = {
@@ -256,10 +274,28 @@ const getAnalytics = async (req, res) => {
           ws.completed_at IS NOT NULL
           AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila}))::integer = $2::integer
         ))
+        AND ($3::text IS NULL OR (
+          ws.completed_at IS NOT NULL
+          AND CASE $3
+            WHEN 'Morning' THEN EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) >= 6
+              AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) < 12
+            WHEN 'Afternoon' THEN EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) >= 12
+              AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) < 17
+            WHEN 'Evening' THEN EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) >= 17
+              AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) < 22
+            WHEN 'Flexible' THEN EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) >= 6
+              AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) < 22
+            ELSE FALSE
+          END
+        ))
       GROUP BY BTRIM(e.equipment)
       ORDER BY COUNT(*) DESC, BTRIM(e.equipment) ASC
       LIMIT 10
-    `, [equipmentDay || null, equipmentHour === "" ? null : Number(equipmentHour)]);
+    `, [
+      equipmentDay || null,
+      equipmentHour === "" ? null : Number(equipmentHour),
+      equipmentTimePeriod || null,
+    ]);
 
     // Summary
     const totalMembers = await pool.query("SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'");

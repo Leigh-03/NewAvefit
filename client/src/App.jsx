@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import { UserAuthProvider } from "./context/UserAuthContext";
 import { getUserAuthToken } from "./context/userAuthStorage";
 import { TrainerAuthProvider } from "./context/TrainerAuthContext";
@@ -46,9 +47,35 @@ import TrainerWorkoutPlans from "./pages/TrainerWorkoutPlans";
 import TrainerExercises from "./pages/TrainerExercises";
 import TrainerAvailability from "./pages/TrainerAvailability";
 
+const getTokenExpiration = (token) => {
+  try {
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, "=")));
+    return Number(decoded.exp) * 1000;
+  } catch {
+    return 0;
+  }
+};
+
 function AdminProtectedRoute({ children }) {
+  const navigate = useNavigate();
   const token = sessionStorage.getItem("avefit_token");
-  if (!token) return <Navigate to="/login" replace />;
+  const expiresAt = token ? getTokenExpiration(token) : 0;
+
+  useEffect(() => {
+    if (!token || !expiresAt) return undefined;
+    const remaining = expiresAt - Date.now();
+    const timer = window.setTimeout(() => {
+      sessionStorage.removeItem("avefit_token");
+      navigate("/login", { replace: true });
+    }, Math.max(remaining, 0));
+    return () => window.clearTimeout(timer);
+  }, [expiresAt, navigate, token]);
+
+  if (!token || expiresAt <= Date.now()) {
+    sessionStorage.removeItem("avefit_token");
+    return <Navigate to="/login" replace />;
+  }
   return children;
 }
 

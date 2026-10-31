@@ -4,8 +4,8 @@ import trainerApi from "../trainerApi";
 
 const statusColors = {
   Active: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
-  Inactive: "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
-  Completed: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
+  Incomplete: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300",
+  Complete: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
 };
 
 const INTENSITY_LABELS = ["", "Light", "Easy", "Moderate", "Intense", "Very Intense"];
@@ -627,7 +627,7 @@ export default function TrainerWorkoutPlans() {
     plan.plan_name?.toLowerCase().includes(query) ||
     plan.goal?.toLowerCase().includes(query) ||
     plan.member_name?.toLowerCase().includes(query)
-  ).filter((plan) => statusFilter === "All" || plan.status === statusFilter);
+  ).filter((plan) => statusFilter === "All" || plan.activity_status === statusFilter);
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
@@ -673,7 +673,7 @@ export default function TrainerWorkoutPlans() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
           { label: "Total plans", value: plans.length, color: "text-orange-600 dark:text-orange-400" },
-          { label: "Active plans", value: plans.filter((plan) => plan.status === "Active").length, color: "text-green-600 dark:text-green-400" },
+          { label: "Active plans", value: plans.filter((plan) => plan.activity_status === "Active").length, color: "text-green-600 dark:text-green-400" },
           { label: "Assigned to members", value: plans.filter((plan) => plan.member_name).length, color: "text-violet-600 dark:text-violet-400" },
         ].map((summary) => (
           <div key={summary.label} className="trainer-card rounded-2xl border p-4">
@@ -697,7 +697,7 @@ export default function TrainerWorkoutPlans() {
       </label>
       <label className="sr-only" htmlFor="trainer-plan-status">Filter plans by status</label>
       <select id="trainer-plan-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
-        {["All", "Active", "Inactive", "Completed"].map((status) => <option key={status} value={status}>{status === "All" ? "All statuses" : status}</option>)}
+        {["All", "Active", "Incomplete", "Complete"].map((status) => <option key={status} value={status}>{status === "All" ? "All statuses" : status}</option>)}
       </select>
       </div>
 
@@ -713,7 +713,7 @@ export default function TrainerWorkoutPlans() {
             <table className="w-full text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/70">
                 <tr>
-                  {["Plan Name", "Goal", "Member", "Workout Date", "Routine", "Status", "Actions"].map((heading) => (
+                  {["Plan Name", "Goal", "Member", "Workout Date", "Completed / Total", "Status", "Actions"].map((heading) => (
                     <th key={heading} className="whitespace-nowrap px-5 py-4 font-semibold text-slate-600 dark:text-slate-300">
                       {heading}
                     </th>
@@ -731,6 +731,7 @@ export default function TrainerWorkoutPlans() {
                   </tr>
                 ) : filtered.map((plan) => {
                   const pastWorkoutDate = isPastWorkoutPlan(plan);
+                  const planLocked = Boolean(plan.has_started || pastWorkoutDate);
                   return (
                   <tr key={plan.workout_plan_id} className="hover:bg-orange-500/5">
                     <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-800 dark:text-white">{plan.plan_name}</td>
@@ -739,15 +740,17 @@ export default function TrainerWorkoutPlans() {
                     <td className="whitespace-nowrap px-5 py-4 text-slate-500">
                       {plan.scheduled_date ? new Date(`${plan.scheduled_date}T00:00:00`).toLocaleDateString() : "—"}
                     </td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.exercise_count || 0} exercises</td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      {Number(plan.completed_count) || 0} / {Number(plan.exercise_count) || 0} completed
+                    </td>
                     <td className="px-5 py-4">
-                      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusColors[plan.status] || statusColors.Inactive}`}>
-                        {plan.status || "Inactive"}
+                      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusColors[plan.activity_status] || statusColors.Active}`}>
+                        {plan.activity_status || "Active"}
                       </span>
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1">
-                        {plan.user_id && !plan.has_started && !pastWorkoutDate && (
+                        {plan.user_id && !planLocked && (
                           <button
                             type="button"
                             onClick={() => handleEdit(plan)}
@@ -758,11 +761,11 @@ export default function TrainerWorkoutPlans() {
                             <Pencil size={16} />
                           </button>
                         )}
-                        {pastWorkoutDate && (
+                        {planLocked && (
                           <span
                             className="inline-flex items-center gap-1 px-2 text-xs text-slate-500"
-                            title="Workout dates in the past are locked."
-                            aria-label="Workout date has passed; plan is locked"
+                            title={plan.has_started ? "This workout has started or finished and is locked." : "Workout dates in the past are locked."}
+                            aria-label="Workout plan is locked"
                           >
                             <LockKeyhole size={15} /> Locked
                           </span>
@@ -770,9 +773,9 @@ export default function TrainerWorkoutPlans() {
                         <button
                           type="button"
                           onClick={() => handleDelete(plan)}
-                          disabled={pastWorkoutDate}
+                          disabled={planLocked}
                           aria-label={`Delete ${plan.plan_name}`}
-                          title={pastWorkoutDate ? "Past workout plans are locked." : "Delete workout plan"}
+                          title={planLocked ? "Started, completed, or past workout plans are locked." : "Delete workout plan"}
                           className="rounded-lg p-2 text-red-400 transition hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Trash2 size={16} />

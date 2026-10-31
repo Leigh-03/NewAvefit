@@ -4,6 +4,12 @@ import { useNavigate } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 
+const sanitizeNumberInput = (value) => {
+  const cleaned = value.replace(/[^\d.]/g, "");
+  const [whole, ...fraction] = cleaned.split(".");
+  return fraction.length ? `${whole}.${fraction[0]}` : whole;
+};
+
 export default function Assessment() {
   const navigate = useNavigate();
   const { user } = useUserAuth();
@@ -126,11 +132,12 @@ export default function Assessment() {
           <div className="relative">
             <input
               id={f.key}
-              type="number"
-              step={f.key === "age" ? 1 : "any"}
+              type="text"
+              inputMode={f.key === "age" ? "numeric" : "decimal"}
+              pattern="[0-9]*[.]?[0-9]*"
               value={f.value}
               onChange={(e) => {
-                f.setter(e.target.value);
+                f.setter(sanitizeNumberInput(e.target.value));
                 setFieldErrors((errors) => ({ ...errors, [f.key]: "" }));
                 setFormError("");
                 setCalculated(false);
