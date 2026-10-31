@@ -632,14 +632,6 @@ export default function Trainers() {
     fetchTrainers();
   };
 
-  const handleReject = async (id) => {
-    const trainer = trainers.find((row) => Number(row.trainer_id) === Number(id));
-    if (trainer) {
-      setTrainerAction({ kind: "reject", trainer });
-      setTrainerActionError("");
-    }
-  };
-
   const handleRemove = async (trainer) => {
     setTrainerAction({ kind: "remove", trainer });
     setTrainerActionError("");
@@ -650,16 +642,11 @@ export default function Trainers() {
     setTrainerActionLoading(true);
     setTrainerActionError("");
     try {
-      if (trainerAction.kind === "remove") {
-        await api.delete(`/trainers/${trainerAction.trainer.trainer_id}`);
-      } else {
-        await api.put(`/trainers/${trainerAction.trainer.trainer_id}/reject`);
-      }
+      await api.delete(`/trainers/${trainerAction.trainer.trainer_id}`);
       setTrainerAction(null);
       fetchTrainers();
     } catch (err) {
-      const action = trainerAction.kind === "remove" ? "remove this trainer" : "reject this trainer";
-      setTrainerActionError(err.response?.data?.message || `Failed to ${action}. Please try again.`);
+      setTrainerActionError(err.response?.data?.message || "Failed to remove this trainer. Please try again.");
     } finally {
       setTrainerActionLoading(false);
     }
@@ -726,13 +713,9 @@ export default function Trainers() {
 
       {trainerAction && (
         <ConfirmDialog
-          title={trainerAction.kind === "remove"
-            ? `Permanently remove ${trainerAction.trainer.full_name}?`
-            : `Reject ${trainerAction.trainer.full_name}?`}
-          description={trainerAction.kind === "remove"
-            ? "This permanently deletes the trainer account. Existing member and workout assignments will be unassigned."
-            : "This will mark the trainer account as rejected so they cannot access the coach portal."}
-          confirmLabel={trainerAction.kind === "remove" ? "Remove trainer" : "Reject trainer"}
+          title={`Permanently remove ${trainerAction.trainer.full_name}?`}
+          description="This permanently deletes the trainer account. Existing member and workout assignments will be unassigned."
+          confirmLabel="Remove trainer"
           isLoading={trainerActionLoading}
           error={trainerActionError}
           onCancel={() => {
@@ -784,7 +767,7 @@ export default function Trainers() {
           />
         </label>
         <div className="flex gap-2 overflow-x-auto" role="group" aria-label="Filter trainers by status">
-          {["All","Active","Pending","Inactive","Rejected"].map(status=><button key={status} type="button" aria-pressed={statusFilter===status} onClick={()=>setStatusFilter(status)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${statusFilter===status?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300"}`}>{status}{status==="Pending"&&pendingCount?` (${pendingCount})`:""}</button>)}
+          {["All","Active","Pending","Inactive"].map(status=><button key={status} type="button" aria-pressed={statusFilter===status} onClick={()=>setStatusFilter(status)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${statusFilter===status?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300"}`}>{status}{status==="Pending"&&pendingCount?` (${pendingCount})`:""}</button>)}
         </div>
       </div>
 
@@ -890,10 +873,7 @@ export default function Trainers() {
                           <Edit2 size={16} />
                         </button>
                         {trainer.status === "Pending" && (
-                          <>
-                            <button onClick={() => handleApprove(trainer.trainer_id)} className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition" title="Approve"><UserCheck size={16} /></button>
-                            <button onClick={() => handleReject(trainer.trainer_id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition" title="Reject"><XCircle size={16} /></button>
-                          </>
+                          <button onClick={() => handleApprove(trainer.trainer_id)} className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition" title="Approve"><UserCheck size={16} /></button>
                         )}
                         {trainer.status === "Active" && (
                           <button
