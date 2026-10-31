@@ -105,9 +105,9 @@ function DashboardProtectedRoute({ children }) {
 
 function TrainerProtectedRoute({ children }) {
   const token = sessionStorage.getItem("avefit_trainer_token");
-  if (!token) return <Navigate to="/trainer/login" replace />;
+  if (!token) return <Navigate to="/coach/login" replace />;
   const savedTrainer = JSON.parse(localStorage.getItem("avefit_trainer") || "null");
-  if (savedTrainer?.status && savedTrainer.status !== "Active") return <Navigate to="/trainer/login" replace />;
+  if (savedTrainer?.status && savedTrainer.status !== "Active") return <Navigate to="/coach/login" replace />;
   return children;
 }
 
@@ -158,6 +158,7 @@ export default function App() {
         />
 
         {/* Trainer Portal */}
+        <Route path="/coach/login" element={<TrainerLogin />} />
         <Route path="/trainer/login" element={<TrainerLogin />} />
         <Route
           path="/trainer/*"
