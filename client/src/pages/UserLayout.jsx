@@ -8,7 +8,7 @@ const NAV = [
   { to: "/user/workout", icon: Home, label: "Home" },
   { to: "/user/exercises", icon: Dumbbell, label: "Exercises" },
   { to: "/user/progress", icon: TrendingUp, label: "Progress" },
-  { to: "/coach", icon: UsersRound, label: "Coaches" },
+  { to: "/user/coaches", icon: UsersRound, label: "Coaches" },
   { to: "/user/about", icon: Info, label: "About" },
   { to: "/user/profile", icon: User, label: "Profile" },
 ];
