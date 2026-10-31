@@ -20,6 +20,10 @@ const EXPERIENCE_RANGES = {
   Intermediate: { min: 3, max: 5 },
   Advanced: { min: 4, max: 6 },
 };
+const normalizeDuration = (value) => {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return DURATION_OPTIONS.some((option) => option.value === parsed) ? parsed : "";
+};
 
 const readDraft = () => {
   try {
@@ -34,7 +38,7 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
   const hasContinue = Boolean(onContinue);
   const [availability, setAvailability] = useState([]);
   const [daysPerWeek, setDaysPerWeek] = useState("");
-  const [duration, setDuration] = useState(60);
+  const [duration, setDuration] = useState("");
   const [level, setLevel] = useState(experienceLevel || "Beginner");
   const [setupComplete, setSetupComplete] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -59,7 +63,7 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
           saved.workout_days_per_week ??
           range.min
         ));
-        setDuration(Number(draft?.duration ?? saved.workout_duration ?? 60));
+        setDuration(normalizeDuration(draft?.duration ?? saved.workout_duration));
       })
       .catch((err) => {
         console.error("Weekly availability load failed:", err);
@@ -111,6 +115,10 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
     setNotice("");
     if (frequencyMessage) {
       setError(frequencyMessage);
+      return;
+    }
+    if (!duration) {
+      setError("Choose a preferred workout session duration.");
       return;
     }
     if (availability.length === 0) {
@@ -246,9 +254,14 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
               <select
                 value={duration}
                 disabled={readOnly}
-                onChange={(event) => setDuration(Number(event.target.value))}
+                required
+                onChange={(event) => {
+                  setDuration(normalizeDuration(event.target.value));
+                  setError("");
+                }}
                 className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-900 dark:border-white/10 dark:bg-[#111] dark:text-white"
               >
+                <option value="" disabled>Choose a session duration</option>
                 {DURATION_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>{option.label} – {option.detail}</option>
                 ))}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BadgeCheck, Briefcase, ChevronLeft, ChevronRight, Sparkles, User, X } from "lucide-react";
+import { BadgeCheck, Briefcase, ChevronLeft, ChevronRight, Search, Sparkles, User, X } from "lucide-react";
 import ScrollReveal from "../components/ScrollReveal";
 import userApi from "../userApi";
 
@@ -173,6 +173,7 @@ export default function Coaches() {
   const [i, setI] = useState(0);
   const [touch, setTouch] = useState(null);
   const [goal, setGoal] = useState("General Fitness");
+  const [search, setSearch] = useState("");
   const [assignedTrainerId, setAssignedTrainerId] = useState(null);
   const [profileTrainer, setProfileTrainer] = useState(null);
   const [error, setError] = useState("");
@@ -204,10 +205,21 @@ export default function Coaches() {
     return () => { mounted = false; };
   }, []);
 
-  const ranked = useMemo(() => [...coaches].sort((a, b) => score(b, goal) - score(a, goal)), [coaches, goal]);
+  const ranked = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return [...coaches]
+      .filter((coach) => !term || [
+        coach.full_name,
+        coach.goal_specialty,
+        coach.bio,
+        ...(coach.specializations || []),
+      ].filter(Boolean).join(" ").toLowerCase().includes(term))
+      .sort((a, b) => score(b, goal) - score(a, goal));
+  }, [coaches, goal, search]);
   const t = ranked[i];
 
   useEffect(() => { if (i >= ranked.length && ranked.length) setI(0); }, [ranked.length, i]);
+  useEffect(() => { setI(0); }, [search]);
 
   return (
     <div className="min-h-full bg-[#fffaf5] p-5 text-slate-900 dark:bg-[#080808] dark:text-white sm:p-8">
@@ -228,6 +240,17 @@ export default function Coaches() {
             </span>
           </div>
         </div>
+        <label className="mt-5 flex min-h-11 max-w-xl items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 dark:border-white/10 dark:bg-white/[0.03]">
+          <Search size={18} className="shrink-0 text-slate-400" aria-hidden="true" />
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search coaches by name or specialty..."
+            aria-label="Search coaches by name or specialty"
+            className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-white"
+          />
+        </label>
       </header>
       {assignedTrainerId && <div className="mb-5 flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-500/20 dark:bg-green-500/[0.08] dark:text-green-300"><BadgeCheck size={19} className="mt-0.5 shrink-0" /><p>Your designated coach is marked as <b>Assigned Coach</b>. Coach changes are managed by the gym administrator.</p></div>}
       {error && <div className="mb-4 rounded-xl bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">{error}</div>}
@@ -239,8 +262,12 @@ export default function Coaches() {
       ) : !t ? (
         <div className="mx-auto max-w-2xl rounded-3xl border border-dashed border-orange-200 bg-white px-6 py-14 text-center dark:border-white/10 dark:bg-[#111]">
           <User size={32} className="mx-auto text-orange-500" />
-          <h2 className="mt-4 text-lg font-bold text-slate-900 dark:text-white">No active coaches yet</h2>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500 dark:text-slate-400">Coach profiles will appear here when they are available. Please check back later or contact the gym team for help.</p>
+          <h2 className="mt-4 text-lg font-bold text-slate-900 dark:text-white">{search.trim() ? "No coaches found" : "No active coaches yet"}</h2>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+            {search.trim()
+              ? `No coach profiles match “${search.trim()}”. Try another name or specialty.`
+              : "Coach profiles will appear here when they are available. Please check back later or contact the gym team for help."}
+          </p>
         </div>
       ) : (
         <section aria-label="Browse coach profiles" aria-roledescription="carousel" className="mx-auto max-w-3xl">
@@ -273,6 +300,11 @@ export default function Coaches() {
                   <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach profile</p>
                   <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">{t.full_name}</h2>
                   <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{t.goal_specialty || "General Fitness Coach"}</p>
+                  {score(t, goal) === 0 && (
+                    <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+                      This coach’s specialty may not match your selected goal. You can still view their profile.
+                    </p>
+                  )}
                 </div>
                 <span className="hidden shrink-0 rounded-xl bg-orange-50 p-3 text-orange-600 dark:bg-orange-500/10 dark:text-orange-400 sm:grid"><Briefcase size={20} /></span>
               </div>
@@ -284,7 +316,11 @@ export default function Coaches() {
                 </div>
               </div>
               <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">Matched with your <b className="text-slate-700 dark:text-slate-200">{goal}</b> goal</p>
+                <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                  {score(t, goal) > 0
+                    ? <>Matched with your <b className="text-slate-700 dark:text-slate-200">{goal}</b> goal</>
+                    : <>Explore this coach’s profile and specialties</>}
+                </p>
                 <button type="button" onClick={(e) => { e.stopPropagation(); setProfileTrainer(t); }} className="min-h-11 w-full rounded-xl bg-orange-500 px-5 text-sm font-bold text-white transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111] sm:w-auto">View coach profile</button>
               </div>
             </div>
