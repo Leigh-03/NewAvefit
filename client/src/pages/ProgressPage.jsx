@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from "chart.js";
 import { Line } from "react-chartjs-2";
-import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CheckCircle2, Scale, Target, TrendingUp } from "lucide-react";
+import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Scale, Target, TrendingUp } from "lucide-react";
 import userApi from "../userApi";
 import { useUserAuth } from "../context/UserAuthContext";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
@@ -18,6 +18,153 @@ const addDateDays = (dateKey, amount) => {
     String(date.getUTCDate()).padStart(2, "0"),
   ].join("-");
 };
+
+const formatDateInput = (dateKey) => {
+  const [year, month, day] = dateKey.split("-");
+  return `${day}/${month}/${year}`;
+};
+
+const shiftMonth = (monthKey, amount) => {
+  const [year, month] = monthKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1 + amount, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+};
+
+function AnalyticsDatePicker({
+  field,
+  from,
+  to,
+  today,
+  month,
+  onMonthChange,
+  onSelect,
+  onPreset,
+}) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const firstDay = new Date(Date.UTC(year, monthNumber - 1, 1));
+  const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const leadingDays = firstDay.getUTCDay();
+  const dates = [
+    ...Array.from({ length: leadingDays }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, index) => (
+      `${month}-${String(index + 1).padStart(2, "0")}`
+    )),
+  ];
+  const selectedDate = field === "from" ? from : to;
+  const monthLabel = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(firstDay);
+
+  const isDisabled = (date) => (
+    field === "from"
+      ? date >= today
+      : date <= from || date > today
+  );
+  const choosePreset = (preset) => {
+    let start;
+    if (preset === "week") {
+      const monday = philippinesMondayString();
+      start = monday < today ? monday : addDateDays(today, -7);
+    } else if (preset === "month") {
+      const firstOfMonth = `${today.slice(0, 7)}-01`;
+      start = firstOfMonth < today ? firstOfMonth : addDateDays(today, -1);
+    } else {
+      const firstOfYear = `${today.slice(0, 4)}-01-01`;
+      start = firstOfYear < today ? firstOfYear : addDateDays(today, -1);
+    }
+    onPreset(start, today);
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-label={field === "from" ? "Choose start date" : "Choose end date"}
+      className="absolute right-0 top-full z-30 mt-2 w-[min(21rem,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-white/10 dark:bg-[#151515]"
+    >
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="text-sm font-bold text-slate-900 dark:text-white">
+          {field === "from" ? "Select start date" : "Select end date"}
+        </p>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onMonthChange(shiftMonth(month, -1))}
+            aria-label="Previous month"
+            className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
+          >
+            <ChevronLeft size={17} />
+          </button>
+          <span className="min-w-28 text-center text-xs font-semibold text-slate-700 dark:text-slate-200">
+            {monthLabel}
+          </span>
+          <button
+            type="button"
+            onClick={() => onMonthChange(shiftMonth(month, 1))}
+            aria-label="Next month"
+            className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/10"
+          >
+            <ChevronRight size={17} />
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-2 grid grid-cols-7 text-center text-[10px] font-semibold uppercase text-slate-400">
+        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
+          <span key={day} className="py-1">{day}</span>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {dates.map((date, index) => {
+          if (!date) return <span key={`empty-${index}`} />;
+          const disabled = isDisabled(date);
+          const isSelected = date === selectedDate;
+          const isInRange = date >= from && date <= to;
+          return (
+            <button
+              key={date}
+              type="button"
+              onClick={() => !disabled && onSelect(date)}
+              disabled={disabled}
+              aria-label={formatDateInput(date)}
+              aria-pressed={isSelected}
+              className={`grid aspect-square place-items-center rounded-lg text-xs transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${
+                isSelected
+                  ? "bg-orange-500 font-bold text-white"
+                  : isInRange
+                    ? "bg-orange-500/10 text-orange-700 dark:text-orange-300"
+                    : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/10"
+              } disabled:cursor-not-allowed disabled:opacity-30`}
+            >
+              {Number(date.slice(-2))}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 border-t border-slate-200 pt-3 dark:border-white/10">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Quick range</p>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            ["week", "This week"],
+            ["month", "This month"],
+            ["year", "This year"],
+          ].map(([preset, label]) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => choosePreset(preset)}
+              className="rounded-lg border border-slate-200 px-2 py-2 text-[11px] font-semibold text-slate-600 transition hover:border-orange-400 hover:text-orange-600 dark:border-white/10 dark:text-slate-300 dark:hover:text-orange-400"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const weightInput = (val, prev = "") => {
   const cleaned = String(val || "").replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
@@ -36,6 +183,9 @@ export default function ProgressPage() {
   const [loadError, setLoadError] = useState("");
   const [analyticsFrom, setAnalyticsFrom] = useState(() => addDateDays(philippinesDateString(), -7));
   const [analyticsTo, setAnalyticsTo] = useState(() => philippinesDateString());
+  const [openDateField, setOpenDateField] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(() => philippinesDateString().slice(0, 7));
+  const datePickerRef = useRef(null);
 
   // Log form
   const [logForm, setLogForm] = useState({ weight: "", bmi: "" });
@@ -70,6 +220,22 @@ export default function ProgressPage() {
   }, []);
 
   useEffect(() => { fetchProgress(); }, [fetchProgress]);
+
+  useEffect(() => {
+    if (!openDateField) return undefined;
+    const handlePointerDown = (event) => {
+      if (!datePickerRef.current?.contains(event.target)) setOpenDateField("");
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setOpenDateField("");
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openDateField]);
 
   // Auto-calc BMI when weight changes
   const handleWeightChange = (val) => {
@@ -241,16 +407,18 @@ export default function ProgressPage() {
     : null;
 
   return (
-    <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
+    <div className="min-h-screen bg-[#fffaf5] text-slate-900 dark:bg-[#080808] dark:text-white">
       {/* Header */}
-      <div className="ave-page-hero px-4 pt-8 pb-6 border-b border-orange-100 dark:border-white/5 sm:px-6 sm:pt-10 sm:pb-7">
-        <h1 className="text-2xl font-black text-slate-900 dark:text-white">Your Progress</h1>
-        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-          Your training, body metrics, and progress toward your goals in one place.
-        </p>
+      <div className="mx-auto max-w-[1440px] px-4 pt-8 sm:px-6 sm:pt-10">
+        <div className="ave-page-hero border-b border-orange-100 pb-6 dark:border-white/5 sm:pb-7">
+          <h1 className="text-2xl font-black text-slate-900 dark:text-white">Your Progress</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Your training, body metrics, and progress toward your goals in one place.
+          </p>
+        </div>
       </div>
 
-      <div className="space-y-6 px-4 py-5 sm:px-6 sm:py-6">
+      <div className="mx-auto max-w-[1440px] space-y-6 px-4 py-5 sm:px-6 sm:py-6">
         {loadError && (
           <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
             {loadError}
@@ -265,10 +433,10 @@ export default function ProgressPage() {
           </div>
         ) : (
           <>
-            <section aria-label="Progress analytics" className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <section aria-label="Progress analytics" className="rounded-3xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <h2 className="font-bold text-slate-900 dark:text-white">Progress analytics</h2>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">Progress analytics</h2>
                   <p className="mt-1 text-xs text-slate-500">
                     {formatPhilippinesDate(analyticsRange.start, { month: "short", day: "numeric", year: "numeric" })}
                     {" – "}
@@ -276,51 +444,67 @@ export default function ProgressPage() {
                     {" · Philippines time"}
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:min-w-[360px]">
-                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500">
-                    From
-                    <input
-                      type="date"
-                      value={analyticsFrom}
-                      max={addDateDays(today, -1)}
-                      onChange={(event) => {
-                        const nextFrom = event.target.value;
-                        if (!nextFrom || nextFrom >= today) return;
-                        setAnalyticsFrom(nextFrom);
-                        if (analyticsTo <= nextFrom) setAnalyticsTo(today);
+                <div ref={datePickerRef} className="relative grid grid-cols-2 gap-2 sm:min-w-[360px]">
+                  {[
+                    ["from", "From", analyticsFrom],
+                    ["to", "To", analyticsTo],
+                  ].map(([field, label, date]) => (
+                    <div key={field}>
+                      <span className="mb-1 block text-[11px] font-semibold text-slate-500">{label}</span>
+                      <button
+                        type="button"
+                        aria-haspopup="dialog"
+                        aria-expanded={openDateField === field}
+                        onClick={() => {
+                          setCalendarMonth(date.slice(0, 7));
+                          setOpenDateField((current) => current === field ? "" : field);
+                        }}
+                        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-xs font-semibold text-slate-800 transition hover:border-orange-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+                      >
+                        {formatDateInput(date)}
+                        <CalendarDays size={16} className="text-slate-400" />
+                      </button>
+                    </div>
+                  ))}
+                  {openDateField && (
+                    <AnalyticsDatePicker
+                      field={openDateField}
+                      from={analyticsFrom}
+                      to={analyticsTo}
+                      today={today}
+                      month={calendarMonth}
+                      onMonthChange={setCalendarMonth}
+                      onSelect={(date) => {
+                        if (openDateField === "from") {
+                          setAnalyticsFrom(date);
+                          if (analyticsTo <= date) setAnalyticsTo(today);
+                        } else {
+                          setAnalyticsTo(date);
+                        }
+                        setOpenDateField("");
                       }}
-                      className="min-h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500">
-                    To
-                    <input
-                      type="date"
-                      value={analyticsTo}
-                      min={addDateDays(analyticsFrom, 1)}
-                      max={today}
-                      onChange={(event) => {
-                        const nextTo = event.target.value;
-                        if (nextTo > analyticsFrom && nextTo <= today) setAnalyticsTo(nextTo);
+                      onPreset={(start, end) => {
+                        setAnalyticsFrom(start);
+                        setAnalyticsTo(end);
+                        setOpenDateField("");
                       }}
-                      className="min-h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
                     />
-                  </label>
+                  )}
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-1 gap-3 min-[480px]:grid-cols-3">
-                <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
+              <div className="mt-5 grid grid-cols-1 gap-3 min-[480px]:grid-cols-3">
+                <div className="min-h-[92px] rounded-2xl bg-slate-50 p-4 dark:bg-[#151515]">
                   <p className="text-lg font-bold text-slate-900 dark:text-white">{periodLogs.length}</p>
                   <p className="text-[11px] leading-snug text-slate-500">Progress check-ins</p>
                 </div>
-                <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
+                <div className="min-h-[92px] rounded-2xl bg-slate-50 p-4 dark:bg-[#151515]">
                   <p className="text-lg font-bold text-slate-900 dark:text-white">
                     {periodWeightChange == null ? "—" : `${periodWeightChange > 0 ? "+" : ""}${periodWeightChange} kg`}
                   </p>
                   <p className="text-[11px] leading-snug text-slate-500">Weight change</p>
                 </div>
-                <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
+                <div className="min-h-[92px] rounded-2xl bg-slate-50 p-4 dark:bg-[#151515]">
                   <p className="text-lg font-bold text-slate-900 dark:text-white">{periodWorkoutRate == null ? "—" : `${periodWorkoutRate}%`}</p>
                   <p className="text-[11px] leading-snug text-slate-500">Workout completion</p>
                   <p className="mt-1 text-[10px] leading-snug text-slate-500">
@@ -351,7 +535,7 @@ export default function ProgressPage() {
                   )}
                 </div>
               ) : (
-                <div className="mt-4 rounded-xl border border-dashed border-orange-200 px-4 py-8 text-center dark:border-white/10">
+                <div className="mt-5 flex min-h-[164px] flex-col items-center justify-center rounded-2xl border border-dashed border-orange-200 px-4 py-8 text-center dark:border-white/10">
                   <Activity size={22} className="mx-auto mb-2 text-orange-500" />
                   <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">No check-ins in this period</p>
                   <p className="mt-1 text-xs text-slate-500">Log a measurement during this period to see your trends here.</p>

@@ -128,6 +128,14 @@ function escapeHtml(value) {
   })[char]);
 }
 
+function formatEmailTime(value) {
+  const match = String(value ?? "").match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d(?:\.\d+)?)?$/);
+  if (!match) return String(value ?? "");
+  const hours = Number(match[1]);
+  const minutes = match[2];
+  return `${hours % 12 || 12}:${minutes} ${hours >= 12 ? "PM" : "AM"}`;
+}
+
 function verificationEmail({ firstName, code }) {
   const name = escapeHtml(firstName || "there");
   const safeCode = escapeHtml(code);
@@ -265,7 +273,7 @@ async function sendCoachAssignmentEmail({
   const safeMemberName = escapeHtml(memberName || "A new member");
   const safeMemberEmail = escapeHtml(memberEmail || "");
   const availability = weeklyAvailability.map((slot) => (
-    `${slot.day_of_week}: ${slot.start_time}–${slot.end_time}`
+    `${slot.day_of_week}: ${formatEmailTime(slot.start_time)}–${formatEmailTime(slot.end_time)}`
   ));
   const safeAvailability = availability.length
     ? availability.map(escapeHtml).join("; ")
@@ -816,6 +824,7 @@ module.exports = {
   sendVerificationEmail,
   sendWorkoutPlanReadyEmail,
   sendCoachAssignmentEmail,
+  formatEmailTime,
   sendUserCoachAssignedEmail,
   sendNoWorkoutReminderEmail,
   sendWeeklyBmiReminderEmail,

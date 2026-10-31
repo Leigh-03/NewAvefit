@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ClipboardList, LockKeyhole, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import trainerApi from "../trainerApi";
+import { formatWorkoutTime, getCompatibleWorkoutStartTimes } from "../utils/workoutSchedule";
 
 const statusColors = {
   Active: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
@@ -93,12 +94,13 @@ const isPreferredWorkoutDate = (date, preferredDays) => {
   return preferences.includes(dayNames[weekday].toLowerCase());
 };
 
-function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
+function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose, onSave }) {
   const [form, setForm] = useState(() => plan ? {
     user_id: String(plan.user_id),
     plan_name: plan.plan_name || "",
     goal: plan.goal || "",
     session_date: plan.scheduled_date || "",
+    session_start_time: String(plan.scheduled_start_time || "").slice(0, 5),
     sessions: (plan.sessions || []).map((session) => ({
       exercise_id: String(session.exercise_id || ""),
       sets: String(session.sets ?? ""),
@@ -109,6 +111,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
     plan_name: "",
     goal: "",
     session_date: "",
+    session_start_time: "",
     sessions: [],
   });
   const [saving, setSaving] = useState(false);
@@ -123,12 +126,33 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
     && String(item.workout_plan_id) !== String(plan?.workout_plan_id)
   );
   const availableDays = toList(selectedMember?.preferred_days);
+  const compatibleStartTimes = getCompatibleWorkoutStartTimes(
+    selectedMember,
+    coachAvailability,
+    form.session_date
+  );
+  const compatibleStartTimesKey = compatibleStartTimes.join(",");
   const preferredDifficulty = EXERCISE_DIFFICULTIES.find(
     (difficulty) => difficultyRank(difficulty) === allowedDifficultyRank(selectedMember?.activity_level)
   );
   const matchingExercises = preferredDifficulty
     ? exercises.filter((exercise) => isExerciseAllowedForMember(exercise, selectedMember?.activity_level))
     : [];
+
+  useEffect(() => {
+    const availableTimes = compatibleStartTimesKey ? compatibleStartTimesKey.split(",") : [];
+    if (!availableTimes.length && form.session_start_time) {
+      setForm((current) => ({ ...current, session_start_time: "" }));
+      return;
+    }
+    if (
+      availableTimes.length &&
+      !availableTimes.includes(form.session_start_time)
+    ) {
+      setForm((current) => ({ ...current, session_start_time: availableTimes[0] }));
+      setFieldErrors((current) => ({ ...current, session_start_time: "" }));
+    }
+  }, [compatibleStartTimesKey, form.session_start_time]);
 
   const setFieldError = (field, message) => {
     setFieldErrors((current) => ({ ...current, [field]: message }));
@@ -166,6 +190,13 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
     if (!planName) nextErrors.plan_name = "Plan name is required.";
     if (!form.goal.trim()) nextErrors.goal = "Goal is required. Enter the member's assessment goal.";
     if (!form.session_date) nextErrors.session_date = "Workout date is required.";
+    if (!form.session_start_time) {
+      nextErrors.session_start_time = compatibleStartTimes.length
+        ? "Choose a session start time."
+        : "No available start time matches the member's saved availability and the coach's schedule.";
+    } else if (!compatibleStartTimes.includes(form.session_start_time)) {
+      nextErrors.session_start_time = "Choose a start time that fits the member's availability and the coach's schedule.";
+    }
     if (existingPlanOnDate) {
       nextErrors.session_date = "A workout plan already exists for this member on that date. Edit the existing plan instead.";
     }
@@ -263,11 +294,14 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                   const reservedDates = plans
                     .filter((item) => String(item.user_id) === event.target.value)
                     .map((item) => item.scheduled_date);
+                  const sessionDate = member ? nextPreferredDate(member.preferred_days, reservedDates) : "";
+                  const startTimes = getCompatibleWorkoutStartTimes(member, coachAvailability, sessionDate);
                   setForm({
                     ...form,
                     user_id: event.target.value,
                     goal,
-                    session_date: member ? nextPreferredDate(member.preferred_days, reservedDates) : "",
+                    session_date: sessionDate,
+                    session_start_time: startTimes[0] || "",
                     plan_name: form.plan_name || (member ? `${member.first_name}'s Workout Routine` : ""),
                     sessions: form.sessions.map((session) => {
                       const exercise = exercises.find((item) => String(item.exercise_id) === String(session.exercise_id));
@@ -281,6 +315,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                     user_id: "",
                     goal: goal.trim() ? "" : current.goal,
                     session_date: "",
+                    session_start_time: "",
                   }));
                   setError("");
                 }}
@@ -381,12 +416,17 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
               onChange={(event) => {
                 const sessionDate = event.target.value;
                 if (!isPreferredWorkoutDate(sessionDate, availableDays)) {
-                  setForm({ ...form, session_date: "" });
+                  setForm({ ...form, session_date: "", session_start_time: "" });
+                  setFieldErrors((current) => ({ ...current, session_start_time: "" }));
                   setFieldError("session_date", `Choose one of the member's preferred workout days: ${availableDays.join(", ")}.`);
                   return;
                 }
                 setForm({ ...form, session_date: sessionDate });
-                setFieldError("session_date", sessionDate ? "" : "Workout date is required.");
+                setFieldErrors((current) => ({
+                  ...current,
+                  session_date: sessionDate ? "" : "Workout date is required.",
+                  session_start_time: "",
+                }));
                 setError("");
               }}
               aria-invalid={Boolean(fieldErrors.session_date)}
@@ -403,6 +443,49 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                 Only assessment days are allowed: {availableDays.join(", ")}.
               </p>
             )}
+          </div>
+          <div>
+            <label htmlFor="trainer-plan-start-time" className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
+              Session Start Time *
+            </label>
+            <div className="relative">
+              <select
+                id="trainer-plan-start-time"
+                required
+                value={form.session_start_time}
+                disabled={!compatibleStartTimes.length}
+                onChange={(event) => {
+                  setForm({ ...form, session_start_time: event.target.value });
+                  setFieldError("session_start_time", event.target.value ? "" : "Choose a session start time.");
+                  setError("");
+                }}
+                aria-invalid={Boolean(fieldErrors.session_start_time)}
+                aria-describedby={fieldErrors.session_start_time ? "session_start_time-error" : undefined}
+                className={`${inputClass("session_start_time")} appearance-none pr-10`}
+              >
+                <option value="">
+                  {!selectedMember
+                    ? "Select a member first..."
+                    : !form.session_date
+                      ? "Select a workout date first..."
+                      : compatibleStartTimes.length
+                        ? "Choose a start time..."
+                        : "No compatible start times"}
+                </option>
+                {compatibleStartTimes.map((time) => (
+                  <option key={time} value={time}>{formatWorkoutTime(time)}</option>
+                ))}
+              </select>
+              <ChevronDown
+                aria-hidden="true"
+                size={18}
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500"
+              />
+            </div>
+            {renderFieldError("session_start_time")}
+            <p className="mt-1 text-xs text-slate-500">
+              Times follow the member’s saved availability and are shown in Philippine time. Session length is {selectedMember?.workout_duration || "—"} minutes.
+            </p>
           </div>
           <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
             <div className="mb-3 flex items-center justify-between">
@@ -576,6 +659,7 @@ export default function TrainerWorkoutPlans() {
   const [plans, setPlans] = useState([]);
   const [members, setMembers] = useState([]);
   const [exercises, setExercises] = useState([]);
+  const [coachAvailability, setCoachAvailability] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -586,14 +670,16 @@ export default function TrainerWorkoutPlans() {
   const fetchData = async () => {
     setFetchError("");
     try {
-      const [plansResponse, membersResponse, exercisesResponse] = await Promise.all([
+      const [plansResponse, membersResponse, exercisesResponse, availabilityResponse] = await Promise.all([
         trainerApi.get("/me/workout-plans"),
         trainerApi.get("/me/roster"),
         trainerApi.get("/me/exercises"),
+        trainerApi.get("/me/availability"),
       ]);
       setPlans(plansResponse.data.data || []);
       setMembers(membersResponse.data.data || []);
       setExercises(exercisesResponse.data.data || []);
+      setCoachAvailability(availabilityResponse.data.data || []);
     } catch (err) {
       console.error(err);
       setFetchError(err.response?.data?.message || err.message || "Couldn't load workout plans.");
@@ -638,6 +724,7 @@ export default function TrainerWorkoutPlans() {
           members={members}
           exercises={exercises}
           plans={plans}
+          coachAvailability={coachAvailability}
           plan={editingPlan}
           onClose={() => {
             setShowModal(false);
@@ -744,7 +831,7 @@ export default function TrainerWorkoutPlans() {
                           {new Date(`${plan.scheduled_date}T00:00:00`).toLocaleDateString()}
                           {plan.scheduled_start_time && (
                             <span className="mt-1 block text-xs text-slate-400">
-                              {String(plan.scheduled_start_time).slice(0, 5)}
+                              {formatWorkoutTime(plan.scheduled_start_time)}
                               {plan.scheduled_duration_minutes ? ` · ${plan.scheduled_duration_minutes} min` : ""}
                             </span>
                           )}
