@@ -46,7 +46,8 @@ const getAvailability = async (req, res) => {
   try {
     const [userResult, availabilityResult] = await Promise.all([
       pool.query(
-        `SELECT activity_level, workout_days_per_week, workout_duration, preferred_days, preferred_workout_time
+        `SELECT activity_level, workout_days_per_week, workout_duration, preferred_days,
+                preferred_workout_time, setup_completed
          FROM users WHERE user_id = $1`,
         [req.user.user_id]
       ),
@@ -81,6 +82,7 @@ const getAvailability = async (req, res) => {
         activity_level: user.activity_level || "Beginner",
         workout_days_per_week: user.workout_days_per_week,
         workout_duration: user.workout_duration,
+        setup_completed: user.setup_completed === true,
         availability,
       },
     });
@@ -114,7 +116,7 @@ const saveAvailability = async (req, res) => {
     client = await pool.connect();
     await client.query("BEGIN");
     const userResult = await client.query(
-      "SELECT activity_level, setup_completed, account_status FROM users WHERE user_id = $1 FOR UPDATE",
+      "SELECT activity_level, setup_completed FROM users WHERE user_id = $1 FOR UPDATE",
       [req.user.user_id]
     );
     if (!userResult.rowCount) {
@@ -123,12 +125,12 @@ const saveAvailability = async (req, res) => {
     }
 
     const user = userResult.rows[0];
-    if (requestedLevel !== undefined && (
-      user.setup_completed === true ||
-      String(user.account_status || "").toLowerCase() === "active"
-    )) {
+    if (user.setup_completed === true) {
       await client.query("ROLLBACK");
-      return res.status(403).json({ success: false, message: "Only a coach can update your experience level after account setup." });
+      return res.status(403).json({
+        success: false,
+        message: "Workout availability and experience level are locked after setup is complete.",
+      });
     }
     const activityLevel = requestedLevel || user.activity_level || "Beginner";
     const [minimum, maximum] = getExperienceRange(activityLevel);
