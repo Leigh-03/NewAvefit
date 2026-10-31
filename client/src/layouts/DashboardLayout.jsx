@@ -15,7 +15,7 @@ import useUnreadCount from "../components/layout/useUnreadCount";
 const NAV = [
   { to: "/admin/dashboard", icon: Home, label: "Dashboard" },
   { to: "/admin/members", icon: Users, label: "Members" },
-  { to: "/admin/coach", icon: UserCheck, label: "Coaches" },
+  { to: "/admin/trainers", icon: UserCheck, label: "Trainers" },
   { to: "/admin/workouts", icon: Dumbbell, label: "Exercises" },
   { to: "/admin/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/admin/notifications", icon: Bell, label: "Notifications", badge: true },
@@ -25,7 +25,7 @@ const NAV = [
 const PAGE_TITLES = {
   "/admin/dashboard": "Dashboard",
   "/admin/members": "Members",
-  "/admin/coach": "Coaches",
+  "/admin/trainers": "Trainers",
   "/admin/workouts": "Exercises",
   "/admin/nutrition": "Meal Plans",
   "/admin/analytics": "Analytics",

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BadgeCheck, Briefcase, ChevronLeft, ChevronRight, Search, Sparkles, User, X } from "lucide-react";
+import { BadgeCheck, Briefcase, ChevronLeft, ChevronRight, Sparkles, User, X } from "lucide-react";
 import ScrollReveal from "../components/ScrollReveal";
 import userApi from "../userApi";
 
@@ -173,7 +173,6 @@ export default function Coaches() {
   const [i, setI] = useState(0);
   const [touch, setTouch] = useState(null);
   const [goal, setGoal] = useState("General Fitness");
-  const [search, setSearch] = useState("");
   const [assignedTrainerId, setAssignedTrainerId] = useState(null);
   const [profileTrainer, setProfileTrainer] = useState(null);
   const [error, setError] = useState("");
@@ -205,21 +204,10 @@ export default function Coaches() {
     return () => { mounted = false; };
   }, []);
 
-  const ranked = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return [...coaches]
-      .filter((coach) => !term || [
-        coach.full_name,
-        coach.goal_specialty,
-        coach.bio,
-        ...(coach.specializations || []),
-      ].filter(Boolean).join(" ").toLowerCase().includes(term))
-      .sort((a, b) => score(b, goal) - score(a, goal));
-  }, [coaches, goal, search]);
+  const ranked = useMemo(() => [...coaches].sort((a, b) => score(b, goal) - score(a, goal)), [coaches, goal]);
   const t = ranked[i];
 
   useEffect(() => { if (i >= ranked.length && ranked.length) setI(0); }, [ranked.length, i]);
-  useEffect(() => { setI(0); }, [search]);
 
   return (
     <div className="min-h-full bg-[#fffaf5] p-5 text-slate-900 dark:bg-[#080808] dark:text-white sm:p-8">
@@ -240,17 +228,6 @@ export default function Coaches() {
             </span>
           </div>
         </div>
-        <label className="mt-5 flex min-h-11 max-w-xl items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 dark:border-white/10 dark:bg-white/[0.03]">
-          <Search size={18} className="shrink-0 text-slate-400" aria-hidden="true" />
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search coaches by name or specialty..."
-            aria-label="Search coaches by name or specialty"
-            className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-white"
-          />
-        </label>
       </header>
       <div className={`mb-5 flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${assignedTrainerId ? "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/[0.08] dark:text-green-300" : "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/[0.08] dark:text-orange-300"}`}>
         <BadgeCheck size={19} className="mt-0.5 shrink-0" />
@@ -269,12 +246,8 @@ export default function Coaches() {
       ) : !t ? (
         <div className="mx-auto max-w-2xl rounded-3xl border border-dashed border-orange-200 bg-white px-6 py-14 text-center dark:border-white/10 dark:bg-[#111]">
           <User size={32} className="mx-auto text-orange-500" />
-          <h2 className="mt-4 text-lg font-bold text-slate-900 dark:text-white">{search.trim() ? "No coaches found" : "No active coaches yet"}</h2>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-            {search.trim()
-              ? `No coach profiles match “${search.trim()}”. Try another name or specialty.`
-              : "Coach profiles will appear here when they are available. Please check back later or contact the gym team for help."}
-          </p>
+          <h2 className="mt-4 text-lg font-bold text-slate-900 dark:text-white">No active coaches yet</h2>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500 dark:text-slate-400">Coach profiles will appear here when they are available. Please check back later or contact the gym team for help.</p>
         </div>
       ) : (
         <section aria-label="Browse coach profiles" aria-roledescription="carousel" className="mx-auto max-w-3xl">

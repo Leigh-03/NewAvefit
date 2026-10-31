@@ -748,7 +748,7 @@ export default function Trainers() {
       <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">People management</p>
-          <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Coaches</h1>
+          <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Trainers</h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage coach accounts, specialties, and member rosters.</p>
         </div>
         <button
@@ -756,7 +756,7 @@ export default function Trainers() {
           className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
         >
           <Plus size={18} />
-          Add Coach
+          Add Trainer
         </button>
       </header>
 
