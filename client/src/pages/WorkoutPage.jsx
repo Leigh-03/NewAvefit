@@ -5,6 +5,7 @@ import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
 import { getWorkoutDayGroups } from "../utils/workoutSessions";
+import { formatWorkoutTime as formatScheduledWorkoutTime } from "../utils/workoutSchedule";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const WORKOUT_STATUS_STYLES = {
@@ -358,7 +359,7 @@ export default function WorkoutPage() {
                   <p className="text-xs text-slate-500 mt-0.5">{session.muscle_group || ""}</p>
                   {(session.scheduled_start_time || session.scheduled_duration_minutes) && (
                     <p className="mt-1 text-xs font-medium text-orange-600 dark:text-orange-300">
-                      {session.scheduled_start_time && `Starts at ${String(session.scheduled_start_time).slice(0, 5)}`}
+                      {session.scheduled_start_time && `Starts at ${formatScheduledWorkoutTime(session.scheduled_start_time)} (Philippine time)`}
                       {session.scheduled_start_time && session.scheduled_duration_minutes && " · "}
                       {session.scheduled_duration_minutes && `${session.scheduled_duration_minutes}-minute session`}
                     </p>

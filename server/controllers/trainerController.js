@@ -34,6 +34,27 @@ const timeToMinutes = (value) => {
 const minutesToTime = (value) =>
   `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 
+const getCoachCompatibleStartTimes = async (client, trainerId, dayOfWeek, memberSlot, duration) => {
+  const trainerSlots = await client.query(
+    `SELECT TO_CHAR(start_time, 'HH24:MI') AS start_time,
+            TO_CHAR(end_time, 'HH24:MI') AS end_time
+     FROM trainer_availability
+     WHERE trainer_id = $1 AND day_of_week = $2
+     ORDER BY start_time`,
+    [trainerId, dayOfWeek]
+  );
+  const startTimes = new Set();
+  for (const trainerSlot of trainerSlots.rows) {
+    const start = Math.max(timeToMinutes(memberSlot.start_time), timeToMinutes(trainerSlot.start_time));
+    const end = Math.min(timeToMinutes(memberSlot.end_time), timeToMinutes(trainerSlot.end_time));
+    const firstQuarterHour = Math.ceil(start / 15) * 15;
+    for (let candidate = firstQuarterHour; candidate + duration <= end; candidate += 15) {
+     startTimes.add(minutesToTime(candidate));
+    }
+  }
+  return [...startTimes].sort();
+};
+
 const getCoachCompatibleStartTime = async (client, trainerId, dayOfWeek, memberSlot, duration) => {
   const trainerSlots = await client.query(
     `SELECT TO_CHAR(start_time, 'HH24:MI') AS start_time,
@@ -1166,6 +1187,7 @@ const getMyRoster = async (req, res) => {
         u.preferred_workout_time,
         u.workout_days_per_week,
         u.workout_duration,
+        COALESCE(user_availability.slots, '[]'::json) AS weekly_availability,
         pl.weight AS latest_weight,
         pl.bmi AS latest_bmi,
         pl.log_date AS latest_log_date,
@@ -1403,6 +1425,7 @@ const createMyWorkoutPlan = async (req, res) => {
   const goal = typeof req.body.goal === "string" ? req.body.goal.trim() : "";
   const userId = Number(req.body.user_id);
   const sessionDate = req.body.session_date;
+  const requestedStartTime = req.body.session_start_time;
   const sessions = req.body.sessions;
 
   if (!planName) {
@@ -1535,21 +1558,24 @@ const createMyWorkoutPlan = async (req, res) => {
         message: "The member must set a valid preferred workout session duration before a plan can be scheduled.",
       });
     }
-    const scheduledStartTime = await getCoachCompatibleStartTime(
+    const compatibleStartTimes = await getCoachCompatibleStartTimes(
       client,
       trainerId,
       parsedSessionDate.getUTCDay(),
       scheduledAvailability,
       sessionDuration
     );
-    if (!scheduledStartTime) {
+    if (!compatibleStartTimes.includes(requestedStartTime)) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
+        message: compatibleStartTimes.length
+          ? "Choose a start time that fits both the member's saved availability and the coach's schedule."
+          : "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
       });
     }
+    const scheduledStartTime = requestedStartTime;
     const weeklyPlanCount = await client.query(
       `SELECT COUNT(DISTINCT wp.workout_plan_id)::int AS count
        FROM workout_plans wp
@@ -1710,6 +1736,7 @@ const updateMyWorkoutPlan = async (req, res) => {
   const planName = typeof req.body.plan_name === "string" ? req.body.plan_name.trim() : "";
   const goal = typeof req.body.goal === "string" ? req.body.goal.trim() : "";
   const sessionDate = req.body.session_date;
+  const requestedStartTime = req.body.session_start_time;
   const sessions = req.body.sessions;
 
   if (!Number.isInteger(planId) || planId < 1) {
@@ -1878,21 +1905,24 @@ const updateMyWorkoutPlan = async (req, res) => {
         message: "The member must set a valid preferred workout session duration before a plan can be scheduled.",
       });
     }
-    const scheduledStartTime = await getCoachCompatibleStartTime(
+    const compatibleStartTimes = await getCoachCompatibleStartTimes(
       client,
       trainerId,
       parsedSessionDate.getUTCDay(),
       scheduledAvailability,
       sessionDuration
     );
-    if (!scheduledStartTime) {
+    if (!compatibleStartTimes.includes(requestedStartTime)) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
+        message: compatibleStartTimes.length
+          ? "Choose a start time that fits both the member's saved availability and the coach's schedule."
+          : "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
       });
     }
+    const scheduledStartTime = requestedStartTime;
 
     const existingPlan = await client.query(
       `
