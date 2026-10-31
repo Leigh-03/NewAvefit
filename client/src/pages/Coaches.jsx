@@ -252,7 +252,14 @@ export default function Coaches() {
           />
         </label>
       </header>
-      {assignedTrainerId && <div className="mb-5 flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-500/20 dark:bg-green-500/[0.08] dark:text-green-300"><BadgeCheck size={19} className="mt-0.5 shrink-0" /><p>Your designated coach is marked as <b>Assigned Coach</b>. Coach changes are managed by the gym administrator.</p></div>}
+      <div className={`mb-5 flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${assignedTrainerId ? "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/[0.08] dark:text-green-300" : "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/[0.08] dark:text-orange-300"}`}>
+        <BadgeCheck size={19} className="mt-0.5 shrink-0" />
+        <p>
+          {assignedTrainerId
+            ? <>Your designated coach is marked as <b>Assigned Coach</b>. Coach changes are managed by the gym administrator.</>
+            : <>The gym administrator assigns your designated coach. To request an assignment or reassignment, contact the gym administrator.</>}
+        </p>
+      </div>
       {error && <div className="mb-4 rounded-xl bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">{error}</div>}
       {loading ? (
         <div className="mx-auto max-w-3xl animate-pulse overflow-hidden rounded-3xl border border-slate-200 bg-white dark:border-white/10 dark:bg-[#111]" aria-label="Loading coach profiles">

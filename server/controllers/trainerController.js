@@ -9,6 +9,7 @@ const {
   sendAccountPasswordChangedEmail,
   sendExperienceLevelChangedEmail,
 } = require("../utils/mailer");
+const { getCapacityStatus } = require("../utils/coachAssignment");
 
 const {
   validateEmail,
@@ -122,27 +123,49 @@ const getTrainers = async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT
-        trainer_id,
-        full_name,
-        email,
-        phone,
-        specializations,
-        profile_image,
-        status,
-        created_at,
-        updated_at,
-        goal_specialty,
-        photo_url,
-        bio,
-        (password IS NOT NULL AND password <> '') AS has_portal_access
-      FROM trainers
-      ORDER BY created_at DESC
+        t.trainer_id,
+        t.full_name,
+        t.email,
+        t.phone,
+        t.specializations,
+        t.profile_image,
+        t.status,
+        t.created_at,
+        t.updated_at,
+        t.goal_specialty,
+        t.photo_url,
+        t.bio,
+        t.max_members,
+        (t.password IS NOT NULL AND t.password <> '') AS has_portal_access,
+        (SELECT COUNT(*)::integer FROM users u WHERE u.trainer_id = t.trainer_id) AS assigned_member_count,
+        (
+          SELECT COALESCE(
+            json_agg(json_build_object(
+              'day_of_week', ta.day_of_week,
+              'start_time', TO_CHAR(ta.start_time, 'HH24:MI'),
+              'end_time', TO_CHAR(ta.end_time, 'HH24:MI')
+            ) ORDER BY ta.day_of_week, ta.start_time),
+            '[]'::json
+          )
+          FROM trainer_availability ta
+          WHERE ta.trainer_id = t.trainer_id
+        ) AS availability
+      FROM trainers t
+      ORDER BY t.created_at DESC
     `);
 
     res.json({
       success: true,
       data: result.rows.map((trainer) => ({
         ...trainer,
+        capacity_percent: trainer.max_members > 0
+          ? Math.round((trainer.assigned_member_count / trainer.max_members) * 100)
+          : 0,
+        capacity_status: getCapacityStatus(
+          trainer.assigned_member_count,
+          trainer.max_members,
+          trainer.status
+        ),
         specializations: specializationToArray(
           trainer.specializations
         ),
@@ -386,6 +409,9 @@ const createTrainer = async (req, res) => {
 // =========================================================
 
 const updateTrainer = async (req, res) => {
+  const client = await pool.connect();
+  let transactionStarted = false;
+  let passwordWasUpdated = false;
   try {
     const { id } = req.params;
 
@@ -483,10 +509,36 @@ const updateTrainer = async (req, res) => {
       });
     }
 
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const lockedTrainer = await client.query(
+      "SELECT trainer_id FROM trainers WHERE trainer_id = $1 FOR UPDATE",
+      [id]
+    );
+    if (!lockedTrainer.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(404).json({ success: false, message: "Coach not found." });
+    }
+    if (status !== "Active") {
+      const assigned = await client.query(
+        "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
+        [id]
+      );
+      if (assigned.rows[0].count > 0) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(409).json({
+          success: false,
+          message: `This coach still has ${assigned.rows[0].count} assigned member(s). Reassign them before deactivating the coach.`,
+        });
+      }
+    }
+
     if (password) {
       const hashed = await bcrypt.hash(password, 12);
 
-      const updateResult = await pool.query(
+      const updateResult = await client.query(
         `
         UPDATE trainers
         SET
@@ -516,22 +568,9 @@ const updateTrainer = async (req, res) => {
           id,
         ]
       );
-      if (updateResult.rowCount > 0) {
-        try {
-          const delivery = await sendAccountPasswordChangedEmail({
-            to: normalizeEmail(email),
-            accountName: String(full_name).trim(),
-            accountType: "coach",
-          });
-          if (!delivery.delivered) {
-            console.error(`Coach password change email was not delivered to ${normalizeEmail(email)}.`);
-          }
-        } catch (mailError) {
-          console.error("Coach password change email failed:", mailError.message);
-        }
-      }
+      passwordWasUpdated = updateResult.rowCount > 0;
     } else {
-      await pool.query(
+      await client.query(
         `
         UPDATE trainers
         SET
@@ -561,11 +600,29 @@ const updateTrainer = async (req, res) => {
       );
     }
 
+    await client.query("COMMIT");
+    transactionStarted = false;
+    if (passwordWasUpdated) {
+      try {
+        const delivery = await sendAccountPasswordChangedEmail({
+          to: normalizeEmail(email),
+          accountName: String(full_name).trim(),
+          accountType: "coach",
+        });
+        if (!delivery.delivered) {
+          console.error(`Coach password change email was not delivered to ${normalizeEmail(email)}.`);
+        }
+      } catch (mailError) {
+        console.error("Coach password change email failed:", mailError.message);
+      }
+    }
+
     res.json({
       success: true,
       message: "Trainer updated.",
     });
   } catch (err) {
+    if (transactionStarted) await client.query("ROLLBACK");
     console.error("updateTrainer error:", err.message);
 
     if (err.code === "23505") {
@@ -577,8 +634,10 @@ const updateTrainer = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: "Unable to update coach.",
     });
+  } finally {
+    client.release();
   }
 };
 
@@ -630,41 +689,65 @@ const approveTrainer = async (req, res) => {
 // =========================================================
 
 const rejectTrainer = async (req, res) => {
+  const client = await pool.connect();
+  let transactionStarted = false;
   try {
     const { id } = req.params;
 
-    const result = await pool.query(
-      `
-      UPDATE trainers
-      SET
-        status = 'Rejected',
-        token_version = COALESCE(token_version, 0) + 1,
-        updated_at = NOW()
-      WHERE trainer_id = $1
-      RETURNING trainer_id, status
-      `,
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const coach = await client.query(
+      "SELECT trainer_id FROM trainers WHERE trainer_id = $1 FOR UPDATE",
       [id]
     );
-
-    if (result.rows.length === 0) {
+    if (!coach.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
       return res.status(404).json({
         success: false,
-        message: "Trainer not found.",
+        message: "Coach not found.",
+      });
+    }
+    const assigned = await client.query(
+      "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
+      [id]
+    );
+    if (assigned.rows[0].count > 0) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: `This coach still has ${assigned.rows[0].count} assigned member(s). Reassign them before rejecting the account.`,
       });
     }
 
+    const result = await client.query(
+      `UPDATE trainers
+       SET status = 'Rejected',
+           token_version = COALESCE(token_version, 0) + 1,
+           updated_at = NOW()
+       WHERE trainer_id = $1
+       RETURNING trainer_id, status`,
+      [id]
+    );
+    await client.query("COMMIT");
+    transactionStarted = false;
+
     res.json({
       success: true,
-      message: "Trainer rejected.",
+      message: "Coach rejected.",
       trainer: result.rows[0],
     });
   } catch (err) {
+    if (transactionStarted) await client.query("ROLLBACK");
     console.error("rejectTrainer error:", err.message);
 
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: "Unable to reject coach.",
     });
+  } finally {
+    client.release();
   }
 };
 
@@ -673,41 +756,65 @@ const rejectTrainer = async (req, res) => {
 // =========================================================
 
 const deactivateTrainer = async (req, res) => {
+  const client = await pool.connect();
+  let transactionStarted = false;
   try {
     const { id } = req.params;
 
-    const result = await pool.query(
-      `
-      UPDATE trainers
-      SET
-        status = 'Inactive',
-        token_version = COALESCE(token_version, 0) + 1,
-        updated_at = NOW()
-      WHERE trainer_id = $1
-      RETURNING trainer_id, status
-      `,
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const coach = await client.query(
+      "SELECT trainer_id FROM trainers WHERE trainer_id = $1 FOR UPDATE",
       [id]
     );
-
-    if (result.rows.length === 0) {
+    if (!coach.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
       return res.status(404).json({
         success: false,
-        message: "Trainer not found.",
+        message: "Coach not found.",
+      });
+    }
+    const assigned = await client.query(
+      "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
+      [id]
+    );
+    if (assigned.rows[0].count > 0) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: `This coach still has ${assigned.rows[0].count} assigned member(s). Reassign them before deactivation.`,
       });
     }
 
+    const result = await client.query(
+      `UPDATE trainers
+       SET status = 'Inactive',
+           token_version = COALESCE(token_version, 0) + 1,
+           updated_at = NOW()
+       WHERE trainer_id = $1
+       RETURNING trainer_id, status`,
+      [id]
+    );
+    await client.query("COMMIT");
+    transactionStarted = false;
+
     res.json({
       success: true,
-      message: "Trainer deactivated.",
+      message: "Coach deactivated.",
       trainer: result.rows[0],
     });
   } catch (err) {
+    if (transactionStarted) await client.query("ROLLBACK");
     console.error("deactivateTrainer error:", err.message);
 
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: "Unable to deactivate coach.",
     });
+  } finally {
+    client.release();
   }
 };
 
