@@ -6,6 +6,7 @@ const statusColors = {
   Active: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
   Incomplete: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300",
   Complete: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
+  Absent: "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300",
 };
 
 const INTENSITY_LABELS = ["", "Light", "Easy", "Moderate", "Intense", "Very Intense"];
@@ -697,7 +698,7 @@ export default function TrainerWorkoutPlans() {
       </label>
       <label className="sr-only" htmlFor="trainer-plan-status">Filter plans by status</label>
       <select id="trainer-plan-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
-        {["All", "Active", "Incomplete", "Complete"].map((status) => <option key={status} value={status}>{status === "All" ? "All statuses" : status}</option>)}
+        {["All", "Active", "Complete", "Incomplete", "Absent"].map((status) => <option key={status} value={status}>{status === "All" ? "All statuses" : status}</option>)}
       </select>
       </div>
 
@@ -738,7 +739,17 @@ export default function TrainerWorkoutPlans() {
                     <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.goal || "—"}</td>
                     <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.member_name || "Template"}</td>
                     <td className="whitespace-nowrap px-5 py-4 text-slate-500">
-                      {plan.scheduled_date ? new Date(`${plan.scheduled_date}T00:00:00`).toLocaleDateString() : "—"}
+                      {plan.scheduled_date ? (
+                        <>
+                          {new Date(`${plan.scheduled_date}T00:00:00`).toLocaleDateString()}
+                          {plan.scheduled_start_time && (
+                            <span className="mt-1 block text-xs text-slate-400">
+                              {String(plan.scheduled_start_time).slice(0, 5)}
+                              {plan.scheduled_duration_minutes ? ` · ${plan.scheduled_duration_minutes} min` : ""}
+                            </span>
+                          )}
+                        </>
+                      ) : "—"}
                     </td>
                     <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
                       {Number(plan.completed_count) || 0} / {Number(plan.exercise_count) || 0} completed

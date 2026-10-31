@@ -10,6 +10,7 @@ const {
 const { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
 const { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
 const { getActiveTrainers } = require("../controllers/trainerController");
+const workoutAvailabilityController = require("../controllers/userWorkoutAvailabilityController");
 const { submitMemberFeedback } = require("../controllers/feedbackController");
 const {
   userLoginLimiter, signupLimiter, verificationResendLimiter, verificationAttemptLimiter, feedbackLimiter,
@@ -35,6 +36,8 @@ router.get("/profile", verifyUser, getProfile);
 router.get("/profile/change-requests", verifyUser, getUserChangeRequests);
 router.put("/profile", verifyUser, updateProfile);
 router.put("/profile/photo", verifyUser, updatePhoto);
+router.get("/profile/availability", verifyUser, workoutAvailabilityController.getAvailability);
+router.put("/profile/availability", verifyUser, workoutAvailabilityController.saveAvailability);
 router.post("/feedback", verifyUser, feedbackLimiter, submitMemberFeedback);
 
 // Workouts

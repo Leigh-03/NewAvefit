@@ -9,12 +9,12 @@ const {
 const { getConfiguredAdminEmail } = require("./adminAccess");
 
 let pushConfigurationChecked = false;
-let pushConfigurationError = null;
+let pushConfigurationAvailable = false;
 let bmiReminderSmtpWarningLogged = false;
 let workoutReminderSmtpWarningLogged = false;
 
 const configurePush = () => {
-  if (pushConfigurationChecked) return !pushConfigurationError;
+  if (pushConfigurationChecked) return pushConfigurationAvailable;
   pushConfigurationChecked = true;
 
   const publicKey = process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
@@ -27,12 +27,11 @@ const configurePush = () => {
       publicKey,
       privateKey
     );
-    return true;
+    pushConfigurationAvailable = true;
   } catch (err) {
-    pushConfigurationError = err;
     console.error("Invalid Web Push VAPID configuration:", err.message);
-    return false;
   }
+  return pushConfigurationAvailable;
 };
 
 const getVapidPublicKey = () => {

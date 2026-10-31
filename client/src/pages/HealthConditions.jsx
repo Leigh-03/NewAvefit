@@ -23,7 +23,6 @@ function Chip({ label, selected, onClick }) {
 
 export default function HealthConditions() {
   const navigate = useNavigate();
-  const [intensity, setIntensity] = useState(3);
   const [experience, setExperience] = useState("Beginner");
   const [injuries, setInjuries] = useState([]);
   const [healthConditions, setHealthConditions] = useState([]);
@@ -38,10 +37,8 @@ export default function HealthConditions() {
     }
   };
 
-  const intensityLabels = ["", "Light", "Easy", "Moderate", "Intense", "Very Intense"];
-
   const handleContinue = () => {
-    sessionStorage.setItem("avefit_health", JSON.stringify({ intensity, experience, injuries, healthConditions }));
+    sessionStorage.setItem("avefit_health", JSON.stringify({ experience, injuries, healthConditions }));
     navigate("/user/availability");
   };
 
@@ -53,22 +50,6 @@ export default function HealthConditions() {
 
     <h2 className="text-2xl font-bold text-slate-900 mb-1">Health Conditions</h2>
     <p className="text-slate-500 text-sm mb-6">Help us make safe workout recommendations.</p>
-
-    {/* Intensity Slider */}
-    <div className="mb-6">
-      <div className="flex items-center justify-between mb-2">
-        <label className="text-sm font-medium text-slate-600">Preferred Intensity</label>
-        <span className="text-orange-500 text-sm font-semibold">{intensityLabels[intensity]}</span>
-      </div>
-      <input
-        type="range" min={1} max={5} value={intensity}
-        onChange={(e) => setIntensity(parseInt(e.target.value))}
-        className="w-full h-2 bg-slate-100 rounded-full appearance-none cursor-pointer accent-orange-500"
-      />
-      <div className="flex justify-between text-xs text-slate-500 mt-1">
-        <span>Light</span><span>Moderate</span><span>Very Intense</span>
-      </div>
-    </div>
 
     {/* Experience Level */}
     <div className="mb-6">

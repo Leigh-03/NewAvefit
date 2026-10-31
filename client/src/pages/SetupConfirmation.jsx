@@ -5,13 +5,6 @@ import { CheckCircle2, TrendingUp, User } from "lucide-react";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 
-const preferredWorkoutTimeLabels = {
-  Morning: "Morning (6:00 AM – 12:00 PM)",
-  Afternoon: "Afternoon (12:00 PM – 5:00 PM)",
-  Evening: "Evening (5:00 PM – 10:00 PM)",
-  Flexible: "Flexible (6:00 AM – 10:00 PM)",
-};
-
 function Row({ label, value }) {
   return (
     <div className="flex items-center justify-between py-2 border-b border-slate-200 last:border-0">
@@ -56,7 +49,7 @@ export default function SetupConfirmation() {
             target_weight: goal.targetWeight,
             height: p.height,
             days_per_week: avail.daysPerWeek,
-            intensity: health.intensity,
+            intensity: 3,
             experience: health.experience,
           });
           setPrediction(predictionResponse?.data?.data || null);
@@ -88,7 +81,7 @@ export default function SetupConfirmation() {
         workout_duration: availability.duration ? parseInt(String(availability.duration), 10) : null,
         preferred_days: availability.days || [],
         preferred_workout_time: availability.preferredWorkoutTime || null,
-        intensity: healthData.intensity || null,
+        intensity: 3,
         injuries: healthData.injuries || [],
         health_conditions: healthData.healthConditions || [],
         trainer_id: trainer?.trainer_id || null,
@@ -159,11 +152,7 @@ export default function SetupConfirmation() {
           <h3 className="text-sm font-semibold text-slate-600 mb-2">Availability</h3>
           <Row label="Days Per Week" value={availability.daysPerWeek || "—"} />
           <Row label="Session Duration" value={availability.duration || "—"} />
-          <Row label="Workout Days" value={(availability.days || []).join(", ") || "—"} />
-          <Row
-            label="Preferred Workout Time"
-            value={preferredWorkoutTimeLabels[availability.preferredWorkoutTime] || "—"}
-          />
+          <Row label="Workout Days" value={(availability.availability || []).map((slot) => `${slot.day_of_week} (${slot.time_preference})`).join(", ") || "—"} />
         </div>
 
         {/* Coach */}

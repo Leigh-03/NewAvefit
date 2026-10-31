@@ -23,12 +23,12 @@ const getOwnedSessionSchedule = async (sessionId, userId) => pool.query(`
 const getUserWorkoutPlan = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT ws.*, e.exercise_name, e.muscle_group, e.difficulty, e.equipment, e.description
+      SELECT ws.*, e.exercise_name, e.muscle_group, e.difficulty, e.equipment, e.description,
+             wp.scheduled_start_time, wp.scheduled_duration_minutes
       FROM workout_sessions ws
+      JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
       LEFT JOIN exercises e ON ws.exercise_id = e.exercise_id
-      WHERE ws.workout_plan_id IN (
-        SELECT workout_plan_id FROM workout_plans WHERE user_id = $1
-      )
+      WHERE wp.user_id = $1
       ORDER BY ws.session_date ASC
     `, [req.user.user_id]);
     res.json({ success: true, data: result.rows });

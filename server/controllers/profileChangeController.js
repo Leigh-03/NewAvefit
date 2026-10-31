@@ -8,7 +8,6 @@ const {
 const {
   sendProfileChangeRequestEmail,
   sendProfileChangeDecisionEmail,
-  sendAccountPasswordChangedEmail,
 } = require("../utils/mailer");
 const { getConfiguredAdminEmail } = require("../utils/adminAccess");
 const { createNotification, notifyAdmins } = require("../utils/notifications");
@@ -24,7 +23,6 @@ const PROFILE_FIELDS = {
   height: "height",
   weight: "weight",
   fitness_goal: "fitness_goal",
-  activity_level: "activity_level",
   target_weight: "target_weight",
   workout_days_per_week: "workout_days_per_week",
   workout_duration: "workout_duration",
@@ -51,6 +49,12 @@ const sanitizePayload = (payload = {}) => {
 
 const buildProfileChangePayload = (current, body) => {
   const payload = {};
+
+  if (Object.prototype.hasOwnProperty.call(body, "activity_level")) {
+    const error = new Error("Only your coach can update your experience level.");
+    error.status = 403;
+    throw error;
+  }
 
   for (const [field, column] of Object.entries(PROFILE_FIELDS)) {
     if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
@@ -489,19 +493,13 @@ const reviewChangeRequest = async (req, res) => {
   let emailSent = true;
   for (const recipient of recipients) {
     try {
-      const delivery = approved && request.request_type === "password"
-        ? await sendAccountPasswordChangedEmail({
-          to: recipient,
-          accountName: memberName,
-          accountType: "user",
-        })
-        : await sendProfileChangeDecisionEmail({
-          to: recipient,
-          memberName,
-          requestType: request.request_type,
-          approved,
-          emailVerificationRequired: approved && emailChanged && recipient === request.payload.email,
-        });
+      const delivery = await sendProfileChangeDecisionEmail({
+        to: recipient,
+        memberName,
+        requestType: request.request_type,
+        approved,
+        emailVerificationRequired: approved && emailChanged && recipient === request.payload.email,
+      });
       emailSent = emailSent && delivery.delivered;
     } catch (err) {
       emailSent = false;

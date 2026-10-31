@@ -61,7 +61,37 @@ function calculateBmi(weight, height) {
   return (weightKg / ((heightCm / 100) ** 2)).toFixed(1);
 }
 
-function MemberProfileModal({ member, onClose }) {
+function MemberProfileModal({ member, onClose, onExperienceUpdated }) {
+  const [activityLevel, setActivityLevel] = useState(member?.activity_level || "Beginner");
+  const [savingLevel, setSavingLevel] = useState(false);
+  const [levelMessage, setLevelMessage] = useState("");
+  const [levelError, setLevelError] = useState("");
+  useEffect(() => {
+    setActivityLevel(member?.activity_level || "Beginner");
+  }, [member?.user_id, member?.activity_level]);
+  useEffect(() => {
+    setLevelMessage("");
+    setLevelError("");
+  }, [member?.user_id]);
+
+  const saveExperienceLevel = async () => {
+    if (!member) return;
+    setSavingLevel(true);
+    setLevelMessage("");
+    setLevelError("");
+    try {
+      const response = await trainerApi.put(`/me/members/${member.user_id}/experience`, {
+        activity_level: activityLevel,
+      });
+      onExperienceUpdated(response.data.data);
+      setLevelMessage(response.data.message || "Experience level updated.");
+    } catch (error) {
+      setLevelError(error.response?.data?.message || "Unable to update experience level.");
+    } finally {
+      setSavingLevel(false);
+    }
+  };
+
   if (!member) return null;
   const currentWeight = member.latest_weight ?? member.weight;
   const currentBmi = member.latest_bmi ?? calculateBmi(currentWeight, member.height);
@@ -80,7 +110,31 @@ function MemberProfileModal({ member, onClose }) {
           {[['Phone',member.phone],['Gender',member.gender],['Age',member.age?`${member.age} yrs`:'—'],['Height',member.height?`${member.height} cm`:'—'],['Weight',currentWeight?`${currentWeight} kg`:'—'],['Target Weight',member.target_weight?`${member.target_weight} kg`:'—'],['BMI',currentBmi||'—'],['Goal',member.fitness_goal||'—']].map(([l,v])=><div key={l} className="rounded-xl bg-slate-50 dark:bg-slate-900 p-3"><p className="text-xs text-slate-400">{l}</p><p className="mt-1 font-semibold text-slate-700 dark:text-slate-200 break-words">{v}</p></div>)}
         </div>
         {(injuries.length || conditions.length) ? <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4"><p className="flex items-center gap-2 text-amber-400 font-semibold text-sm"><AlertTriangle size={16}/> Health &amp; Safety Notes</p><div className="flex flex-wrap gap-2 mt-3">{injuries.map(x=><span key={`i-${x}`} className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 text-xs">Injury: {x}</span>)}{conditions.map(x=><span key={`c-${x}`} className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 text-xs">{x}</span>)}</div></div> : null}
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4"><p className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-2">Training Preferences</p><p className="text-sm text-slate-600 dark:text-slate-300">{toList(member.preferred_days).join(', ') || 'No preferred days set.'}</p><p className="text-xs text-slate-400 mt-2">{member.workout_days_per_week ? `${member.workout_days_per_week} days/week` : 'Days/week not set'}{member.workout_duration ? ` · ${formatDuration(member.workout_duration)}` : ''}</p><p className="mt-2 text-xs text-slate-500 dark:text-slate-400"><span className="font-semibold">Preferred time:</span> {formatPreferredWorkoutTime(member.preferred_workout_time)}</p></div>
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4"><p className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-2">Training Preferences</p><p className="text-sm text-slate-600 dark:text-slate-300">{toList(member.preferred_days).join(', ') || 'No preferred days set.'}</p><p className="text-xs text-slate-400 mt-2">{member.workout_days_per_week ? `${member.workout_days_per_week} days/week` : 'Days/week not set'}{member.workout_duration ? ` · ${formatDuration(member.workout_duration)}` : ''}</p><p className="mt-2 text-xs text-slate-500 dark:text-slate-400"><span className="font-semibold">Preferred time:</span> {formatPreferredWorkoutTime(member.preferred_workout_time)}</p>
+          {Array.isArray(member.weekly_availability) && member.weekly_availability.length > 0 && (
+            <ul className="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+              {member.weekly_availability.map((slot) => (
+                <li key={slot.day_of_week}>
+                  <span className="font-semibold">{slot.day_of_week}:</span> {slot.start_time}–{slot.end_time}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4">
+          <label htmlFor="member-experience-level" className="block text-xs uppercase tracking-wider font-bold text-slate-400">Experience level</label>
+          <p className="mt-1 text-xs text-slate-500">Recommended frequency: Beginner 2–3, Intermediate 3–5, Advanced 4–6 days/week.</p>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+            <select id="member-experience-level" value={activityLevel} onChange={(event) => { setActivityLevel(event.target.value); setLevelMessage(""); setLevelError(""); }} className="min-h-10 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+              {["Beginner", "Intermediate", "Advanced"].map((level) => <option key={level} value={level}>{level}</option>)}
+            </select>
+            <button type="button" onClick={saveExperienceLevel} disabled={savingLevel || activityLevel === member.activity_level} className="min-h-10 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50">
+              {savingLevel ? "Saving..." : "Update level"}
+            </button>
+          </div>
+          {levelMessage && <p role="status" className="mt-3 text-sm text-green-600 dark:text-green-400">{levelMessage}</p>}
+          {levelError && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{levelError}</p>}
+        </div>
       </div>
     </div>
   </div>;
@@ -154,7 +208,11 @@ export default function TrainerDashboard(){
   const barOptions={...axisOptions,scales:{...axisOptions.scales,x:{...axisOptions.scales.x,stacked:true},y:{...axisOptions.scales.y,stacked:true}}};
   const memberBarOptions={...barOptions,indexAxis:"y",scales:{x:{...axisOptions.scales.x,stacked:true},y:{...axisOptions.scales.y,stacked:true,ticks:{...axisOptions.scales.y.ticks,autoSkip:false}}}};
   const panelClass="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900";
-  return <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8"><MemberProfileModal member={profileMember} onClose={()=>setProfileMember(null)}/>
+  const handleExperienceUpdated = (updatedMember) => {
+    setMembers((current) => current.map((member) => member.user_id === updatedMember.user_id ? { ...member, ...updatedMember } : member));
+    setProfileMember((current) => current?.user_id === updatedMember.user_id ? { ...current, ...updatedMember } : current);
+  };
+  return <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8"><MemberProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onExperienceUpdated={handleExperienceUpdated}/>
     <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
       <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach workspace</p>
       <h1 className="mt-2 flex items-center gap-2 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl"><Users size={25} className="text-orange-500"/> My Roster</h1>

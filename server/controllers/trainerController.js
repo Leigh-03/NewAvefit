@@ -3,9 +3,11 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const loadExerciseCatalog = require("../utils/exerciseCatalog");
 const { createNotification } = require("../utils/notifications");
+const { getExperienceRange } = require("./userWorkoutAvailabilityController");
 const {
   sendWorkoutPlanReadyEmail,
   sendAccountPasswordChangedEmail,
+  sendExperienceLevelChangedEmail,
 } = require("../utils/mailer");
 
 const {
@@ -22,6 +24,31 @@ const GOAL_SPECIALTIES = [
   "Maintain Weight",
   "General Fitness",
 ];
+
+const timeToMinutes = (value) => {
+  const [hours, minutes] = String(value).split(":").map(Number);
+  return hours * 60 + minutes;
+};
+
+const minutesToTime = (value) =>
+  `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
+
+const getCoachCompatibleStartTime = async (client, trainerId, dayOfWeek, memberSlot, duration) => {
+  const trainerSlots = await client.query(
+    `SELECT TO_CHAR(start_time, 'HH24:MI') AS start_time,
+            TO_CHAR(end_time, 'HH24:MI') AS end_time
+     FROM trainer_availability
+     WHERE trainer_id = $1 AND day_of_week = $2
+     ORDER BY start_time`,
+    [trainerId, dayOfWeek]
+  );
+  for (const trainerSlot of trainerSlots.rows) {
+    const start = Math.max(timeToMinutes(memberSlot.start_time), timeToMinutes(trainerSlot.start_time));
+    const end = Math.min(timeToMinutes(memberSlot.end_time), timeToMinutes(trainerSlot.end_time));
+    if (end - start >= duration) return minutesToTime(start);
+  }
+  return null;
+};
 
 // =========================================================
 // Allowed trainer specializations
@@ -829,6 +856,7 @@ const getTrainerRoster = async (req, res) => {
         u.preferred_workout_time,
         u.workout_days_per_week,
         u.workout_duration,
+        COALESCE(user_availability.slots, '[]'::json) AS weekly_availability,
         pl.weight AS latest_weight,
         pl.bmi AS latest_bmi,
         pl.log_date AS latest_log_date,
@@ -1082,6 +1110,22 @@ const getMyRoster = async (req, res) => {
           GROUP BY ws.session_date
         ) day_stats
       ) workout_days ON true
+      LEFT JOIN LATERAL (
+        SELECT JSON_AGG(
+          JSON_BUILD_OBJECT(
+            'day_of_week', a.day_of_week,
+            'time_preference', a.time_preference,
+            'start_time', TO_CHAR(a.start_time, 'HH24:MI'),
+            'end_time', TO_CHAR(a.end_time, 'HH24:MI')
+          )
+          ORDER BY ARRAY_POSITION(
+            ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+            a.day_of_week
+          )
+        ) AS slots
+        FROM user_workout_availability a
+        WHERE a.user_id = u.user_id
+      ) user_availability ON true
       WHERE u.trainer_id = $1
         AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
       ORDER BY u.first_name ASC
@@ -1103,6 +1147,70 @@ const getMyRoster = async (req, res) => {
   }
 };
 
+const updateRosterMemberExperience = async (req, res) => {
+  const userId = Number(req.params.userId);
+  const activityLevel = String(req.body?.activity_level || "").trim();
+  if (!Number.isInteger(userId) || userId < 1) {
+    return res.status(400).json({ success: false, message: "Choose a valid roster member." });
+  }
+  if (!["Beginner", "Intermediate", "Advanced"].includes(activityLevel)) {
+    return res.status(400).json({ success: false, message: "Choose Beginner, Intermediate, or Advanced." });
+  }
+
+  try {
+    const result = await pool.query(
+      `WITH member_before AS (
+         SELECT user_id, activity_level
+         FROM users
+         WHERE user_id = $2
+           AND trainer_id = $3
+           AND LOWER(COALESCE(account_status, 'pending')) = 'active'
+         FOR UPDATE
+       )
+       UPDATE users AS u
+       SET activity_level = $1, updated_at = NOW()
+       FROM member_before AS old
+       WHERE u.user_id = old.user_id
+       RETURNING u.user_id, u.first_name, u.last_name, u.email,
+                 u.activity_level, u.workout_days_per_week,
+                 old.activity_level AS previous_activity_level`,
+      [activityLevel, userId, req.trainer.trainer_id]
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ success: false, message: "This active member is not on your roster." });
+    }
+
+    const member = result.rows[0];
+    const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || "AveFit member";
+    if (member.previous_activity_level !== member.activity_level) {
+     try {
+      const delivery = await sendExperienceLevelChangedEmail({
+        to: member.email,
+        memberName,
+        previousLevel: member.previous_activity_level,
+        newLevel: member.activity_level,
+      });
+      if (!delivery.delivered) {
+        console.error(`Experience-level update email was not delivered to member ${member.user_id}.`);
+      }
+     } catch (mailError) {
+       console.error("Experience-level update email failed:", mailError.message);
+     }
+    }
+    const [minimumDays, maximumDays] = getExperienceRange(member.activity_level);
+    const responseMember = { ...member };
+    delete responseMember.previous_activity_level;
+    res.json({
+      success: true,
+      message: `Member experience level updated. Recommended frequency: ${minimumDays}–${maximumDays} days per week.`,
+      data: responseMember,
+    });
+  } catch (err) {
+    console.error("updateRosterMemberExperience error:", err.message);
+    res.status(500).json({ success: false, message: "Unable to update this member's experience level." });
+  }
+};
+
 const getMyWorkoutPlans = async (req, res) => {
   try {
     const result = await pool.query(
@@ -1115,6 +1223,8 @@ const getMyWorkoutPlans = async (req, res) => {
         wp.created_at,
         u.user_id,
         plan_sessions.scheduled_date,
+        wp.scheduled_start_time,
+        wp.scheduled_duration_minutes,
         plan_sessions.exercise_count,
         plan_sessions.completed_count,
         CASE
@@ -1123,7 +1233,15 @@ const getMyWorkoutPlans = async (req, res) => {
             THEN 'Complete'
           WHEN plan_sessions.scheduled_date IS NULL
             OR plan_sessions.scheduled_date > TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD')
+            OR (
+              plan_sessions.scheduled_date = TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD')
+              AND (
+                wp.scheduled_start_time IS NULL
+                OR wp.scheduled_start_time > (NOW() AT TIME ZONE 'Asia/Manila')::time
+              )
+            )
             THEN 'Active'
+          WHEN plan_sessions.completed_count = 0 THEN 'Absent'
           ELSE 'Incomplete'
         END AS activity_status,
         CASE
@@ -1146,7 +1264,8 @@ const getMyWorkoutPlans = async (req, res) => {
               JSON_BUILD_OBJECT(
                 'exercise_id', ws.exercise_id,
                 'sets', ws.sets,
-                'reps', ws.reps
+                'reps', ws.reps,
+                'muscle_group', e.muscle_group
               )
               ORDER BY ws.session_id
             ) FILTER (WHERE ws.session_id IS NOT NULL),
@@ -1154,6 +1273,7 @@ const getMyWorkoutPlans = async (req, res) => {
           ) AS sessions,
           COALESCE(BOOL_OR(ws.started_at IS NOT NULL OR ws.completed = TRUE), FALSE) AS has_started
         FROM workout_sessions ws
+        LEFT JOIN exercises e ON e.exercise_id = ws.exercise_id
         WHERE ws.workout_plan_id = wp.workout_plan_id
       ) plan_sessions ON true
       WHERE wp.trainer_id = $1
@@ -1242,11 +1362,12 @@ const createMyWorkoutPlan = async (req, res) => {
 
     const member = await client.query(
       `
-      SELECT user_id, first_name, email, preferred_days
+      SELECT user_id, first_name, email, activity_level,
+             workout_days_per_week, workout_duration
       FROM users
       WHERE user_id = $1
         AND trainer_id = $2
-        AND COALESCE(account_status, 'Pending') = 'Active'
+        AND LOWER(COALESCE(account_status, 'pending')) = 'active'
       FOR UPDATE
       `,
       [userId, trainerId]
@@ -1257,17 +1378,86 @@ const createMyWorkoutPlan = async (req, res) => {
       return res.status(403).json({ success: false, message: "This member isn't on your roster." });
     }
 
-    const preferredDays = Array.isArray(member.rows[0].preferred_days)
-      ? member.rows[0].preferred_days.map((day) => String(day).trim().toLowerCase())
-      : [];
-    const weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-    const scheduledWeekday = weekdayNames[parsedSessionDate.getUTCDay()];
-    if (preferredDays.length > 0 && !preferredDays.includes(scheduledWeekday)) {
+    const memberPreferences = member.rows[0];
+    const memberAvailability = await client.query(
+      `SELECT day_of_week, time_preference,
+              TO_CHAR(start_time, 'HH24:MI') AS start_time,
+              TO_CHAR(end_time, 'HH24:MI') AS end_time
+       FROM user_workout_availability
+       WHERE user_id = $1`,
+      [userId]
+    );
+    const level = memberPreferences.activity_level || "Beginner";
+    const [minimumDays, maximumDays] = getExperienceRange(level);
+    const workoutFrequency = Number(memberPreferences.workout_days_per_week);
+    const sessionDuration = Number(memberPreferences.workout_duration);
+    if (!Number.isInteger(workoutFrequency) || workoutFrequency < minimumDays || workoutFrequency > maximumDays) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: `Choose one of the member's preferred workout days: ${member.rows[0].preferred_days.join(", ")}.`,
+        message: `${level} users should select ${minimumDays}–${maximumDays} workout days per week before a plan can be scheduled.`,
+      });
+    }
+    if (workoutFrequency > memberAvailability.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `You selected ${workoutFrequency} workout days per week, but you are only available on ${memberAvailability.rowCount} days. Please update your availability or workout frequency.`,
+      });
+    }
+    const weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const scheduledWeekday = weekdayNames[parsedSessionDate.getUTCDay()];
+    const scheduledAvailability = memberAvailability.rows.find(
+      (slot) => slot.day_of_week.toLowerCase() === scheduledWeekday
+    );
+    if (!scheduledAvailability) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `This member is not available on ${scheduledWeekday[0].toUpperCase()}${scheduledWeekday.slice(1)}.`,
+      });
+    }
+    if (!Number.isInteger(sessionDuration) || sessionDuration < 30 || sessionDuration > 90) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: "The member must set a valid preferred workout session duration before a plan can be scheduled.",
+      });
+    }
+    const scheduledStartTime = await getCoachCompatibleStartTime(
+      client,
+      trainerId,
+      parsedSessionDate.getUTCDay(),
+      scheduledAvailability,
+      sessionDuration
+    );
+    if (!scheduledStartTime) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
+      });
+    }
+    const weeklyPlanCount = await client.query(
+      `SELECT COUNT(DISTINCT wp.workout_plan_id)::int AS count
+       FROM workout_plans wp
+       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+       WHERE wp.user_id = $1
+         AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
+         AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')`,
+      [userId, sessionDate]
+    );
+    if (Number(weeklyPlanCount.rows[0].count) >= workoutFrequency) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: `This member's ${workoutFrequency}-day weekly workout frequency is already scheduled. Choose a different week or update their frequency.`,
       });
     }
 
@@ -1293,7 +1483,7 @@ const createMyWorkoutPlan = async (req, res) => {
 
     const exerciseIds = [...new Set(sessions.map((session) => Number(session.exercise_id)))];
     const exercises = await client.query(
-      "SELECT exercise_id FROM exercises WHERE exercise_id = ANY($1::int[])",
+      "SELECT exercise_id, muscle_group FROM exercises WHERE exercise_id = ANY($1::int[])",
       [exerciseIds]
     );
     if (exercises.rowCount !== exerciseIds.length) {
@@ -1302,13 +1492,56 @@ const createMyWorkoutPlan = async (req, res) => {
       return res.status(400).json({ success: false, message: "One or more selected exercises are unavailable." });
     }
 
+    const neighborDates = [
+      new Date(Date.UTC(
+        parsedSessionDate.getUTCFullYear(),
+        parsedSessionDate.getUTCMonth(),
+        parsedSessionDate.getUTCDate() - 1
+      )).toISOString().slice(0, 10),
+      new Date(Date.UTC(
+        parsedSessionDate.getUTCFullYear(),
+        parsedSessionDate.getUTCMonth(),
+        parsedSessionDate.getUTCDate() + 1
+      )).toISOString().slice(0, 10),
+    ];
+    const neighboringMuscles = await client.query(
+      `SELECT DISTINCT LOWER(BTRIM(e.muscle_group)) AS muscle_group
+       FROM workout_plans wp
+       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+       JOIN exercises e ON e.exercise_id = ws.exercise_id
+       WHERE wp.user_id = $1
+         AND ws.session_date = ANY($2::text[])
+         AND NULLIF(BTRIM(e.muscle_group), '') IS NOT NULL`,
+      [userId, neighborDates]
+    );
+    const muscleTokens = (value) => String(value || "")
+      .split(/[,/&+]/)
+      .map((token) => token.trim().toLowerCase())
+      .filter(Boolean);
+    const neighboringMuscleSet = new Set(
+      neighboringMuscles.rows.flatMap((row) => muscleTokens(row.muscle_group))
+    );
+    const conflictsWithRecovery = exercises.rows.some((exercise) =>
+      muscleTokens(exercise.muscle_group).some((muscle) => neighboringMuscleSet.has(muscle))
+    );
+    if (conflictsWithRecovery) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: "This plan repeats a muscle group from an adjacent workout day. Allow a recovery day before scheduling the same muscle group again.",
+      });
+    }
+
     const plan = await client.query(
       `
-      INSERT INTO workout_plans (user_id, trainer_id, plan_name, goal)
-      VALUES ($1, $2, $3, $4)
-      RETURNING workout_plan_id, plan_name, goal, status, created_at
+      INSERT INTO workout_plans
+        (user_id, trainer_id, plan_name, goal, scheduled_start_time, scheduled_duration_minutes)
+      VALUES ($1, $2, $3, $4, $5::time, $6)
+      RETURNING workout_plan_id, plan_name, goal, status, created_at,
+                scheduled_start_time, scheduled_duration_minutes
       `,
-      [userId, trainerId, planName, goal || null]
+      [userId, trainerId, planName, goal || null, scheduledStartTime, sessionDuration]
     );
     const planId = plan.rows[0].workout_plan_id;
 
@@ -1480,34 +1713,78 @@ const updateMyWorkoutPlan = async (req, res) => {
       });
     }
 
-    const keepingExistingDate = planSessions.rows.length > 0
-      && planSessions.rows.every((session) => String(session.session_date).slice(0, 10) === sessionDate);
-    if (!keepingExistingDate) {
-      const member = await client.query(
-        `SELECT user_id, preferred_days
-         FROM users
-         WHERE user_id = $1 AND trainer_id = $2 AND COALESCE(account_status, 'Pending') = 'Active'`,
-        [plan.rows[0].user_id, trainerId]
-      );
-      if (!member.rowCount) {
-        await client.query("ROLLBACK");
-        transactionStarted = false;
-        return res.status(403).json({ success: false, message: "This member isn't on your roster." });
-      }
+    const member = await client.query(
+      `SELECT user_id, activity_level, workout_days_per_week, workout_duration
+       FROM users
+       WHERE user_id = $1 AND trainer_id = $2 AND LOWER(COALESCE(account_status, 'pending')) = 'active'`,
+      [plan.rows[0].user_id, trainerId]
+    );
+    if (!member.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(403).json({ success: false, message: "This member isn't on your roster." });
+    }
 
-      const preferredDays = Array.isArray(member.rows[0].preferred_days)
-        ? member.rows[0].preferred_days.map((day) => String(day).trim().toLowerCase())
-        : [];
-      const weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-      const scheduledWeekday = weekdayNames[parsedSessionDate.getUTCDay()];
-      if (preferredDays.length > 0 && !preferredDays.includes(scheduledWeekday)) {
-        await client.query("ROLLBACK");
-        transactionStarted = false;
-        return res.status(400).json({
-          success: false,
-          message: `Choose one of the member's preferred workout days: ${member.rows[0].preferred_days.join(", ")}.`,
-        });
-      }
+    const memberAvailability = await client.query(
+      `SELECT day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
+              TO_CHAR(end_time, 'HH24:MI') AS end_time
+       FROM user_workout_availability
+       WHERE user_id = $1`,
+      [plan.rows[0].user_id]
+    );
+    const level = member.rows[0].activity_level || "Beginner";
+    const [minimumDays, maximumDays] = getExperienceRange(level);
+    const workoutFrequency = Number(member.rows[0].workout_days_per_week);
+    const sessionDuration = Number(member.rows[0].workout_duration);
+    if (!Number.isInteger(workoutFrequency) || workoutFrequency < minimumDays || workoutFrequency > maximumDays) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `${level} users should select ${minimumDays}–${maximumDays} workout days per week before a plan can be scheduled.`,
+      });
+    }
+    if (workoutFrequency > memberAvailability.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `You selected ${workoutFrequency} workout days per week, but you are only available on ${memberAvailability.rowCount} days. Please update their availability or workout frequency.`,
+      });
+    }
+    const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const scheduledWeekday = weekdayNames[parsedSessionDate.getUTCDay()];
+    const scheduledAvailability = memberAvailability.rows.find((slot) => slot.day_of_week === scheduledWeekday);
+    if (!scheduledAvailability) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `This member is not available on ${scheduledWeekday}.`,
+      });
+    }
+    if (!Number.isInteger(sessionDuration) || sessionDuration < 30 || sessionDuration > 90) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: "The member must set a valid preferred workout session duration before a plan can be scheduled.",
+      });
+    }
+    const scheduledStartTime = await getCoachCompatibleStartTime(
+      client,
+      trainerId,
+      parsedSessionDate.getUTCDay(),
+      scheduledAvailability,
+      sessionDuration
+    );
+    if (!scheduledStartTime) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
+      });
     }
 
     const existingPlan = await client.query(
@@ -1522,7 +1799,7 @@ const updateMyWorkoutPlan = async (req, res) => {
       `,
       [plan.rows[0].user_id, sessionDate, planId]
     );
-    if (!keepingExistingDate && existingPlan.rowCount) {
+    if (existingPlan.rowCount) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(409).json({
@@ -1531,9 +1808,28 @@ const updateMyWorkoutPlan = async (req, res) => {
       });
     }
 
+    const weeklyPlanCount = await client.query(
+      `SELECT COUNT(DISTINCT wp.workout_plan_id)::int AS count
+       FROM workout_plans wp
+       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+       WHERE wp.user_id = $1
+         AND wp.workout_plan_id <> $3
+         AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
+         AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')`,
+      [plan.rows[0].user_id, sessionDate, planId]
+    );
+    if (Number(weeklyPlanCount.rows[0].count) >= workoutFrequency) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: `This member's ${workoutFrequency}-day weekly workout frequency is already scheduled.`,
+      });
+    }
+
     const exerciseIds = [...new Set(sessions.map((session) => Number(session.exercise_id)))];
     const exercises = await client.query(
-      "SELECT exercise_id FROM exercises WHERE exercise_id = ANY($1::int[])",
+      "SELECT exercise_id, muscle_group FROM exercises WHERE exercise_id = ANY($1::int[])",
       [exerciseIds]
     );
     if (exercises.rowCount !== exerciseIds.length) {
@@ -1542,9 +1838,53 @@ const updateMyWorkoutPlan = async (req, res) => {
       return res.status(400).json({ success: false, message: "One or more selected exercises are unavailable." });
     }
 
+    const neighboringDates = [
+      new Date(Date.UTC(
+        parsedSessionDate.getUTCFullYear(),
+        parsedSessionDate.getUTCMonth(),
+        parsedSessionDate.getUTCDate() - 1
+      )).toISOString().slice(0, 10),
+      new Date(Date.UTC(
+        parsedSessionDate.getUTCFullYear(),
+        parsedSessionDate.getUTCMonth(),
+        parsedSessionDate.getUTCDate() + 1
+      )).toISOString().slice(0, 10),
+    ];
+    const neighboringMuscles = await client.query(
+      `SELECT DISTINCT LOWER(BTRIM(e.muscle_group)) AS muscle_group
+       FROM workout_plans wp
+       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+       JOIN exercises e ON e.exercise_id = ws.exercise_id
+       WHERE wp.user_id = $1
+         AND wp.workout_plan_id <> $3
+         AND ws.session_date = ANY($2::text[])
+         AND NULLIF(BTRIM(e.muscle_group), '') IS NOT NULL`,
+      [plan.rows[0].user_id, neighboringDates, planId]
+    );
+    const muscleTokens = (value) => String(value || "")
+      .split(/[,/&+]/)
+      .map((token) => token.trim().toLowerCase())
+      .filter(Boolean);
+    const neighboringMuscleSet = new Set(
+      neighboringMuscles.rows.flatMap((row) => muscleTokens(row.muscle_group))
+    );
+    if (exercises.rows.some((exercise) =>
+      muscleTokens(exercise.muscle_group).some((muscle) => neighboringMuscleSet.has(muscle))
+    )) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: "This plan repeats a muscle group from an adjacent workout day. Allow a recovery day before scheduling the same muscle group again.",
+      });
+    }
+
     await client.query(
-      "UPDATE workout_plans SET plan_name = $1, goal = $2 WHERE workout_plan_id = $3",
-      [planName, goal, planId]
+      `UPDATE workout_plans
+       SET plan_name = $1, goal = $2,
+           scheduled_start_time = $3::time, scheduled_duration_minutes = $4
+       WHERE workout_plan_id = $5`,
+      [planName, goal, scheduledStartTime, sessionDuration, planId]
     );
     await client.query("DELETE FROM workout_sessions WHERE workout_plan_id = $1", [planId]);
     for (const session of sessions) {
@@ -1935,19 +2275,19 @@ const assignSessionAsTrainer = async (req, res) => {
       });
     }
 
-    const memberAvailability = await client.query(
+    const memberResult = await client.query(
       `
-      SELECT preferred_days
+      SELECT user_id, activity_level, workout_days_per_week, workout_duration
       FROM users
       WHERE user_id = $1
         AND trainer_id = $2
-        AND COALESCE(account_status, 'Pending') = 'Active'
+        AND LOWER(COALESCE(account_status, 'pending')) = 'active'
       FOR UPDATE
       `,
       [user_id, trainerId]
     );
 
-    if (!memberAvailability.rowCount) {
+    if (!memberResult.rowCount) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(403).json({
@@ -1956,7 +2296,40 @@ const assignSessionAsTrainer = async (req, res) => {
       });
     }
 
-    const preferredDays = memberAvailability.rows[0]?.preferred_days || [];
+    const member = memberResult.rows[0];
+    const memberAvailability = await client.query(
+      `SELECT day_of_week, start_time, end_time
+       FROM user_workout_availability
+       WHERE user_id = $1`,
+      [user_id]
+    );
+    const [minimumDays, maximumDays] = getExperienceRange(member.activity_level);
+    const workoutFrequency = Number(member.workout_days_per_week);
+    const sessionDuration = Number(member.workout_duration);
+    if (!Number.isInteger(workoutFrequency) || workoutFrequency < minimumDays || workoutFrequency > maximumDays) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `${member.activity_level || "Beginner"} users should select ${minimumDays}–${maximumDays} workout days per week before a plan can be scheduled.`,
+      });
+    }
+    if (workoutFrequency > memberAvailability.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `This member is available on ${memberAvailability.rowCount} days but selected ${workoutFrequency} workout days per week. Update their availability or frequency.`,
+      });
+    }
+    if (!Number.isInteger(sessionDuration) || sessionDuration < 30 || sessionDuration > 90) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: "The member must set a valid preferred workout session duration before a plan can be scheduled.",
+      });
+    }
     const weekday = [
       "Sunday",
       "Monday",
@@ -1966,18 +2339,96 @@ const assignSessionAsTrainer = async (req, res) => {
       "Friday",
       "Saturday",
     ][parsedSessionDate.getUTCDay()];
-
-    if (
-      !Array.isArray(preferredDays) ||
-      !preferredDays.some(
-        (day) => String(day).trim().toLowerCase() === weekday.toLowerCase()
-      )
-    ) {
+    const scheduledAvailability = memberAvailability.rows.find(
+      (slot) => slot.day_of_week === weekday
+    );
+    if (!scheduledAvailability) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({
         success: false,
         message: "The selected date is not part of this client's availability.",
+      });
+    }
+    const scheduledStartTime = await getCoachCompatibleStartTime(
+      client,
+      trainerId,
+      parsedSessionDate.getUTCDay(),
+      scheduledAvailability,
+      sessionDuration
+    );
+    if (!scheduledStartTime) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
+      });
+    }
+
+    const exercise = await client.query(
+      "SELECT muscle_group FROM exercises WHERE exercise_id = $1",
+      [exercise_id]
+    );
+    if (!exercise.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: "Choose a valid exercise." });
+    }
+
+    const adjacentDates = [
+      new Date(Date.UTC(
+        parsedSessionDate.getUTCFullYear(),
+        parsedSessionDate.getUTCMonth(),
+        parsedSessionDate.getUTCDate() - 1
+      )).toISOString().slice(0, 10),
+      new Date(Date.UTC(
+        parsedSessionDate.getUTCFullYear(),
+        parsedSessionDate.getUTCMonth(),
+        parsedSessionDate.getUTCDate() + 1
+      )).toISOString().slice(0, 10),
+    ];
+    const adjacentMuscles = await client.query(
+      `SELECT DISTINCT LOWER(BTRIM(e.muscle_group)) AS muscle_group
+       FROM workout_plans wp
+       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+       JOIN exercises e ON e.exercise_id = ws.exercise_id
+       WHERE wp.user_id = $1
+         AND ws.session_date = ANY($2::text[])
+         AND NULLIF(BTRIM(e.muscle_group), '') IS NOT NULL`,
+      [user_id, adjacentDates]
+    );
+    const muscleTokens = (value) => String(value || "")
+      .split(/[,/&+]/)
+      .map((token) => token.trim().toLowerCase())
+      .filter(Boolean);
+    const scheduledMuscles = new Set(
+      adjacentMuscles.rows.flatMap((row) => muscleTokens(row.muscle_group))
+    );
+    if (muscleTokens(exercise.rows[0].muscle_group).some((muscle) => scheduledMuscles.has(muscle))) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: "Allow a recovery day before scheduling the same muscle group again.",
+      });
+    }
+
+    const weeklyPlanCount = await client.query(
+      `SELECT COUNT(DISTINCT wp.workout_plan_id)::int AS count
+       FROM workout_plans wp
+       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+       WHERE wp.user_id = $1
+         AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
+         AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')`,
+      [user_id, session_date]
+    );
+    if (Number(weeklyPlanCount.rows[0].count) >= workoutFrequency) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: `This member's ${workoutFrequency}-day weekly workout frequency is already scheduled.`,
       });
     }
 
@@ -2005,54 +2456,14 @@ const assignSessionAsTrainer = async (req, res) => {
       });
     }
 
-    const planRes = await client.query(
-      `
-      SELECT workout_plan_id
-      FROM workout_plans
-      WHERE user_id = $1
-      ORDER BY created_at DESC
-      LIMIT 1
-      `,
-      [user_id]
+    const created = await client.query(
+      `INSERT INTO workout_plans
+         (user_id, trainer_id, plan_name, goal, scheduled_start_time, scheduled_duration_minutes)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING workout_plan_id`,
+      [user_id, trainerId, "Coach Plan", "General Fitness", scheduledStartTime, sessionDuration]
     );
-
-    let planId;
-
-    if (planRes.rows.length > 0) {
-      planId = planRes.rows[0].workout_plan_id;
-
-      await client.query(
-        `
-        UPDATE workout_plans
-        SET trainer_id = $1
-        WHERE workout_plan_id = $2
-        `,
-        [trainerId, planId]
-      );
-    } else {
-      const created = await client.query(
-        `
-        INSERT INTO workout_plans
-          (
-            user_id,
-            trainer_id,
-            plan_name,
-            goal
-          )
-        VALUES
-          ($1, $2, $3, $4)
-        RETURNING workout_plan_id
-        `,
-        [
-          user_id,
-          trainerId,
-          "Coach Plan",
-          "General Fitness",
-        ]
-      );
-
-      planId = created.rows[0].workout_plan_id;
-    }
+    const planId = created.rows[0].workout_plan_id;
 
     const result = await client.query(
       `
@@ -2117,12 +2528,18 @@ const assignSessionAsTrainer = async (req, res) => {
 // =========================================================
 
 const deleteSessionAsTrainer = async (req, res) => {
+  let client;
+  let transactionStarted = false;
   try {
     const { sessionId } = req.params;
+    client = await pool.connect();
+    await client.query("BEGIN");
+    transactionStarted = true;
 
-    const check = await pool.query(
-      `
-      SELECT ws.session_id
+    const check = await client.query(
+      `SELECT ws.session_id, ws.session_date::text AS session_date,
+              ws.started_at, ws.completed,
+              TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today
       FROM workout_sessions ws
       JOIN workout_plans wp
         ON ws.workout_plan_id = wp.workout_plan_id
@@ -2130,30 +2547,53 @@ const deleteSessionAsTrainer = async (req, res) => {
         ON wp.user_id = u.user_id
       WHERE ws.session_id = $1
         AND u.trainer_id = $2
-      `,
+      FOR UPDATE OF ws`,
       [sessionId, req.trainer.trainer_id]
     );
-
-    if (check.rows.length === 0) {
+    if (!check.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
       return res.status(403).json({
         success: false,
         message: "You can't modify this workout.",
       });
     }
 
-    await pool.query(
+    const workout = check.rows[0];
+    if (workout.started_at || workout.completed) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: "This workout has started or finished and can no longer be changed.",
+      });
+    }
+    const date = String(workout.session_date).slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && date < workout.today) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: "This workout's date has passed and it can no longer be changed.",
+      });
+    }
+
+    await client.query(
       `
       DELETE FROM workout_sessions
       WHERE session_id = $1
       `,
       [sessionId]
     );
+    await client.query("COMMIT");
+    transactionStarted = false;
 
     res.json({
       success: true,
       message: "Workout removed.",
     });
   } catch (err) {
+    if (transactionStarted) await client.query("ROLLBACK");
     console.error(
       "deleteSessionAsTrainer error:",
       err.message
@@ -2163,6 +2603,8 @@ const deleteSessionAsTrainer = async (req, res) => {
       success: false,
       message: err.message,
     });
+  } finally {
+    client?.release();
   }
 };
 
@@ -2183,6 +2625,7 @@ module.exports = {
   getTrainerRoster,
   loginTrainer,
   getMyRoster,
+  updateRosterMemberExperience,
   getMyProfile,
   updateMyPhoto,
   getMyWorkoutPlans,

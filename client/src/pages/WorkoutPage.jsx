@@ -55,6 +55,7 @@ export default function WorkoutPage() {
   const initializedSchedule = useRef(false);
   const [sessions, setSessions] = useState([]);
   const [workoutDays, setWorkoutDays] = useState([]); // days the user picked as their availability
+  const [workoutFrequency, setWorkoutFrequency] = useState(0);
   const [fitnessGoal, setFitnessGoal] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -75,6 +76,7 @@ export default function WorkoutPage() {
       const profile = profileRes.data.data || {};
       const days = profile.preferred_days || [];
       setWorkoutDays(days);
+      setWorkoutFrequency(Number(profile.workout_days_per_week) || 0);
       setFitnessGoal(profile.fitness_goal || "");
       const today = philippinesDateString();
       if (!initializedSchedule.current) {
@@ -167,7 +169,7 @@ export default function WorkoutPage() {
   const completedThisWeek = completedWorkoutDays.filter(
     (group) => group.completionDate >= weekStartDate && group.completionDate <= today
   ).length;
-  const weeklyGoal = workoutDays.length;
+  const weeklyGoal = workoutFrequency || workoutDays.length;
   const weeklyProgress = weeklyGoal ? Math.min(100, Math.round((completedThisWeek / weeklyGoal) * 100)) : 0;
   const nextSession = sessions
     .filter((session) => {
@@ -354,6 +356,13 @@ export default function WorkoutPage() {
                     {session.exercise_name || "Workout"}
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">{session.muscle_group || ""}</p>
+                  {(session.scheduled_start_time || session.scheduled_duration_minutes) && (
+                    <p className="mt-1 text-xs font-medium text-orange-600 dark:text-orange-300">
+                      {session.scheduled_start_time && `Starts at ${String(session.scheduled_start_time).slice(0, 5)}`}
+                      {session.scheduled_start_time && session.scheduled_duration_minutes && " · "}
+                      {session.scheduled_duration_minutes && `${session.scheduled_duration_minutes}-minute session`}
+                    </p>
+                  )}
                   <div className="flex gap-3 mt-2 text-xs text-slate-500">
                     {session.sets && <span>💪 {session.sets} sets</span>}
                     {session.reps && <span>🔁 {session.reps} reps</span>}

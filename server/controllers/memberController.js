@@ -4,6 +4,7 @@ const { validateAge } = require("../utils/security");
 const {
   sendCoachAssignmentEmail,
   sendUserCoachAssignedEmail,
+  sendMemberAccountDecisionEmail,
 } = require("../utils/mailer");
 
 // =====================================================
@@ -241,6 +242,18 @@ const assignTrainer = async (req, res) => {
     }
 
     const member = memberCheck.rows[0];
+    const availabilityResult = await client.query(
+      `SELECT day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
+              TO_CHAR(end_time, 'HH24:MI') AS end_time
+       FROM user_workout_availability
+       WHERE user_id = $1
+       ORDER BY ARRAY_POSITION(
+         ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+         day_of_week
+       )`,
+      [member.user_id]
+    );
+    member.weekly_availability = availabilityResult.rows;
     const previousTrainerId = member.trainer_id;
     let nextTrainer = null;
 
@@ -313,6 +326,7 @@ const assignTrainer = async (req, res) => {
               memberEmail: member.email,
               preferredDays: member.preferred_days,
               preferredWorkoutTime: member.preferred_workout_time,
+              weeklyAvailability: member.weekly_availability,
             });
             coachAssignmentEmailSent = delivery.delivered;
             if (!delivery.delivered) {
@@ -668,7 +682,8 @@ const approveMember = async (req, res) => {
         token_version = token_version + 1,
         updated_at = CURRENT_TIMESTAMP
       WHERE user_id = $1
-      RETURNING user_id, account_status, membership_start_date, membership_end_date
+      RETURNING user_id, account_status, membership_start_date, membership_end_date,
+                first_name, last_name, email
       `,
       [id]
     );
@@ -684,9 +699,27 @@ const approveMember = async (req, res) => {
       [id]
     ).catch(() => {});
 
+    let emailSent = false;
+    try {
+      const delivery = await sendMemberAccountDecisionEmail({
+        to: result.rows[0].email,
+        memberName: `${result.rows[0].first_name || ""} ${result.rows[0].last_name || ""}`.trim(),
+        approved: true,
+      });
+      emailSent = delivery.delivered;
+    } catch (emailError) {
+      console.error("Member approval email failed:", emailError.message);
+    }
+
     res.json({
       message: "Member activated successfully",
-      member: result.rows[0]
+      email_sent: emailSent,
+      member: {
+        user_id: result.rows[0].user_id,
+        account_status: result.rows[0].account_status,
+        membership_start_date: result.rows[0].membership_start_date,
+        membership_end_date: result.rows[0].membership_end_date,
+      },
     });
 
   } catch (error) {
@@ -719,7 +752,7 @@ const rejectMember = async (req, res) => {
         token_version = token_version + 1,
         updated_at = CURRENT_TIMESTAMP
       WHERE user_id = $1
-      RETURNING user_id, account_status, first_name, last_name
+      RETURNING user_id, account_status, first_name, last_name, email
       `,
       [id]
     );
@@ -749,9 +782,28 @@ const rejectMember = async (req, res) => {
       });
     }
 
+    let emailSent = false;
+    try {
+      const delivery = await sendMemberAccountDecisionEmail({
+        to: result.rows[0].email,
+        memberName: `${result.rows[0].first_name || ""} ${result.rows[0].last_name || ""}`.trim(),
+        approved: false,
+        deactivated: String(previous.rows[0]?.account_status || "").toLowerCase() === "active",
+      });
+      emailSent = delivery.delivered;
+    } catch (emailError) {
+      console.error("Member rejection email failed:", emailError.message);
+    }
+
     res.json({
       message: "Member rejected successfully",
-      member: result.rows[0]
+      email_sent: emailSent,
+      member: {
+        user_id: result.rows[0].user_id,
+        account_status: result.rows[0].account_status,
+        first_name: result.rows[0].first_name,
+        last_name: result.rows[0].last_name,
+      },
     });
 
   } catch (error) {

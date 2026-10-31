@@ -252,10 +252,24 @@ async function sendWorkoutPlanReadyEmail({ to, firstName }) {
   });
 }
 
-async function sendCoachAssignmentEmail({ to, trainerName, memberName, memberEmail, preferredDays, preferredWorkoutTime }) {
+async function sendCoachAssignmentEmail({
+  to,
+  trainerName,
+  memberName,
+  memberEmail,
+  preferredDays,
+  preferredWorkoutTime,
+  weeklyAvailability = [],
+}) {
   const safeTrainerName = escapeHtml(trainerName || "Coach");
   const safeMemberName = escapeHtml(memberName || "A new member");
   const safeMemberEmail = escapeHtml(memberEmail || "");
+  const availability = weeklyAvailability.map((slot) => (
+    `${slot.day_of_week}: ${slot.start_time}–${slot.end_time}`
+  ));
+  const safeAvailability = availability.length
+    ? availability.map(escapeHtml).join("; ")
+    : "";
   const safePreferredDays = escapeHtml(preferredDays?.length ? preferredDays.join(", ") : "Not specified");
   const safePreferredTime = escapeHtml(preferredWorkoutTime || "Flexible");
   const workoutPlansUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/trainer/workout-plans`;
@@ -264,8 +278,12 @@ async function sendCoachAssignmentEmail({ to, trainerName, memberName, memberEma
     "",
     `${memberName || "A new member"} has been assigned to you as their coach.`,
     `Member email: ${memberEmail || "Not provided"}`,
-    `Preferred workout days: ${preferredDays?.length ? preferredDays.join(", ") : "Not specified"}`,
-    `Preferred workout time: ${preferredWorkoutTime || "Flexible"}`,
+    ...(safeAvailability
+      ? [`Weekly availability: ${availability.join("; ")}`]
+      : [
+        `Preferred workout days: ${preferredDays?.length ? preferredDays.join(", ") : "Not specified"}`,
+        `Preferred workout time: ${preferredWorkoutTime || "Flexible"}`,
+      ]),
     "",
     "Please review the member's preferences and assign their workout plan.",
     `Open workout plans: ${workoutPlansUrl}`,
@@ -281,8 +299,10 @@ async function sendCoachAssignmentEmail({ to, trainerName, memberName, memberEma
         <p style="margin:0 0 16px;font-size:16px;">Hi ${safeTrainerName},</p>
         <p style="margin:0 0 16px;font-size:15px;line-height:1.6;"><strong>${safeMemberName}</strong> has been assigned to you as their coach. Please review their preferences and assign a workout plan.</p>
         <p style="margin:0 0 6px;font-size:14px;"><strong>Member:</strong> ${safeMemberName}${safeMemberEmail ? ` (${safeMemberEmail})` : ""}</p>
-        <p style="margin:0 0 6px;font-size:14px;"><strong>Preferred days:</strong> ${safePreferredDays}</p>
-        <p style="margin:0 0 20px;font-size:14px;"><strong>Preferred time:</strong> ${safePreferredTime}</p>
+        ${safeAvailability
+          ? `<p style="margin:0 0 20px;font-size:14px;"><strong>Weekly availability:</strong> ${safeAvailability}</p>`
+          : `<p style="margin:0 0 6px;font-size:14px;"><strong>Preferred days:</strong> ${safePreferredDays}</p>
+        <p style="margin:0 0 20px;font-size:14px;"><strong>Preferred time:</strong> ${safePreferredTime}</p>`}
         <a href="${workoutPlansUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Assign workout plan</a>
       </td></tr>
     </table>
@@ -531,6 +551,46 @@ async function sendAccountPasswordChangedEmail({ to, accountName, accountType })
   });
 }
 
+async function sendExperienceLevelChangedEmail({ to, memberName, previousLevel, newLevel }) {
+  const safeName = escapeHtml(memberName || "AveFit member");
+  const safePreviousLevel = escapeHtml(previousLevel || "unspecified");
+  const safeNewLevel = escapeHtml(newLevel);
+  const frequencyGuidance = {
+    Beginner: "2–3 days per week",
+    Intermediate: "3–5 days per week",
+    Advanced: "4–6 days per week",
+  }[newLevel];
+  const text = [
+    `Hi ${memberName || "there"},`,
+    "",
+    `Your coach updated your AveFit experience level from ${previousLevel || "unspecified"} to ${newLevel}.`,
+    `The recommended workout frequency for this level is ${frequencyGuidance}.`,
+    "Review your weekly availability and workout frequency in your profile.",
+    "",
+    "AveFit Administration",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit training update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">Your coach updated your experience level from <strong>${safePreviousLevel}</strong> to <strong>${safeNewLevel}</strong>.</p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">The recommended workout frequency for this level is ${frequencyGuidance}.</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">Review your weekly availability and workout frequency in your profile.</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({
+    to,
+    subject: "Your AveFit experience level was updated",
+    text,
+    html,
+  });
+}
+
 async function sendMemberFeedbackEmail({ to, memberName, memberEmail, rating, message }) {
   const safeName = escapeHtml(memberName);
   const safeEmail = escapeHtml(memberEmail);
@@ -662,14 +722,18 @@ async function sendProfileChangeRequestEmail({ to, memberName, memberEmail, requ
 async function sendProfileChangeDecisionEmail({ to, memberName, requestType, approved, emailVerificationRequired }) {
   const safeName = escapeHtml(memberName || "there");
   const isPassword = requestType === "password";
-  const decision = approved ? "approved" : "not approved";
+  const decision = approved ? "approved" : "rejected";
   const verificationUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/verify-email`;
   const safeVerificationUrl = escapeHtml(verificationUrl);
   const text = [
     `Hi ${memberName || "there"},`,
     "",
     `Your AveFit ${isPassword ? "password" : "profile"} change request was ${decision}.`,
-    ...(approved ? ["Your requested changes are now active."] : []),
+    ...(approved && isPassword
+      ? ["Your new password is now active. Please sign in again using it."]
+      : approved
+        ? ["Your requested changes are now active."]
+        : []),
     ...(approved && emailVerificationRequired ? ["", "Your new email address must be verified before you can continue using AveFit. Visit this page and request a verification code:", verificationUrl] : []),
     ...(!approved ? ["Your account settings have not been changed. Contact the gym if you need assistance."] : []),
     "",
@@ -706,6 +770,46 @@ async function sendProfileChangeDecisionEmail({ to, memberName, requestType, app
   });
 }
 
+async function sendMemberAccountDecisionEmail({ to, memberName, approved, deactivated = false }) {
+  const safeName = escapeHtml(memberName || "there");
+  const decision = approved ? "approved" : deactivated ? "deactivated" : "rejected";
+  const text = [
+    `Hi ${memberName || "there"},`,
+    "",
+    approved
+      ? "Your AveFit account has been approved. You can now sign in and use your account."
+      : deactivated
+        ? "Your AveFit account has been deactivated by the gym administrator. Please contact the gym if you need assistance."
+        : "Your AveFit account application was rejected. Please contact the gym if you need assistance.",
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const body = approved
+    ? "Your AveFit account has been approved. You can now sign in and use your account."
+    : deactivated
+      ? "Your AveFit account has been deactivated by the gym administrator. Please contact the gym if you need assistance."
+      : "Your AveFit account application was rejected. Please contact the gym if you need assistance.";
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit account update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">Your AveFit account status is <strong>${decision}</strong>.</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;">${escapeHtml(body)}</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({
+    to,
+    subject: `Your AveFit account was ${decision}`,
+    text,
+    html,
+  });
+}
+
 module.exports = {
   isMailConfigured,
   sendMail,
@@ -718,8 +822,10 @@ module.exports = {
   sendPasswordChangeVerificationEmail,
   sendAdminPasswordResetEmail,
   sendAccountPasswordChangedEmail,
+  sendExperienceLevelChangedEmail,
   sendMemberFeedbackEmail,
   sendNewUserRegistrationEmail,
   sendProfileChangeRequestEmail,
   sendProfileChangeDecisionEmail,
+  sendMemberAccountDecisionEmail,
 };
