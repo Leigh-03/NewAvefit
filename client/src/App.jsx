@@ -159,6 +159,7 @@ export default function App() {
 
         {/* Trainer Portal */}
         <Route path="/coach/login" element={<TrainerLogin />} />
+        <Route path="/coach" element={<TrainerLogin />} />
         <Route path="/trainer/login" element={<TrainerLogin />} />
         <Route
           path="/trainer/*"
