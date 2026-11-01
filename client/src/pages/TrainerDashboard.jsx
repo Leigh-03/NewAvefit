@@ -61,37 +61,7 @@ function calculateBmi(weight, height) {
   return (weightKg / ((heightCm / 100) ** 2)).toFixed(1);
 }
 
-function MemberProfileModal({ member, onClose, onExperienceUpdated }) {
-  const [activityLevel, setActivityLevel] = useState(member?.activity_level || "Beginner");
-  const [savingLevel, setSavingLevel] = useState(false);
-  const [levelMessage, setLevelMessage] = useState("");
-  const [levelError, setLevelError] = useState("");
-  useEffect(() => {
-    setActivityLevel(member?.activity_level || "Beginner");
-  }, [member?.user_id, member?.activity_level]);
-  useEffect(() => {
-    setLevelMessage("");
-    setLevelError("");
-  }, [member?.user_id]);
-
-  const saveExperienceLevel = async () => {
-    if (!member) return;
-    setSavingLevel(true);
-    setLevelMessage("");
-    setLevelError("");
-    try {
-      const response = await trainerApi.put(`/me/members/${member.user_id}/experience`, {
-        activity_level: activityLevel,
-      });
-      onExperienceUpdated(response.data.data);
-      setLevelMessage(response.data.message || "Experience level updated.");
-    } catch (error) {
-      setLevelError(error.response?.data?.message || "Unable to update experience level.");
-    } finally {
-      setSavingLevel(false);
-    }
-  };
-
+function MemberProfileModal({ member, onClose }) {
   if (!member) return null;
   const currentWeight = member.latest_weight ?? member.weight;
   const currentBmi = member.latest_bmi ?? calculateBmi(currentWeight, member.height);
@@ -121,19 +91,10 @@ function MemberProfileModal({ member, onClose, onExperienceUpdated }) {
             </ul>
           )}
         </div>
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4">
-          <label htmlFor="member-experience-level" className="block text-xs uppercase tracking-wider font-bold text-slate-400">Experience level</label>
-          <p className="mt-1 text-xs text-slate-500">Recommended frequency: Beginner 2–3, Intermediate 3–5, Advanced 4–6 days/week.</p>
-          <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-            <select id="member-experience-level" value={activityLevel} onChange={(event) => { setActivityLevel(event.target.value); setLevelMessage(""); setLevelError(""); }} className="min-h-10 flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-              {["Beginner", "Intermediate", "Advanced"].map((level) => <option key={level} value={level}>{level}</option>)}
-            </select>
-            <button type="button" onClick={saveExperienceLevel} disabled={savingLevel || activityLevel === member.activity_level} className="min-h-10 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50">
-              {savingLevel ? "Saving..." : "Update level"}
-            </button>
-          </div>
-          {levelMessage && <p role="status" className="mt-3 text-sm text-green-600 dark:text-green-400">{levelMessage}</p>}
-          {levelError && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{levelError}</p>}
+        <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+          <p className="text-xs uppercase tracking-wider font-bold text-slate-400">Experience level</p>
+          <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">{member.activity_level || "Not set"}</p>
+          <p className="mt-1 text-xs text-slate-500">Members manage experience level from their profile, subject to admin approval.</p>
         </div>
       </div>
     </div>
@@ -208,11 +169,7 @@ export default function TrainerDashboard(){
   const barOptions={...axisOptions,scales:{...axisOptions.scales,x:{...axisOptions.scales.x,stacked:true},y:{...axisOptions.scales.y,stacked:true}}};
   const memberBarOptions={...barOptions,indexAxis:"y",scales:{x:{...axisOptions.scales.x,stacked:true},y:{...axisOptions.scales.y,stacked:true,ticks:{...axisOptions.scales.y.ticks,autoSkip:false}}}};
   const panelClass="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900";
-  const handleExperienceUpdated = (updatedMember) => {
-    setMembers((current) => current.map((member) => member.user_id === updatedMember.user_id ? { ...member, ...updatedMember } : member));
-    setProfileMember((current) => current?.user_id === updatedMember.user_id ? { ...current, ...updatedMember } : current);
-  };
-  return <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8"><MemberProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onExperienceUpdated={handleExperienceUpdated}/>
+  return <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8"><MemberProfileModal member={profileMember} onClose={()=>setProfileMember(null)}/>
     <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
       <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach workspace</p>
       <h1 className="mt-2 flex items-center gap-2 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl"><Users size={25} className="text-orange-500"/> My Roster</h1>

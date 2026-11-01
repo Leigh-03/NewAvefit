@@ -1,4 +1,7 @@
 const pool = require("../db");
+const { sendProfileChangeRequestEmail } = require("../utils/mailer");
+const { getConfiguredAdminEmail } = require("../utils/adminAccess");
+const { notifyAdmins } = require("../utils/notifications");
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const TIME_WINDOWS = {
@@ -116,7 +119,7 @@ const saveAvailability = async (req, res) => {
     client = await pool.connect();
     await client.query("BEGIN");
     const userResult = await client.query(
-      "SELECT activity_level, setup_completed FROM users WHERE user_id = $1 FOR UPDATE",
+      "SELECT activity_level, setup_completed, account_status, first_name, last_name, email FROM users WHERE user_id = $1 FOR UPDATE",
       [req.user.user_id]
     );
     if (!userResult.rowCount) {
@@ -125,13 +128,6 @@ const saveAvailability = async (req, res) => {
     }
 
     const user = userResult.rows[0];
-    if (user.setup_completed === true) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        success: false,
-        message: "Workout availability and experience level are locked after setup is complete.",
-      });
-    }
     const activityLevel = requestedLevel || user.activity_level || "Beginner";
     const [minimum, maximum] = getExperienceRange(activityLevel);
     if (frequency < minimum || frequency > maximum) {
@@ -146,6 +142,73 @@ const saveAvailability = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `You selected ${frequency} workout days per week, but you are only available on ${normalized.availability.length} days. Please update your availability or workout frequency.`,
+      });
+    }
+
+    if (user.setup_completed === true) {
+      if (String(user.account_status || "").toLowerCase() !== "active") {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ success: false, message: "An active member account is required to request availability changes." });
+      }
+      const payload = {
+        weekly_availability: {
+          workout_days_per_week: frequency,
+          workout_duration: duration,
+          activity_level: activityLevel,
+          availability: normalized.availability,
+        },
+      };
+      let request;
+      try {
+        const inserted = await client.query(
+          `INSERT INTO user_profile_change_requests (user_id, request_type, payload)
+           VALUES ($1, 'profile', $2::jsonb)
+           RETURNING request_id, request_type, status, created_at`,
+          [req.user.user_id, JSON.stringify(payload)]
+        );
+        request = inserted.rows[0];
+      } catch (insertError) {
+        await client.query("ROLLBACK");
+        if (insertError.code === "23505") {
+          return res.status(409).json({ success: false, message: "You already have a profile change request awaiting admin review." });
+        }
+        throw insertError;
+      }
+      await client.query("COMMIT");
+      const memberName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || "AveFit member";
+      const adminEmail = getConfiguredAdminEmail();
+      let emailSent = false;
+      if (adminEmail) {
+        try {
+          const delivery = await sendProfileChangeRequestEmail({
+            to: adminEmail,
+            memberName,
+            memberEmail: user.email,
+            requestType: "profile",
+            changes: payload,
+          });
+          emailSent = delivery.delivered;
+        } catch (emailError) {
+          console.error("Weekly availability request email failed:", emailError.message);
+        }
+      } else {
+        console.error("Weekly availability request email was not sent because ADMIN_EMAIL is not configured.");
+      }
+      try {
+        await notifyAdmins({
+          message: `${memberName} submitted a weekly workout availability change for review.`,
+          notificationType: "profile_change",
+          userName: memberName,
+          targetUrl: "/admin/members",
+        });
+      } catch (notificationError) {
+        console.error("Weekly availability admin notification failed:", notificationError.message);
+      }
+      return res.status(202).json({
+        success: true,
+        message: "Your weekly workout availability change was submitted for admin approval.",
+        email_sent: emailSent,
+        request: { ...request, payload },
       });
     }
 

@@ -9,7 +9,6 @@ const {
   sendAccountPasswordChangedEmail,
   sendCoachAccountStatusEmail,
   sendCoachAccountUpdatedEmail,
-  sendExperienceLevelChangedEmail,
 } = require("../utils/mailer");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const { getCapacityStatus } = require("../utils/coachAssignment");
@@ -1082,9 +1081,25 @@ const getTrainerRoster = async (req, res) => {
         pl.weight AS latest_weight,
         pl.bmi AS latest_bmi,
         pl.log_date AS latest_log_date,
-        workout_stats.assigned_workouts,
-        workout_stats.completed_workouts
+        COALESCE(workout_stats.assigned_workouts, 0)::int AS assigned_workouts,
+        COALESCE(workout_stats.completed_workouts, 0)::int AS completed_workouts
       FROM users u
+      LEFT JOIN LATERAL (
+        SELECT JSON_AGG(
+          JSON_BUILD_OBJECT(
+            'day_of_week', a.day_of_week,
+            'time_preference', a.time_preference,
+            'start_time', TO_CHAR(a.start_time, 'HH24:MI'),
+            'end_time', TO_CHAR(a.end_time, 'HH24:MI')
+          )
+          ORDER BY ARRAY_POSITION(
+            ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+            a.day_of_week
+          )
+        ) AS slots
+        FROM user_workout_availability a
+        WHERE a.user_id = u.user_id
+      ) user_availability ON true
       LEFT JOIN LATERAL (
         SELECT
           weight,
@@ -1107,7 +1122,6 @@ const getTrainerRoster = async (req, res) => {
         WHERE wp.user_id = u.user_id
       ) workout_stats ON true
       WHERE u.trainer_id = $1
-        AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
       ORDER BY u.first_name ASC
       `,
       [id]
@@ -1367,70 +1381,6 @@ const getMyRoster = async (req, res) => {
       success: false,
       message: err.message,
     });
-  }
-};
-
-const updateRosterMemberExperience = async (req, res) => {
-  const userId = Number(req.params.userId);
-  const activityLevel = String(req.body?.activity_level || "").trim();
-  if (!Number.isInteger(userId) || userId < 1) {
-    return res.status(400).json({ success: false, message: "Choose a valid roster member." });
-  }
-  if (!["Beginner", "Intermediate", "Advanced"].includes(activityLevel)) {
-    return res.status(400).json({ success: false, message: "Choose Beginner, Intermediate, or Advanced." });
-  }
-
-  try {
-    const result = await pool.query(
-      `WITH member_before AS (
-         SELECT user_id, activity_level
-         FROM users
-         WHERE user_id = $2
-           AND trainer_id = $3
-           AND LOWER(COALESCE(account_status, 'pending')) = 'active'
-         FOR UPDATE
-       )
-       UPDATE users AS u
-       SET activity_level = $1, updated_at = NOW()
-       FROM member_before AS old
-       WHERE u.user_id = old.user_id
-       RETURNING u.user_id, u.first_name, u.last_name, u.email,
-                 u.activity_level, u.workout_days_per_week,
-                 old.activity_level AS previous_activity_level`,
-      [activityLevel, userId, req.trainer.trainer_id]
-    );
-    if (!result.rowCount) {
-      return res.status(404).json({ success: false, message: "This active member is not on your roster." });
-    }
-
-    const member = result.rows[0];
-    const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || "AveFit member";
-    if (member.previous_activity_level !== member.activity_level) {
-     try {
-      const delivery = await sendExperienceLevelChangedEmail({
-        to: member.email,
-        memberName,
-        previousLevel: member.previous_activity_level,
-        newLevel: member.activity_level,
-      });
-      if (!delivery.delivered) {
-        console.error(`Experience-level update email was not delivered to member ${member.user_id}.`);
-      }
-     } catch (mailError) {
-       console.error("Experience-level update email failed:", mailError.message);
-     }
-    }
-    const [minimumDays, maximumDays] = getExperienceRange(member.activity_level);
-    const responseMember = { ...member };
-    delete responseMember.previous_activity_level;
-    res.json({
-      success: true,
-      message: `Member experience level updated. Recommended frequency: ${minimumDays}–${maximumDays} days per week.`,
-      data: responseMember,
-    });
-  } catch (err) {
-    console.error("updateRosterMemberExperience error:", err.message);
-    res.status(500).json({ success: false, message: "Unable to update this member's experience level." });
   }
 };
 
@@ -2856,7 +2806,6 @@ module.exports = {
   getTrainerRoster,
   loginTrainer,
   getMyRoster,
-  updateRosterMemberExperience,
   getMyProfile,
   updateMyPhoto,
   getMyWorkoutPlans,

@@ -41,6 +41,7 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
   const [duration, setDuration] = useState("");
   const [level, setLevel] = useState(experienceLevel || "Beginner");
   const [setupComplete, setSetupComplete] = useState(false);
+  const [pendingRequest, setPendingRequest] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -48,10 +49,16 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
 
   useEffect(() => {
     let active = true;
-    userApi.get("/profile/availability")
-      .then(({ data }) => {
+    Promise.all([
+      userApi.get("/profile/availability"),
+      userApi.get("/profile/change-requests"),
+    ])
+      .then(([{ data }, requestsResponse]) => {
         if (!active) return;
         const saved = data.data || {};
+        setPendingRequest((requestsResponse.data?.data || []).some((request) => (
+          request.status === "Pending" && Boolean(request.payload?.weekly_availability)
+        )));
         const draft = hasContinue ? readDraft() : null;
         const savedLevel = experienceLevel || saved.activity_level || "Beginner";
         const range = EXPERIENCE_RANGES[savedLevel] || EXPERIENCE_RANGES.Beginner;
@@ -79,7 +86,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
     if (experienceLevel) setLevel(experienceLevel);
   }, [experienceLevel]);
 
-  const readOnly = setupComplete;
   const range = EXPERIENCE_RANGES[level] || EXPERIENCE_RANGES.Beginner;
   const frequency = Number(daysPerWeek);
   const frequencyOptions = Array.from(
@@ -131,9 +137,14 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
         workout_days_per_week: frequency,
         workout_duration: Number(duration),
         availability,
-        ...(hasContinue ? { activity_level: level } : {}),
+        activity_level: level,
       };
       const { data } = await userApi.put("/profile/availability", payload);
+      if (data.request) {
+        setPendingRequest(true);
+        setNotice(data.message || "Your weekly availability change was submitted for admin approval.");
+        return;
+      }
       const savedAvailability = data.data.availability;
       const draft = {
         daysPerWeek: String(frequency),
@@ -168,9 +179,14 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
 
       {error && <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</p>}
       {notice && <p role="status" className="rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-700 dark:text-green-300">{notice}</p>}
-      {readOnly && (
+      {setupComplete && (
         <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300">
-          Your workout availability and experience level were set during initial setup and can’t be changed after setup is complete. Contact your coach or gym administrator if these need updating.
+          Changes to your workout schedule and experience level take effect after admin approval.
+        </p>
+      )}
+      {pendingRequest && (
+        <p role="status" className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-200">
+          You already have a weekly availability change waiting for admin review.
         </p>
       )}
 
@@ -198,7 +214,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
                         type="checkbox"
                         checked={Boolean(selected)}
                         onChange={() => toggleDay(day)}
-                        disabled={readOnly}
                         className="h-4 w-4 accent-orange-500"
                       />
                       {day}
@@ -213,7 +228,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
                       <select
                         value={selected.time_preference}
                         onChange={(event) => updateDayTime(day, event.target.value)}
-                        disabled={readOnly}
                         className="min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
                       >
                         {TIME_OPTIONS.map((option) => (
@@ -232,7 +246,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
               Workout days per week
               <select
                 value={daysPerWeek}
-                disabled={readOnly}
                 onChange={(event) => {
                   setDaysPerWeek(event.target.value);
                   setError("");
@@ -253,7 +266,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
               Preferred Workout Session Duration
               <select
                 value={duration}
-                disabled={readOnly}
                 required
                 onChange={(event) => {
                   setDuration(normalizeDuration(event.target.value));
@@ -273,13 +285,13 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
           <p className="text-xs text-slate-500">
             {availability.length} {availability.length === 1 ? "day" : "days"} available · {frequency || "—"} workout days requested
           </p>
-          {!readOnly && onContinue && (
+          {onContinue && (
             <button type="button" onClick={save} disabled={saving} className="w-full rounded-xl bg-orange-500 py-3 font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50">
               {saving ? "Saving…" : "Continue to Coach Selection →"}
             </button>
           )}
-          {!readOnly && !onContinue && (
-            <button type="button" onClick={save} disabled={saving} className="min-h-11 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50">
+          {!onContinue && (
+            <button type="button" onClick={save} disabled={saving || pendingRequest} className="min-h-11 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50">
               {saving ? "Saving…" : "Save availability"}
             </button>
           )}

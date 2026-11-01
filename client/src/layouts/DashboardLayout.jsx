@@ -62,8 +62,6 @@ export default function DashboardLayout({ children }) {
         initials: (admin.name || "A").charAt(0).toUpperCase(),
       }}
       onLogout={handleLogout}
-      search
-      searchPlaceholder="Search…"
       topbarLeft={
         <span className="flex items-center gap-2 truncate text-sm">
           <span className="hidden text-slate-500 sm:inline">Admin</span>

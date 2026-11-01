@@ -20,8 +20,13 @@ const {
   sendMail,
   sendVerificationEmail,
   sendPasswordChangeVerificationEmail,
+  sendCoachAssignmentEmail,
+  sendCoachCapacityStatusEmail,
+  sendUserCoachAssignedEmail,
 } = require("../utils/mailer");
 const { notifyNewUser, createNotification } = require("../utils/notifications");
+const { getCapacityStatus } = require("../utils/coachAssignment");
+const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const {
   buildProfileChangePayload,
   createProfileChangeRequest,
@@ -1486,14 +1491,36 @@ const updateProfile = async (req, res) => {
     if (!current.rowCount) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
-    if (
-      trainer_id !== undefined &&
-      String(trainer_id ?? "") !== String(current.rows[0].trainer_id ?? "")
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "Coach assignments are managed by the gym administrator. Contact the administrator to request a coach or reassignment.",
-      });
+    let selectedTrainerId = null;
+    let selectedCoach = null;
+    const trainerChanged = trainer_id !== undefined &&
+      String(trainer_id ?? "") !== String(current.rows[0].trainer_id ?? "");
+    if (trainerChanged) {
+      if (current.rows[0].setup_completed === true || setup_completed !== true || trainer_id === null || trainer_id === "") {
+        return res.status(403).json({
+          success: false,
+          message: "Coach assignments can only be selected during initial setup.",
+        });
+      }
+      selectedTrainerId = Number(trainer_id);
+      if (!Number.isInteger(selectedTrainerId) || selectedTrainerId < 1) {
+        return res.status(400).json({ success: false, message: "Choose a valid coach." });
+      }
+      const coachResult = await pool.query(
+        `SELECT trainer_id, full_name, email, status, max_members
+         FROM trainers
+         WHERE trainer_id = $1 AND status = 'Active'`,
+        [selectedTrainerId]
+      );
+      if (!coachResult.rowCount) {
+        return res.status(409).json({ success: false, message: "This coach is inactive or no longer available." });
+      }
+      selectedCoach = coachResult.rows[0];
+      const assignedCountResult = await pool.query(
+        "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
+        [selectedTrainerId]
+      );
+      selectedCoach.assigned_member_count = assignedCountResult.rows[0].count;
     }
 
     const currentEmail =
@@ -1562,8 +1589,9 @@ const updateProfile = async (req, res) => {
           health_conditions=COALESCE($19, health_conditions),
           setup_completed=COALESCE($20, setup_completed),
           profile_image=COALESCE($21, profile_image),
+          trainer_id=COALESCE($22, trainer_id),
           updated_at=NOW()
-      WHERE user_id=$22
+      WHERE user_id=$23
       `,
       [
         first_name
@@ -1595,6 +1623,7 @@ const updateProfile = async (req, res) => {
           ? setup_completed
           : null,
         profile_image ?? null,
+        selectedTrainerId,
         req.user.user_id,
       ]
     );
@@ -1713,6 +1742,68 @@ const updateProfile = async (req, res) => {
           [bmi, req.user.user_id]
         )
         .catch(() => {});
+    }
+
+    if (selectedCoach) {
+      const memberName = `${first_name || current.rows[0].first_name || ""} ${last_name || current.rows[0].last_name || ""}`.trim() || "A new member";
+      const capacityBefore = getCapacityStatus(
+        selectedCoach.assigned_member_count,
+        selectedCoach.max_members,
+        selectedCoach.status
+      );
+      const capacityAfter = getCapacityStatus(
+        selectedCoach.assigned_member_count + 1,
+        selectedCoach.max_members,
+        selectedCoach.status
+      );
+      if ((capacityBefore === "Full") !== (capacityAfter === "Full")) {
+        await deliverCoachEmail({
+          trainer: selectedCoach,
+          event: "capacity status",
+          send: (to) => sendCoachCapacityStatusEmail({
+            to,
+            accountName: selectedCoach.full_name,
+            status: capacityAfter,
+            assignedMembers: selectedCoach.assigned_member_count + 1,
+            maxMembers: selectedCoach.max_members,
+          }),
+        });
+      }
+      try {
+        if (selectedCoach.email) {
+          await sendCoachAssignmentEmail({
+            to: selectedCoach.email,
+            trainerName: selectedCoach.full_name,
+            memberName,
+            memberEmail: email || current.rows[0].email,
+            preferredDays: preferred_days,
+            preferredWorkoutTime: preferred_workout_time,
+          });
+        }
+      } catch (notificationError) {
+        console.error(`Coach assignment email failed for trainer ${selectedTrainerId}:`, notificationError.message);
+      }
+      try {
+        await sendUserCoachAssignedEmail({
+          to: email || current.rows[0].email,
+          firstName: first_name || current.rows[0].first_name,
+          trainerName: selectedCoach.full_name,
+        });
+      } catch (notificationError) {
+        console.error(`Coach assignment email failed for user ${req.user.user_id}:`, notificationError.message);
+      }
+      try {
+        await createNotification({
+          audience: "trainer",
+          recipientId: selectedTrainerId,
+          message: `${memberName} selected you as their coach during setup.`,
+          notificationType: "workout",
+          userName: memberName,
+          targetUrl: "/trainer/roster",
+        });
+      } catch (notificationError) {
+        console.error(`Coach assignment notification failed for trainer ${selectedTrainerId}:`, notificationError.message);
+      }
     }
 
     // A new address has to be confirmed again before the account stays usable.

@@ -1,5 +1,4 @@
 const pool = require("../db");
-const webpush = require("web-push");
 const {
   isMailConfigured,
   sendWeeklyBmiReminderEmail,
@@ -8,62 +7,8 @@ const {
 } = require("./mailer");
 const { getConfiguredAdminEmail } = require("./adminAccess");
 
-let pushConfigurationChecked = false;
-let pushConfigurationAvailable = false;
 let bmiReminderSmtpWarningLogged = false;
 let workoutReminderSmtpWarningLogged = false;
-
-const configurePush = () => {
-  if (pushConfigurationChecked) return pushConfigurationAvailable;
-  pushConfigurationChecked = true;
-
-  const publicKey = process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
-  const privateKey = process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
-  if (!publicKey || !privateKey) return false;
-
-  try {
-    webpush.setVapidDetails(
-      process.env.WEB_PUSH_CONTACT || "mailto:support@avefit.com",
-      publicKey,
-      privateKey
-    );
-    pushConfigurationAvailable = true;
-  } catch (err) {
-    console.error("Invalid Web Push VAPID configuration:", err.message);
-  }
-  return pushConfigurationAvailable;
-};
-
-const getVapidPublicKey = () => {
-  if (!configurePush()) return null;
-  return process.env.WEB_PUSH_VAPID_PUBLIC_KEY;
-};
-
-const sendPushNotification = async (audience, recipientId, payload) => {
-  if (!configurePush()) return;
-
-  const result = await pool.query(
-    `SELECT subscription_id, endpoint, subscription
-     FROM push_subscriptions
-     WHERE audience_type = $1 AND recipient_id = $2`,
-    [audience, recipientId]
-  );
-
-  await Promise.all(result.rows.map(async (row) => {
-    try {
-      await webpush.sendNotification(row.subscription, JSON.stringify(payload));
-    } catch (err) {
-      if (err.statusCode === 404 || err.statusCode === 410) {
-        await pool.query(
-          "DELETE FROM push_subscriptions WHERE subscription_id = $1",
-          [row.subscription_id]
-        );
-        return;
-      }
-      console.error("Web Push delivery failed:", err.message);
-    }
-  }));
-};
 
 const createNotification = async ({
   audience,
@@ -89,15 +34,6 @@ const createNotification = async ({
     [audience, Number(recipientId), message, notificationType, userName, targetUrl]
   );
 
-  try {
-    await sendPushNotification(audience, Number(recipientId), {
-      title: "AveFit",
-      body: message,
-      url: targetUrl,
-    });
-  } catch (err) {
-    console.error("Web Push dispatch failed:", err.message);
-  }
   return result.rows[0];
 };
 
@@ -336,7 +272,6 @@ const sendUnassignedWorkoutReminders = async () => {
 
 module.exports = {
   createNotification,
-  getVapidPublicKey,
   notifyAdmins,
   notifyNewUser,
   sendWeeklyBmiReminders,

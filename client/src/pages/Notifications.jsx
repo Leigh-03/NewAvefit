@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bell, CheckCheck, Trash2, Circle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createNotificationsApi } from "../services/notificationsApi";
-import BrowserPushSettings from "../components/notifications/BrowserPushSettings";
 
 const typeColors = {
   workout: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
@@ -114,8 +113,6 @@ export default function Notifications({ audience = "admin" }) {
           </button>
         )}
       </header>
-
-      <BrowserPushSettings audience={audience} />
 
       {/* Filter tabs */}
       <div className="flex gap-2" role="group" aria-label="Filter notifications">

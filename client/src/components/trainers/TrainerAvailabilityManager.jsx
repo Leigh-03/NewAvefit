@@ -280,7 +280,7 @@ export default function TrainerAvailabilityManager({
         </div>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           {isAdmin
-            ? "Manage the coach's recurring weekly working hours."
+            ? "View the coach's recurring weekly working hours."
             : "Choose recurring weekly time windows. You can add more than one non-overlapping time range per day."}
         </p>
       </div>
@@ -298,13 +298,13 @@ export default function TrainerAvailabilityManager({
               <section key={day} className="rounded-xl border border-slate-200 p-3 dark:border-white/10">
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="font-semibold text-slate-800 dark:text-white">{day}</h3>
-                  <button
+                  {!isAdmin && <button
                     type="button"
                     onClick={() => addSlot(dayOfWeek)}
                     className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-500/10"
                   >
                     <Plus size={14} /> Add time
-                  </button>
+                  </button>}
                 </div>
                 {daySlots.length === 0 ? (
                   <p className="text-xs text-slate-400">Not available</p>
@@ -313,19 +313,27 @@ export default function TrainerAvailabilityManager({
                     {daySlots.map((slot) => (
                       <div key={slot.id} className="flex flex-wrap items-start gap-2">
                         <div className="min-w-0 flex-1 space-y-2">
-                          <label className="sr-only" htmlFor={`range-${slot.id}`}>{day} availability time</label>
-                          <select
-                            id={`range-${slot.id}`}
-                            value={slot.custom ? "custom" : AVAILABILITY_RANGES.find((range) => range.start_time === slot.start_time && range.end_time === slot.end_time)?.value || "custom"}
-                            onChange={(event) => updateSlotRange(slot.id, event.target.value)}
-                            className="w-full max-w-[24rem] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-gray-700 dark:bg-[#111] dark:text-white"
-                          >
-                            <option value="custom">Custom · {formatTime(slot.start_time)}–{formatTime(slot.end_time)}</option>
-                            {AVAILABILITY_RANGES.map((range) => (
-                              <option key={range.value} value={range.value}>{range.label}</option>
-                            ))}
-                          </select>
-                          {(slot.custom || AVAILABILITY_RANGES.every((range) => range.start_time !== slot.start_time || range.end_time !== slot.end_time)) && (
+                          {isAdmin ? (
+                            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-white/[0.04] dark:text-slate-200">
+                              {formatTime(slot.start_time)} – {formatTime(slot.end_time)}
+                            </p>
+                          ) : (
+                            <>
+                              <label className="sr-only" htmlFor={`range-${slot.id}`}>{day} availability time</label>
+                              <select
+                                id={`range-${slot.id}`}
+                                value={slot.custom ? "custom" : AVAILABILITY_RANGES.find((range) => range.start_time === slot.start_time && range.end_time === slot.end_time)?.value || "custom"}
+                                onChange={(event) => updateSlotRange(slot.id, event.target.value)}
+                                className="w-full max-w-[24rem] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-gray-700 dark:bg-[#111] dark:text-white"
+                              >
+                                <option value="custom">Custom · {formatTime(slot.start_time)}–{formatTime(slot.end_time)}</option>
+                                {AVAILABILITY_RANGES.map((range) => (
+                                  <option key={range.value} value={range.value}>{range.label}</option>
+                                ))}
+                              </select>
+                            </>
+                          )}
+                          {!isAdmin && (slot.custom || AVAILABILITY_RANGES.every((range) => range.start_time !== slot.start_time || range.end_time !== slot.end_time)) && (
                             <div className="grid max-w-[24rem] grid-cols-1 gap-2 sm:grid-cols-2">
                               <TimeOfDaySelect
                                 id={`range-${slot.id}-start`}
@@ -342,14 +350,14 @@ export default function TrainerAvailabilityManager({
                             </div>
                           )}
                         </div>
-                        <button
+                        {!isAdmin && <button
                           type="button"
                           onClick={() => removeSlot(slot.id)}
                           aria-label={`Remove ${day} time slot`}
                           className="mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
                         >
                           <Trash2 size={16} />
-                        </button>
+                        </button>}
                       </div>
                     ))}
                   </div>
@@ -371,14 +379,14 @@ export default function TrainerAvailabilityManager({
             Close
           </button>
         )}
-        <button
+        {!isAdmin && <button
           type="button"
           onClick={save}
           disabled={loading || saving || Boolean(hoursError) || !hasChanges}
           className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
         >
           <Save size={16} /> {saving ? "Saving…" : hasChanges ? "Save changes" : "Saved"}
-        </button>
+        </button>}
       </div>
     </div>
   );
