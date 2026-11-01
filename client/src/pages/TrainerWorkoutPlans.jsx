@@ -663,6 +663,7 @@ export default function TrainerWorkoutPlans() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [rosterFilter, setRosterFilter] = useState("All");
   const [showModal, setShowModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
   const [fetchError, setFetchError] = useState("");
@@ -714,7 +715,8 @@ export default function TrainerWorkoutPlans() {
     plan.plan_name?.toLowerCase().includes(query) ||
     plan.goal?.toLowerCase().includes(query) ||
     plan.member_name?.toLowerCase().includes(query)
-  ).filter((plan) => statusFilter === "All" || plan.activity_status === statusFilter);
+  ).filter((plan) => statusFilter === "All" || plan.activity_status === statusFilter)
+    .filter((plan) => rosterFilter === "All" || String(plan.user_id) === rosterFilter);
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
@@ -771,7 +773,7 @@ export default function TrainerWorkoutPlans() {
         ))}
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
       <label className="trainer-card flex min-h-11 flex-1 items-center gap-3 rounded-xl border px-4 py-3">
         <Search size={18} className="text-slate-500" />
         <input
@@ -785,7 +787,14 @@ export default function TrainerWorkoutPlans() {
       </label>
       <label className="sr-only" htmlFor="trainer-plan-status">Filter plans by status</label>
       <select id="trainer-plan-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
-        {["All", "Active", "Complete", "Incomplete", "Absent"].map((status) => <option key={status} value={status}>{status === "All" ? "All statuses" : status}</option>)}
+        {["All", "Active", "Complete", "Incomplete", "Absent"].map((status) => <option key={status} value={status}>{status === "All" ? "All Status" : status}</option>)}
+      </select>
+      <label className="sr-only" htmlFor="trainer-plan-roster">Filter by My Roster</label>
+      <select id="trainer-plan-roster" value={rosterFilter} onChange={(event) => setRosterFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
+        <option value="All">My Roster · All members</option>
+        {members.map((member) => (
+          <option key={member.user_id} value={String(member.user_id)}>{member.first_name} {member.last_name}</option>
+        ))}
       </select>
       </div>
 

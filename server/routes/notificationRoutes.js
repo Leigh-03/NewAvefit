@@ -6,8 +6,6 @@ const controller = require("../controllers/notificationController");
 
 const router = express.Router();
 
-router.get("/public-key", controller.getPublicKey);
-
 const createAudienceRouter = (audience, authenticate) => {
   const audienceRouter = express.Router();
   audienceRouter.use(authenticate, (req, res, next) => {
@@ -24,8 +22,6 @@ const createAudienceRouter = (audience, authenticate) => {
   audienceRouter.put("/mark-all-read", controller.markAllAsRead);
   audienceRouter.put("/:id/read", controller.markAsRead);
   audienceRouter.delete("/:id", controller.deleteNotification);
-  audienceRouter.post("/subscription", controller.saveSubscription);
-  audienceRouter.delete("/subscription", controller.removeSubscription);
   return audienceRouter;
 };
 

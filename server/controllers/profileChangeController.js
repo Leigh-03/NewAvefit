@@ -11,6 +11,7 @@ const {
 } = require("../utils/mailer");
 const { getConfiguredAdminEmail } = require("../utils/adminAccess");
 const { createNotification, notifyAdmins } = require("../utils/notifications");
+const { normalizeAvailability, getExperienceRange } = require("./userWorkoutAvailabilityController");
 
 const PROFILE_FIELDS = {
   first_name: "first_name",
@@ -23,6 +24,7 @@ const PROFILE_FIELDS = {
   height: "height",
   weight: "weight",
   fitness_goal: "fitness_goal",
+  activity_level: "activity_level",
   target_weight: "target_weight",
   workout_days_per_week: "workout_days_per_week",
   workout_duration: "workout_duration",
@@ -50,9 +52,12 @@ const sanitizePayload = (payload = {}) => {
 const buildProfileChangePayload = (current, body) => {
   const payload = {};
 
-  if (Object.prototype.hasOwnProperty.call(body, "activity_level")) {
-    const error = new Error("Only your coach can update your experience level.");
-    error.status = 403;
+  if (
+    Object.prototype.hasOwnProperty.call(body, "activity_level") &&
+    !["Beginner", "Intermediate", "Advanced"].includes(body.activity_level)
+  ) {
+    const error = new Error("Choose Beginner, Intermediate, or Advanced as your experience level.");
+    error.status = 400;
     throw error;
   }
 
@@ -317,7 +322,17 @@ const getAdminChangeRequests = async (_req, res) => {
               u.workout_days_per_week, u.workout_duration, u.preferred_days,
               u.preferred_workout_time, u.intensity, u.injuries,
               u.health_conditions,
-              (u.profile_image IS NOT NULL AND u.profile_image <> '') AS has_profile_image
+              (u.profile_image IS NOT NULL AND u.profile_image <> '') AS has_profile_image,
+              COALESCE((
+                SELECT json_agg(json_build_object(
+                  'day_of_week', a.day_of_week,
+                  'time_preference', a.time_preference,
+                  'start_time', TO_CHAR(a.start_time, 'HH24:MI'),
+                  'end_time', TO_CHAR(a.end_time, 'HH24:MI')
+                ) ORDER BY array_position(ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'], a.day_of_week))
+                FROM user_workout_availability a
+                WHERE a.user_id = u.user_id
+              ), '[]'::json) AS weekly_availability
        FROM user_profile_change_requests r
        JOIN users u ON u.user_id = r.user_id
        WHERE r.status = 'Pending'
@@ -331,6 +346,13 @@ const getAdminChangeRequests = async (_req, res) => {
         for (const key of Object.keys(payload)) {
           currentValues[key] = key === "profile_photo_changed"
             ? Boolean(request.has_profile_image)
+            : key === "weekly_availability"
+              ? {
+                  availability: request.weekly_availability,
+                  activity_level: request.activity_level,
+                  workout_days_per_week: request.workout_days_per_week,
+                  workout_duration: request.workout_duration,
+                }
             : request[key];
         }
         return {
@@ -383,6 +405,47 @@ const reviewChangeRequest = async (req, res) => {
     const nextEmail = payload.email || oldEmail;
     const emailChanged = nextEmail.toLowerCase() !== oldEmail.toLowerCase();
     if (decision === "approve" && request.request_type === "profile") {
+      if (Object.prototype.hasOwnProperty.call(payload, "weekly_availability")) {
+        const change = payload.weekly_availability;
+        const normalized = normalizeAvailability(change?.availability);
+        const frequency = Number(change?.workout_days_per_week);
+        const duration = Number(change?.workout_duration);
+        const level = change?.activity_level;
+        if (
+          normalized.error ||
+          !Number.isInteger(frequency) ||
+          ![30, 45, 60, 75, 90].includes(duration) ||
+          !["Beginner", "Intermediate", "Advanced"].includes(level)
+        ) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ success: false, message: normalized.error || "The submitted workout availability is invalid." });
+        }
+        const [minimum, maximum] = getExperienceRange(level);
+        if (frequency < minimum || frequency > maximum || frequency > normalized.availability.length) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ success: false, message: `The submitted availability does not match the ${level} workout frequency rules.` });
+        }
+        await client.query("DELETE FROM user_workout_availability WHERE user_id = $1", [request.user_id]);
+        for (const slot of normalized.availability) {
+          await client.query(
+            `INSERT INTO user_workout_availability
+               (user_id, day_of_week, start_time, end_time, time_preference)
+             VALUES ($1, $2, $3::time, $4::time, $5)`,
+            [request.user_id, slot.day_of_week, slot.start, slot.end, slot.time_preference]
+          );
+        }
+        await client.query(
+          `UPDATE users
+           SET activity_level = $1,
+               workout_days_per_week = $2,
+               workout_duration = $3,
+               preferred_days = $4,
+               preferred_workout_time = NULL,
+               updated_at = NOW()
+           WHERE user_id = $5`,
+          [level, frequency, duration, normalized.availability.map((slot) => slot.day_of_week), request.user_id]
+        );
+      }
       if (emailChanged) {
         const duplicate = await client.query(
           "SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) AND user_id <> $2",

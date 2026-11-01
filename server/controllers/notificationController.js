@@ -1,16 +1,4 @@
 const pool = require("../db");
-const { getVapidPublicKey } = require("../utils/notifications");
-
-const getPublicKey = (req, res) => {
-  const publicKey = getVapidPublicKey();
-  if (!publicKey) {
-    return res.status(503).json({
-      success: false,
-      message: "Browser push is unavailable. Configure WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY in the server environment, then restart the API.",
-    });
-  }
-  res.json({ success: true, publicKey });
-};
 
 const getNotifications = async (req, res) => {
   try {
@@ -94,73 +82,10 @@ const deleteNotification = async (req, res) => {
   }
 };
 
-const saveSubscription = async (req, res) => {
-  if (!getVapidPublicKey()) {
-    return res.status(503).json({
-      success: false,
-      message: "Browser push is unavailable. Configure WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY in the server environment, then restart the API.",
-    });
-  }
-
-  const subscription = req.body;
-  if (
-    !subscription ||
-    typeof subscription.endpoint !== "string" ||
-    !subscription.endpoint.startsWith("https://") ||
-    typeof subscription.keys?.p256dh !== "string" ||
-    typeof subscription.keys?.auth !== "string"
-  ) {
-    return res.status(400).json({ success: false, message: "A valid browser push subscription is required." });
-  }
-
-  try {
-    await pool.query(
-      `INSERT INTO push_subscriptions (audience_type, recipient_id, endpoint, subscription)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (audience_type, recipient_id, endpoint) DO UPDATE
-       SET
-           subscription = EXCLUDED.subscription,
-           updated_at = NOW()`,
-      [
-        req.notificationAudience,
-        req.notificationRecipientId,
-        subscription.endpoint,
-        JSON.stringify(subscription),
-      ]
-    );
-    res.status(201).json({ success: true, message: "Browser notifications enabled." });
-  } catch (err) {
-    console.error("saveSubscription error:", err.message);
-    res.status(500).json({ success: false, message: "Unable to save browser notification settings." });
-  }
-};
-
-const removeSubscription = async (req, res) => {
-  const endpoint = req.body?.endpoint;
-  if (typeof endpoint !== "string") {
-    return res.status(400).json({ success: false, message: "A push subscription endpoint is required." });
-  }
-
-  try {
-    await pool.query(
-      `DELETE FROM push_subscriptions
-       WHERE endpoint = $1 AND audience_type = $2 AND recipient_id = $3`,
-      [endpoint, req.notificationAudience, req.notificationRecipientId]
-    );
-    res.json({ success: true, message: "Browser notifications disabled." });
-  } catch (err) {
-    console.error("removeSubscription error:", err.message);
-    res.status(500).json({ success: false, message: "Unable to disable browser notifications." });
-  }
-};
-
 module.exports = {
-  getPublicKey,
   getNotifications,
   getUnreadCount,
   markAsRead,
   markAllAsRead,
   deleteNotification,
-  saveSubscription,
-  removeSubscription,
 };

@@ -21,6 +21,7 @@ export default function SetupConfirmation() {
   const [goalData, setGoalData] = useState({});
   const [healthData, setHealthData] = useState({});
   const [availability, setAvailability] = useState({});
+  const [preferredCoach, setPreferredCoach] = useState(null);
   const [prediction, setPrediction] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -30,9 +31,11 @@ export default function SetupConfirmation() {
     const goal = JSON.parse(sessionStorage.getItem("avefit_goal") || "{}");
     const health = JSON.parse(sessionStorage.getItem("avefit_health") || "{}");
     const avail = JSON.parse(sessionStorage.getItem("avefit_availability") || "{}");
+    const coach = JSON.parse(sessionStorage.getItem("avefit_trainer") || "null");
     setGoalData(goal);
     setHealthData(health);
     setAvailability(avail);
+    setPreferredCoach(coach);
 
     userApi.get("/profile")
       .then(async (res) => {
@@ -73,6 +76,7 @@ export default function SetupConfirmation() {
       delete setupProfile.trainer_id;
       await userApi.put("/profile", {
         ...setupProfile,
+        ...(preferredCoach?.trainer_id ? { trainer_id: preferredCoach.trainer_id } : {}),
         fitness_goal: goalData.goal || "General Fitness",
         activity_level: healthData.experience || "Beginner",
         target_weight: goalData.targetWeight || null,
@@ -89,6 +93,7 @@ export default function SetupConfirmation() {
       sessionStorage.removeItem("avefit_goal");
       sessionStorage.removeItem("avefit_health");
       sessionStorage.removeItem("avefit_availability");
+      sessionStorage.removeItem("avefit_trainer");
 
       updateUser({ setup_completed: true });
       navigate("/user/workout");
@@ -150,6 +155,7 @@ export default function SetupConfirmation() {
           <Row label="Days Per Week" value={availability.daysPerWeek || "—"} />
           <Row label="Session Duration" value={availability.duration || "—"} />
           <Row label="Workout Days" value={(availability.availability || []).map((slot) => `${slot.day_of_week} (${slot.time_preference})`).join(", ") || "—"} />
+          <Row label="Preferred Coach" value={preferredCoach?.full_name || "No coach selected"} />
         </div>
 
         {/* Predictive Analytics */}

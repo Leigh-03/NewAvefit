@@ -120,7 +120,7 @@ function ProfileModal({ trainer, onClose }) {
             <button
               type="button"
               onClick={onClose}
-              className="absolute right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/70 text-white shadow-lg hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+              className="absolute right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-orange-600 text-white shadow-lg hover:bg-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
               aria-label="Close coach profile"
             >
               <X size={18} />
@@ -196,7 +196,7 @@ function ProfileModal({ trainer, onClose }) {
   );
 }
 
-function CoachCard({ trainer, recommended, goalMatch, onProfile }) {
+function CoachCard({ trainer, recommended, goalMatch, selected, onProfile, onSelect }) {
   return (
     <div className="coach-card-interactive overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-orange-500/60 dark:bg-[#171717] dark:border-slate-800">
       <Photo trainer={trainer} compact />
@@ -215,6 +215,11 @@ function CoachCard({ trainer, recommended, goalMatch, onProfile }) {
             This coach’s specialty may not match your selected goal.
           </p>
         )}
+        {!trainer.schedule_compatible && (
+          <p className="mt-2 rounded-lg border border-amber-300/50 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
+            This coach’s available times do not match your selected schedule. You can still choose this coach.
+          </p>
+        )}
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 line-clamp-2 min-h-[32px]">
           {trainer.bio || "This coach has not added a profile description yet."}
         </p>
@@ -224,6 +229,14 @@ function CoachCard({ trainer, recommended, goalMatch, onProfile }) {
             className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold hover:border-orange-500 hover:text-orange-500 transition"
           >
             View Profile
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelect(trainer)}
+            aria-pressed={selected}
+            className={`flex-1 rounded-xl py-2.5 text-xs font-bold transition ${selected ? "bg-orange-600 text-white" : "border border-orange-500 text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-500/10"}`}
+          >
+            {selected ? "Selected" : "Choose Coach"}
           </button>
         </div>
       </div>
@@ -240,6 +253,7 @@ export default function CoachSelect() {
   const [profile, setProfile] = useState(null);
   const [availability, setAvailability] = useState({});
   const [search, setSearch] = useState("");
+  const [selectedTrainerId, setSelectedTrainerId] = useState("");
 
   useEffect(() => {
     const readSessionValue = (key, fallback) => {
@@ -251,21 +265,26 @@ export default function CoachSelect() {
     };
     const goalData = readSessionValue("avefit_goal", {});
     const availabilityData = readSessionValue("avefit_availability", {});
+    const selectedTrainer = readSessionValue("avefit_trainer", {});
     setGoal(goalData.goal || "General Fitness");
     setAvailability(availabilityData);
-    sessionStorage.removeItem("avefit_trainer");
+    setSelectedTrainerId(String(selectedTrainer.trainer_id || ""));
 
     userApi.get("/trainers")
-      .then((res) => setTrainers(res.data?.data || []))
+      .then((res) => setTrainers((res.data?.data || []).map((trainer) => ({
+        ...trainer,
+        schedule_compatible: isAvailableForMember(trainer, availabilityData),
+      }))))
       .catch(() => setError("Couldn't load coach profiles right now."))
       .finally(() => setLoading(false));
   }, []);
 
   const ranked = useMemo(
-    () => trainers
-      .filter((trainer) => isAvailableForMember(trainer, availability))
-      .sort((a, b) => scoreTrainer(b, goal) - scoreTrainer(a, goal)),
-    [trainers, goal, availability]
+    () => trainers.slice().sort((a, b) =>
+      Number(b.schedule_compatible) - Number(a.schedule_compatible) ||
+      scoreTrainer(b, goal) - scoreTrainer(a, goal)
+    ),
+    [trainers, goal]
   );
 
   const searchTerm = search.trim().toLowerCase();
@@ -278,8 +297,22 @@ export default function CoachSelect() {
   const recommended = visibleCoaches[0];
   const otherCoaches = visibleCoaches.slice(1);
   const selectedDays = Array.isArray(availability.days) ? availability.days : [];
+  const selectedTrainer = trainers.find((trainer) => String(trainer.trainer_id) === selectedTrainerId);
+
+  const handleSelectCoach = (trainer) => {
+    setSelectedTrainerId(String(trainer.trainer_id));
+    sessionStorage.setItem("avefit_trainer", JSON.stringify({
+      trainer_id: trainer.trainer_id,
+      full_name: trainer.full_name,
+      schedule_compatible: trainer.schedule_compatible,
+    }));
+  };
 
   const handleContinue = () => {
+    if (selectedTrainer && !selectedTrainer.schedule_compatible &&
+      !window.confirm(`${selectedTrainer.full_name}'s available times do not match your preferred workout schedule. Do you want to continue with this coach anyway?`)) {
+      return;
+    }
     navigate("/user/confirm");
   };
 
@@ -294,7 +327,7 @@ export default function CoachSelect() {
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Your training team</p>
           <h2 className="mt-1 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Meet Your Coaches</h2>
           <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
-            Browse coach profiles. The gym administrator will assign your designated coach based on your goals, schedule, and coach availability.
+            Browse and choose your preferred coach. You can still continue when their available times do not match your schedule.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300">
@@ -344,15 +377,7 @@ export default function CoachSelect() {
               </>
             ) : (
               <>
-                <p className="font-semibold text-slate-700 dark:text-slate-200">No coaches match your availability.</p>
-                <p className="mt-2">Choose a coach available on every selected workout day during your preferred time.</p>
-                <button
-                  type="button"
-                  onClick={() => navigate("/user/availability")}
-                  className="mt-4 rounded-xl border border-orange-500 px-4 py-2 font-semibold text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-500/10"
-                >
-                  Update availability
-                </button>
+                <p className="font-semibold text-slate-700 dark:text-slate-200">No coaches found.</p>
               </>
             )}
           </div>
@@ -386,6 +411,11 @@ export default function CoachSelect() {
                           This coach’s specialty may not match your selected goal.
                         </p>
                       )}
+                      {!recommended.schedule_compatible && (
+                        <p className="mt-2 rounded-lg border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
+                          The coach’s available times do not match your selected schedule. You may still choose this coach.
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -415,6 +445,14 @@ export default function CoachSelect() {
                     >
                       View Full Profile
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectCoach(recommended)}
+                      aria-pressed={selectedTrainerId === String(recommended.trainer_id)}
+                      className={`w-full rounded-xl py-3 font-bold transition ${selectedTrainerId === String(recommended.trainer_id) ? "bg-orange-600 text-white" : "border border-orange-500 text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-500/10"}`}
+                    >
+                      {selectedTrainerId === String(recommended.trainer_id) ? "Selected Coach" : "Choose This Coach"}
+                    </button>
                   </div>
                   </div>
                 </div>
@@ -428,14 +466,16 @@ export default function CoachSelect() {
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">Other Available Coaches</h3>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 sm:grid sm:grid-cols-2 sm:overflow-visible">
                   {otherCoaches.map((trainer, index) => (
-                    <ScrollReveal key={trainer.trainer_id} delay={Math.min(index + 1, 4) * 100}>
+                    <ScrollReveal key={trainer.trainer_id} delay={Math.min(index + 1, 4) * 100} className="w-[min(85vw,22rem)] shrink-0 snap-start sm:w-auto sm:shrink">
                       <CoachCard
                         trainer={trainer}
                         recommended={false}
                         goalMatch={scoreTrainer(trainer, goal) > 0}
+                        selected={selectedTrainerId === String(trainer.trainer_id)}
                         onProfile={setProfile}
+                        onSelect={handleSelectCoach}
                       />
                     </ScrollReveal>
                   ))}
@@ -446,6 +486,11 @@ export default function CoachSelect() {
         )}
 
         {error && <p className="text-red-500 text-xs mt-4">{error}</p>}
+        {selectedTrainer && !selectedTrainer.schedule_compatible && (
+          <p role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            Schedule warning: {selectedTrainer.full_name} may not be available during all of your selected workout times. You can continue and submit this coach choice anyway.
+          </p>
+        )}
 
         <button
           onClick={handleContinue}
@@ -454,7 +499,7 @@ export default function CoachSelect() {
           Continue to Confirmation →
         </button>
         <p className="text-center text-xs text-slate-400 mt-3">
-          Your coach will be assigned by the gym administrator after setup.
+          {selectedTrainer ? `Preferred coach: ${selectedTrainer.full_name}.` : "You can choose a preferred coach before continuing."}
         </p>
       </OnboardingShell>
 

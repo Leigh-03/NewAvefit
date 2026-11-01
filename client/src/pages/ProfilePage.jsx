@@ -114,7 +114,6 @@ export default function ProfilePage() {
     setMsg("");
     try {
       const profileChanges = { ...form };
-      delete profileChanges.activity_level;
       const res = await userApi.put("/profile", profileChanges);
       if (res.data.request) {
         setChangeRequests((current) => [res.data.request, ...current]);
@@ -390,9 +389,12 @@ export default function ProfilePage() {
             </select>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/[0.03]">
-            <p className="text-xs font-medium text-slate-500">Experience level</p>
-            <p className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-200">{form.activity_level || "Not set"}</p>
-            <p className="mt-1 text-xs text-slate-500">Your coach can update this level as your training progresses.</p>
+                <label htmlFor="profile-experience-level" className="text-xs font-medium text-slate-500">Experience level</label>
+                <select id="profile-experience-level" value={form.activity_level || "Beginner"} onChange={(e) => handleChange("activity_level", e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-white">
+                  {["Beginner", "Intermediate", "Advanced"].map((level) => <option key={level} value={level}>{level}</option>)}
+                </select>
+                <p className="mt-1 text-xs text-slate-500">Experience-level changes are sent to the gym administrator for approval.</p>
           </div>
         </section>
 

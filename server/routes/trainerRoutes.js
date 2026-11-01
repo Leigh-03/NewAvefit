@@ -9,7 +9,7 @@ const {
   getTrainers, getTrainerById, createTrainer, updateTrainer, approveTrainer, rejectTrainer, deactivateTrainer, deleteTrainer, getTrainerRoster,
   loginTrainer, getMyRoster, getMyProfile, updateMyPhoto, getExerciseCatalog,
   getMyWorkoutPlans, createMyWorkoutPlan, updateMyWorkoutPlan, deleteMyWorkoutPlan,
-  getRosterMemberSessions, assignSessionAsTrainer, deleteSessionAsTrainer, updateRosterMemberExperience,
+  getRosterMemberSessions, assignSessionAsTrainer, deleteSessionAsTrainer,
 } = require("../controllers/trainerController");
 
 // Trainer Portal (self-service, trainer-authenticated)
@@ -17,7 +17,6 @@ router.post("/login", userLoginLimiter, loginTrainer);
 router.get("/me/roster", verifyTrainer, getMyRoster);
 router.get("/me/profile", verifyTrainer, getMyProfile);
 router.put("/me/photo", verifyTrainer, updateMyPhoto);
-router.put("/me/members/:userId/experience", verifyTrainer, updateRosterMemberExperience);
 router.get("/me/availability", verifyTrainer, availabilityController.getForTrainer);
 router.put("/me/availability", verifyTrainer, availabilityController.saveForTrainer);
 router.get("/me/workout-plans", verifyTrainer, getMyWorkoutPlans);
@@ -33,7 +32,6 @@ router.delete("/me/sessions/:sessionId", verifyTrainer, deleteSessionAsTrainer);
 router.get("/", verifyToken, getTrainers);
 router.get("/:id/roster", verifyToken, getTrainerRoster);
 router.get("/:id/availability", verifyToken, availabilityController.getForAdmin);
-router.put("/:id/availability", verifyToken, availabilityController.saveForAdmin);
 router.put("/:id/capacity", verifyToken, updateCapacity);
 router.get("/:id", verifyToken, getTrainerById);
 router.post("/", verifyToken, createTrainer);

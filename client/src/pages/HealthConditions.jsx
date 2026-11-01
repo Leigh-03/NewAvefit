@@ -26,6 +26,7 @@ export default function HealthConditions() {
   const [experience, setExperience] = useState("Beginner");
   const [injuries, setInjuries] = useState([]);
   const [healthConditions, setHealthConditions] = useState([]);
+  const [validationError, setValidationError] = useState("");
 
   const toggleChip = (value, list, setList) => {
     if (value === "None") { setList(["None"]); return; }
@@ -38,6 +39,22 @@ export default function HealthConditions() {
   };
 
   const handleContinue = () => {
+    if (!injuries.length || !healthConditions.length) {
+      setValidationError("Please select at least one option for both injury areas and health conditions. Choose “None” if you have no concerns.");
+      return;
+    }
+
+    const selectedAllInjuries = injuries.length === injuryOptions.length - 1;
+    const selectedAllConditions = healthConditions.length === healthOptions.length - 1;
+    if ((selectedAllInjuries || selectedAllConditions) && !window.confirm(
+      "You selected every listed " +
+      [selectedAllInjuries && "injury area", selectedAllConditions && "health condition"].filter(Boolean).join(" and ") +
+      ". Please make sure these answers are correct. Continue anyway?"
+    )) {
+      return;
+    }
+
+    setValidationError("");
     sessionStorage.setItem("avefit_health", JSON.stringify({ experience, injuries, healthConditions }));
     navigate("/user/availability");
   };
@@ -77,7 +94,7 @@ export default function HealthConditions() {
       <div className="flex flex-wrap gap-2">
         {injuryOptions.map((opt) => (
           <Chip key={opt} label={opt} selected={injuries.includes(opt)}
-            onClick={() => toggleChip(opt, injuries, setInjuries)} />
+            onClick={() => { toggleChip(opt, injuries, setInjuries); setValidationError(""); }} />
         ))}
       </div>
     </div>
@@ -88,7 +105,7 @@ export default function HealthConditions() {
       <div className="flex flex-wrap gap-2">
         {healthOptions.map((opt) => (
           <Chip key={opt} label={opt} selected={healthConditions.includes(opt)}
-            onClick={() => toggleChip(opt, healthConditions, setHealthConditions)} />
+            onClick={() => { toggleChip(opt, healthConditions, setHealthConditions); setValidationError(""); }} />
         ))}
       </div>
     </div>
@@ -99,6 +116,7 @@ export default function HealthConditions() {
     >
       Continue to Workout Schedule →
     </button>
+    {validationError && <p role="alert" className="mt-3 text-sm text-red-600">{validationError}</p>}
     </OnboardingShell>
   );
 }

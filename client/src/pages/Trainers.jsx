@@ -560,11 +560,21 @@ function MemberRow({ member }) {
 function RosterModal({ trainer, onClose }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     api.get(`/trainers/${trainer.trainer_id}/roster`)
-      .then((rosterRes) => setMembers(rosterRes.data.data || []))
-      .catch((err) => console.error(err))
+      .then((rosterRes) => {
+        const rows = Array.isArray(rosterRes.data)
+          ? rosterRes.data
+          : rosterRes.data?.data;
+        if (!Array.isArray(rows)) throw new Error("The roster response was invalid.");
+        setMembers(rows);
+      })
+      .catch((err) => {
+        console.error("Failed to load coach roster:", err);
+        setError(err.response?.data?.message || "Unable to load this coach’s roster.");
+      })
       .finally(() => setLoading(false));
   }, [trainer.trainer_id]);
 
@@ -586,6 +596,8 @@ function RosterModal({ trainer, onClose }) {
             <div className="space-y-3">
               {[...Array(3)].map((_, i) => <div key={i} className="h-14 bg-slate-100 rounded-xl animate-pulse" />)}
             </div>
+          ) : error ? (
+            <p role="alert" className="text-center text-red-600 py-12 text-sm">{error}</p>
           ) : members.length === 0 ? (
             <p className="text-center text-slate-400 py-12 text-sm">No members have chosen this coach yet.</p>
           ) : (

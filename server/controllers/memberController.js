@@ -315,38 +315,6 @@ const assignTrainer = async (req, res) => {
         );
         const assignedCount = assignedCountResult.rows[0].count;
         nextAssignedCount = assignedCount;
-        if (assignedCount >= Number(nextTrainer.max_members)) {
-          await client.query("ROLLBACK");
-          transactionStarted = false;
-          return res.status(409).json({
-            success: false,
-            message: `${nextTrainer.full_name} is at capacity (${assignedCount}/${nextTrainer.max_members}). Choose another recommended coach.`,
-          });
-        }
-
-        const memberSlots = getMemberAvailability(member, member.weekly_availability);
-        const coachSlotsResult = await client.query(
-          `SELECT day_of_week,
-                  TO_CHAR(start_time, 'HH24:MI') AS start_time,
-                  TO_CHAR(end_time, 'HH24:MI') AS end_time
-           FROM trainer_availability
-           WHERE trainer_id = $1`,
-          [trainerIdValue]
-        );
-        const scheduleMatch = getScheduleMatch(
-          memberSlots,
-          coachSlotsResult.rows,
-          member.workout_duration,
-          member.workout_days_per_week
-        );
-        if (!scheduleMatch.compatible) {
-          await client.query("ROLLBACK");
-          transactionStarted = false;
-          return res.status(409).json({
-            success: false,
-            message: "This coach's schedule does not overlap your member's saved workout availability for the required number and duration of sessions.",
-          });
-        }
       }
     }
 
@@ -570,7 +538,8 @@ const getCoachRecommendations = async (req, res) => {
     );
     const memberSlots = getMemberAvailability(member, availabilityResult.rows);
     const coachesResult = await pool.query(
-      `SELECT t.trainer_id, t.full_name, t.status, t.max_members,
+      `SELECT t.trainer_id, t.full_name, t.email, t.phone, t.status, t.max_members,
+              t.photo_url, t.specializations, t.goal_specialty, t.bio,
               (SELECT COUNT(*)::integer FROM users u WHERE u.trainer_id = t.trainer_id) AS assigned_member_count,
               (
                 SELECT COALESCE(
@@ -589,7 +558,6 @@ const getCoachRecommendations = async (req, res) => {
        ORDER BY t.trainer_id`
     );
     const recommendations = coachesResult.rows
-      .filter((coach) => Number(coach.assigned_member_count) < Number(coach.max_members))
       .map((coach) => {
         const scheduleMatch = getScheduleMatch(
           memberSlots,
@@ -600,16 +568,22 @@ const getCoachRecommendations = async (req, res) => {
         return {
           ...coach,
           capacity_percent: Math.round(
-            (Number(coach.assigned_member_count) / Number(coach.max_members)) * 100
+            Number(coach.max_members) > 0
+              ? (Number(coach.assigned_member_count) / Number(coach.max_members)) * 100
+              : 0
           ),
           matched_days: scheduleMatch.matchedDays,
           schedule_compatible: scheduleMatch.compatible,
+          capacity_status: getCapacityStatus(
+            coach.assigned_member_count,
+            coach.max_members,
+            coach.status
+          ),
         };
       })
-      .filter((coach) => coach.schedule_compatible)
       .sort((first, second) => (
-        first.assigned_member_count / first.max_members -
-          second.assigned_member_count / second.max_members ||
+        Number(second.schedule_compatible) - Number(first.schedule_compatible) ||
+        Number(first.capacity_percent) - Number(second.capacity_percent) ||
         first.assigned_member_count - second.assigned_member_count
       ));
 
@@ -619,7 +593,7 @@ const getCoachRecommendations = async (req, res) => {
         recommendations,
         message: recommendations.length
           ? null
-          : "No active coach has both available capacity and a schedule compatible with this member.",
+          : "No active coaches are available to assign.",
       },
     });
   } catch (error) {

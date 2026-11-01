@@ -16,5 +16,3 @@ export const createNotificationsApi = (audience) => {
   });
   return client;
 };
-
-export const getWebPushPublicKey = () => axios.get(`${apiRoot}/public-key`);
