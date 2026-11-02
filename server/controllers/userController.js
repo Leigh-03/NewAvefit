@@ -608,6 +608,9 @@ const login = async (req, res) => {
         activity_level,
         setup_completed,
         profile_image,
+        membership_months,
+        membership_start_date,
+        membership_end_date,
         token_version
       FROM users
       WHERE LOWER(email) = $1
@@ -780,6 +783,7 @@ const googleLogin = async (req, res) => {
       `SELECT user_id, first_name, last_name, email, password, phone, google_sub,
               account_status, email_verified, trainer_id, fitness_goal, height,
               weight, gender, activity_level, setup_completed, profile_image,
+              membership_months, membership_start_date, membership_end_date,
               token_version
        FROM users
        WHERE google_sub = $1`,
@@ -799,6 +803,7 @@ const googleLogin = async (req, res) => {
         `SELECT user_id, first_name, last_name, email, password, phone, google_sub,
                 account_status, email_verified, trainer_id, fitness_goal, height,
                 weight, gender, activity_level, setup_completed, profile_image,
+                membership_months, membership_start_date, membership_end_date,
                 token_version
          FROM users
          WHERE LOWER(email) = $1
@@ -862,7 +867,8 @@ const googleLogin = async (req, res) => {
          RETURNING user_id, first_name, last_name, email, phone, google_sub,
                    account_status, email_verified, trainer_id, fitness_goal,
                    height, weight, gender, activity_level, setup_completed,
-                   profile_image, token_version`,
+                   profile_image, membership_months, membership_start_date,
+                   membership_end_date, token_version`,
         [
           String(firstName).trim(),
           String(lastName).trim(),
@@ -899,7 +905,8 @@ const googleLogin = async (req, res) => {
          RETURNING user_id, first_name, last_name, email, phone, google_sub,
                    account_status, email_verified, trainer_id, fitness_goal,
                    height, weight, gender, activity_level, setup_completed,
-                   profile_image, token_version`,
+                   profile_image, membership_months, membership_start_date,
+                   membership_end_date, token_version`,
         [googleProfile.sub, googlePicture, user.user_id]
       );
       user = result.rows[0];
@@ -1307,6 +1314,9 @@ const getProfile = async (req, res) => {
         trainer_id,
         setup_completed,
         account_status,
+        membership_months,
+        membership_start_date,
+        membership_end_date,
         email_verified,
         email_verified_at
       FROM users
@@ -1333,6 +1343,45 @@ const getProfile = async (req, res) => {
       success: false,
       message: err.message,
     });
+  }
+};
+
+const selectMembershipTerm = async (req, res) => {
+  const months = Number(req.body?.membership_months);
+  if (!Number.isInteger(months) || months < 1 || months > 12) {
+    return res.status(400).json({
+      success: false,
+      message: "Choose a membership term from 1 to 12 months.",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE users
+       SET membership_months = $2,
+           membership_start_date = (NOW() AT TIME ZONE 'Asia/Manila')::date,
+           membership_end_date = (
+             (NOW() AT TIME ZONE 'Asia/Manila')::date
+             + make_interval(months => $2) - INTERVAL '1 day'
+           )::date,
+           updated_at = NOW()
+       WHERE user_id = $1
+         AND LOWER(COALESCE(account_status, 'pending')) = 'active'
+       RETURNING user_id, membership_months, membership_start_date, membership_end_date`,
+      [req.user.user_id, months]
+    );
+    if (!result.rowCount) {
+      return res.status(403).json({ success: false, message: "An active approved account is required to select a membership term." });
+    }
+
+    return res.json({
+      success: true,
+      data: { ...result.rows[0], total_cost: months * 100 },
+      message: "Membership term saved. Payment is not processed online; please settle the displayed amount with the gym.",
+    });
+  } catch (err) {
+    console.error("selectMembershipTerm error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to save the membership term." });
   }
 };
 
@@ -1863,6 +1912,7 @@ module.exports = {
   resendVerification,
   getVerificationStatus,
   getProfile,
+  selectMembershipTerm,
   updateProfile,
   updatePhoto,
   getUserChangeRequests,

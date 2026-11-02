@@ -1,4 +1,136 @@
 const pool = require("../db");
+const { isMailConfigured, sendMail } = require("../utils/mailer");
+const { getConfiguredAdminEmail } = require("../utils/adminAccess");
+
+const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+})[character]);
+
+const sendWeeklyProgressReport = async (req, res) => {
+  const adminEmail = getConfiguredAdminEmail();
+  if (!adminEmail) {
+    return res.status(503).json({ success: false, message: "Weekly report email is unavailable: ADMIN_EMAIL is not configured." });
+  }
+  if (!isMailConfigured()) {
+    return res.status(503).json({ success: false, message: "Weekly report email is unavailable: SMTP is not configured." });
+  }
+
+  try {
+    const result = await pool.query(`
+      SELECT
+        u.user_id,
+        CONCAT_WS(' ', u.first_name, u.last_name) AS member_name,
+        u.email,
+        current_progress.weight AS current_weight,
+        current_progress.bmi AS current_bmi,
+        current_progress.body_fat AS current_body_fat,
+        current_progress.waist AS current_waist,
+        current_progress.chest AS current_chest,
+        current_progress.hips AS current_hips,
+        current_progress.left_arm AS current_left_arm,
+        current_progress.log_date AS progress_date,
+        previous_progress.weight AS previous_weight,
+        COALESCE(workout_progress.completed_count, 0)::int AS completed_workouts,
+        COALESCE(workout_progress.plan_names, '') AS completed_plan_names
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT weight, bmi, body_fat, waist, chest, hips, left_arm, log_date
+        FROM progress_logs
+        WHERE user_id = u.user_id
+          AND log_date >= (NOW() AT TIME ZONE 'Asia/Manila')::date - 6
+        ORDER BY log_date DESC
+        LIMIT 1
+      ) current_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT weight
+        FROM progress_logs
+        WHERE user_id = u.user_id
+          AND log_date < (NOW() AT TIME ZONE 'Asia/Manila')::date - 6
+        ORDER BY log_date DESC
+        LIMIT 1
+      ) previous_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (WHERE ws.completed = TRUE AND ws.completed_at >= NOW() - INTERVAL '7 days')::int AS completed_count,
+          STRING_AGG(DISTINCT wp.plan_name, ', ') FILTER (
+            WHERE ws.completed = TRUE AND ws.completed_at >= NOW() - INTERVAL '7 days'
+          ) AS plan_names
+        FROM workout_plans wp
+        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+        WHERE wp.user_id = u.user_id
+      ) workout_progress ON TRUE
+      WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+      ORDER BY u.first_name, u.last_name, u.user_id
+    `);
+
+    const reportRows = result.rows.map((member) => {
+      const achievements = [];
+      if (member.completed_workouts > 0) {
+        achievements.push(`Completed ${member.completed_workouts} workout ${member.completed_workouts === 1 ? "session" : "sessions"}${member.completed_plan_names ? ` (${member.completed_plan_names})` : ""}`);
+      }
+      if (member.progress_date) {
+        const measurements = [
+          ["Weight", member.current_weight, "kg"],
+          ["BMI", member.current_bmi, ""],
+          ["Body fat", member.current_body_fat, "%"],
+          ["Waist", member.current_waist, "cm"],
+          ["Chest", member.current_chest, "cm"],
+          ["Hips", member.current_hips, "cm"],
+          ["Left arm", member.current_left_arm, "cm"],
+        ].filter(([, value]) => value !== null && value !== undefined)
+          .map(([label, value, unit]) => `${label}: ${value}${unit}`);
+        achievements.push(`Logged progress on ${new Date(member.progress_date).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}${measurements.length ? ` — ${measurements.join(", ")}` : ""}`);
+        if (member.current_weight != null && member.previous_weight != null) {
+          const change = Number(member.current_weight) - Number(member.previous_weight);
+          achievements.push(`Weight ${change < 0 ? "decreased" : change > 0 ? "increased" : "remained stable"} by ${Math.abs(change).toFixed(1)} kg since the previous report period`);
+        }
+      }
+      return {
+        name: member.member_name || member.email,
+        achievements: achievements.length ? achievements : ["No progress entries or completed workouts recorded this week."],
+      };
+    });
+
+    const text = [
+      "AveFit weekly member progress report",
+      "Reporting window: the last 7 days",
+      "",
+      ...reportRows.flatMap((member) => [
+        member.name,
+        ...member.achievements.map((achievement) => `- ${achievement}`),
+        "",
+      ]),
+      reportRows.length ? "" : "No active members were found.",
+    ].join("\n");
+    const rowsHtml = reportRows.length
+      ? reportRows.map((member) => `<tr><td style="padding:14px;border-bottom:1px solid #e2e8f0;vertical-align:top;"><strong>${escapeHtml(member.name)}</strong></td><td style="padding:14px;border-bottom:1px solid #e2e8f0;">${member.achievements.map((achievement) => `<p style="margin:0 0 6px;">${escapeHtml(achievement)}</p>`).join("")}</td></tr>`).join("")
+      : '<tr><td colspan="2" style="padding:18px;">No active members were found.</td></tr>';
+    const html = `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:760px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><tr><td style="padding:22px 28px;background:#f97316;color:#fff;"><strong style="font-size:20px;">AveFit weekly progress report</strong><p style="margin:6px 0 0;">Last 7 days · ${escapeHtml(new Date().toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }))}</p></td></tr><tr><td style="padding:20px 28px;"><table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><thead><tr><th align="left" style="padding:10px 14px;background:#f1f5f9;">Member</th><th align="left" style="padding:10px 14px;background:#f1f5f9;">Progress &amp; achievements</th></tr></thead><tbody>${rowsHtml}</tbody></table></td></tr></table></body></html>`;
+
+    const delivery = await sendMail({
+      to: adminEmail,
+      subject: "AveFit weekly member progress report",
+      text,
+      html,
+    });
+    if (!delivery.delivered) {
+      return res.status(502).json({ success: false, message: "The weekly report could not be delivered. Check the email service configuration." });
+    }
+
+    return res.json({
+      success: true,
+      message: `Weekly progress report sent to ${adminEmail}.`,
+      member_count: reportRows.length,
+    });
+  } catch (err) {
+    console.error("sendWeeklyProgressReport error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to generate or send the weekly progress report." });
+  }
+};
 
 // GET dashboard summary stats
 const getDashboardStats = async (req, res) => {
@@ -334,4 +466,4 @@ const getAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getDashboardStats, getAnalytics };
+module.exports = { getDashboardStats, getAnalytics, sendWeeklyProgressReport };

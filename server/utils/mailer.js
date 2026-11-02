@@ -753,22 +753,50 @@ async function sendNewUserRegistrationEmail({ to, memberName, memberEmail, phone
   });
 }
 
-function formatProfileChanges(changes = {}) {
-  return Object.entries(changes)
-    .map(([key]) => {
-      const label = key.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-      return { label };
-    });
+function formatEmailChangeValue(value) {
+  if (value === null || value === undefined || value === "") return "Not set";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "None";
+  if (typeof value === "object") {
+    const availability = Array.isArray(value.availability)
+      ? value.availability.map((slot) => `${slot.day_of_week}: ${slot.time_preference || `${slot.start_time}-${slot.end_time}`}`)
+      : [];
+    const details = [
+      ...availability,
+      value.workout_days_per_week ? `${value.workout_days_per_week} workout days/week` : "",
+      value.workout_duration ? `${value.workout_duration} min/session` : "",
+      value.activity_level || "",
+    ].filter(Boolean);
+    return details.length ? details.join("; ") : JSON.stringify(value);
+  }
+  return String(value);
 }
 
-async function sendProfileChangeRequestEmail({ to, memberName, memberEmail, requestType, changes }) {
+async function sendProfileChangeRequestEmail({ to, memberName, memberEmail, requestType, changes, currentValues = {} }) {
   const safeName = escapeHtml(memberName || "AveFit member");
   const safeEmail = escapeHtml(memberEmail);
   const isPassword = requestType === "password";
-  const entries = formatProfileChanges(changes);
+  const entries = Object.entries(changes).map(([key, value]) => {
+    const label = key.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+    if (key === "profile_image") {
+      return {
+        label: "Profile photo",
+        from: currentValues[key] ? "Photo on file" : "No photo",
+        to: "Replacement photo submitted",
+      };
+    }
+    return {
+      label,
+      from: formatEmailChangeValue(currentValues[key]),
+      to: formatEmailChangeValue(value),
+    };
+  });
   const lines = isPassword
     ? ["Password change requested."]
-    : entries.map(({ label }) => `${label} update requested`);
+    : entries.flatMap(({ label, from, to: nextValue }) => [
+      `${label}:`,
+      `  From: ${from}`,
+      `  To: ${nextValue}`,
+    ]);
   const text = [
     "A member submitted a profile change request that needs your review.",
     "",
@@ -781,7 +809,7 @@ async function sendProfileChangeRequestEmail({ to, memberName, memberEmail, requ
   ].join("\n");
   const detailsHtml = isPassword
     ? "<p style=\"margin:0;font-size:14px;line-height:1.6;\">Password change requested. The new password is not included in this email.</p>"
-    : `<ul style="padding-left:20px;line-height:1.7;">${entries.map(({ label }) => `<li>${escapeHtml(label)} update requested</li>`).join("")}</ul>`;
+    : `<ul style="padding-left:20px;line-height:1.7;">${entries.map(({ label, from, to: nextValue }) => `<li><strong>${escapeHtml(label)}</strong><br><span>From: ${escapeHtml(from)}</span><br><span>To: ${escapeHtml(nextValue)}</span></li>`).join("")}</ul>`;
   const html = `<!doctype html>
 <html lang="en">
   <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">

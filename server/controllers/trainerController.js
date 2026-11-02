@@ -1384,6 +1384,32 @@ const getMyRoster = async (req, res) => {
   }
 };
 
+const getMyMemberProgress = async (req, res) => {
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId) || userId < 1) {
+    return res.status(400).json({ success: false, message: "Choose a valid member." });
+  }
+
+  try {
+    const assigned = await pool.query(
+      "SELECT 1 FROM users WHERE user_id = $1 AND trainer_id = $2",
+      [userId, req.trainer.trainer_id]
+    );
+    if (!assigned.rowCount) {
+      return res.status(404).json({ success: false, message: "Member not found in your roster." });
+    }
+
+    const result = await pool.query(
+      "SELECT * FROM progress_logs WHERE user_id = $1 ORDER BY log_date ASC",
+      [userId]
+    );
+    return res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error("getMyMemberProgress error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to load member progress." });
+  }
+};
+
 const getMyWorkoutPlans = async (req, res) => {
   try {
     const result = await pool.query(
@@ -1469,7 +1495,6 @@ const createMyWorkoutPlan = async (req, res) => {
   const goal = typeof req.body.goal === "string" ? req.body.goal.trim() : "";
   const userId = Number(req.body.user_id);
   const sessionDate = req.body.session_date;
-  const requestedStartTime = req.body.session_start_time;
   const sessions = req.body.sessions;
 
   if (!planName) {
@@ -1488,8 +1513,8 @@ const createMyWorkoutPlan = async (req, res) => {
       parsedSessionDate.toISOString().slice(0, 10) !== sessionDate) {
     return res.status(400).json({ success: false, message: "Choose a valid workout date." });
   }
-  if (!Array.isArray(sessions) || sessions.length === 0 || sessions.length > 30) {
-    return res.status(400).json({ success: false, message: "A workout routine must contain between 1 and 30 exercises." });
+  if (!Array.isArray(sessions) || sessions.length < 3 || sessions.length > 30) {
+    return res.status(400).json({ success: false, message: "A workout routine must contain between 3 and 30 exercises." });
   }
   if (sessions.some((session) =>
     !session ||
@@ -1573,12 +1598,12 @@ const createMyWorkoutPlan = async (req, res) => {
         message: `${level} users should select ${minimumDays}–${maximumDays} workout days per week before a plan can be scheduled.`,
       });
     }
-    if (workoutFrequency > memberAvailability.rowCount) {
+    if (workoutFrequency !== memberAvailability.rowCount) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: `You selected ${workoutFrequency} workout days per week, but you are only available on ${memberAvailability.rowCount} days. Please update your availability or workout frequency.`,
+        message: `The member must select exactly ${workoutFrequency} available days to match their weekly workout frequency.`,
       });
     }
     const weekdayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -1609,17 +1634,15 @@ const createMyWorkoutPlan = async (req, res) => {
       scheduledAvailability,
       sessionDuration
     );
-    if (!compatibleStartTimes.includes(requestedStartTime)) {
+    if (!compatibleStartTimes.length) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: compatibleStartTimes.length
-          ? "Choose a start time that fits both the member's saved availability and the coach's schedule."
-          : "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
+        message: "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
       });
     }
-    const scheduledStartTime = requestedStartTime;
+    const scheduledStartTime = compatibleStartTimes[0];
     const weeklyPlanCount = await client.query(
       `SELECT COUNT(DISTINCT wp.workout_plan_id)::int AS count
        FROM workout_plans wp
@@ -1780,7 +1803,6 @@ const updateMyWorkoutPlan = async (req, res) => {
   const planName = typeof req.body.plan_name === "string" ? req.body.plan_name.trim() : "";
   const goal = typeof req.body.goal === "string" ? req.body.goal.trim() : "";
   const sessionDate = req.body.session_date;
-  const requestedStartTime = req.body.session_start_time;
   const sessions = req.body.sessions;
 
   if (!Number.isInteger(planId) || planId < 1) {
@@ -1799,8 +1821,8 @@ const updateMyWorkoutPlan = async (req, res) => {
       parsedSessionDate.toISOString().slice(0, 10) !== sessionDate) {
     return res.status(400).json({ success: false, message: "Choose a valid workout date." });
   }
-  if (!Array.isArray(sessions) || sessions.length === 0 || sessions.length > 30) {
-    return res.status(400).json({ success: false, message: "A workout routine must contain between 1 and 30 exercises." });
+  if (!Array.isArray(sessions) || sessions.length < 3 || sessions.length > 30) {
+    return res.status(400).json({ success: false, message: "A workout routine must contain between 3 and 30 exercises." });
   }
   if (sessions.some((session) =>
     !session ||
@@ -1922,12 +1944,12 @@ const updateMyWorkoutPlan = async (req, res) => {
         message: `${level} users should select ${minimumDays}–${maximumDays} workout days per week before a plan can be scheduled.`,
       });
     }
-    if (workoutFrequency > memberAvailability.rowCount) {
+    if (workoutFrequency !== memberAvailability.rowCount) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: `You selected ${workoutFrequency} workout days per week, but you are only available on ${memberAvailability.rowCount} days. Please update their availability or workout frequency.`,
+        message: `The member must select exactly ${workoutFrequency} available days to match their weekly workout frequency.`,
       });
     }
     const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -1956,17 +1978,15 @@ const updateMyWorkoutPlan = async (req, res) => {
       scheduledAvailability,
       sessionDuration
     );
-    if (!compatibleStartTimes.includes(requestedStartTime)) {
+    if (!compatibleStartTimes.length) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: compatibleStartTimes.length
-          ? "Choose a start time that fits both the member's saved availability and the coach's schedule."
-          : "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
+        message: "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
       });
     }
-    const scheduledStartTime = requestedStartTime;
+    const scheduledStartTime = compatibleStartTimes[0];
 
     const existingPlan = await client.query(
       `
@@ -2495,12 +2515,12 @@ const assignSessionAsTrainer = async (req, res) => {
         message: `${member.activity_level || "Beginner"} users should select ${minimumDays}–${maximumDays} workout days per week before a plan can be scheduled.`,
       });
     }
-    if (workoutFrequency > memberAvailability.rowCount) {
+    if (workoutFrequency !== memberAvailability.rowCount) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: `This member is available on ${memberAvailability.rowCount} days but selected ${workoutFrequency} workout days per week. Update their availability or frequency.`,
+        message: `The member must select exactly ${workoutFrequency} available days to match their weekly workout frequency.`,
       });
     }
     if (!Number.isInteger(sessionDuration) || sessionDuration < 30 || sessionDuration > 90) {
@@ -2806,6 +2826,7 @@ module.exports = {
   getTrainerRoster,
   loginTrainer,
   getMyRoster,
+  getMyMemberProgress,
   getMyProfile,
   updateMyPhoto,
   getMyWorkoutPlans,

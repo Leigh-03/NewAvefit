@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Users, Clock, Dumbbell, BarChart3, UserCheck } from "lucide-react";
+import { Users, Clock, Dumbbell, BarChart3, UserCheck, Mail } from "lucide-react";
 import { Link } from "react-router-dom";
 import StatCard from "../components/dashboard/StatCard";
 import GrowthChart from "../components/dashboard/GrowthChart";
@@ -10,6 +10,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
+  const [reportState, setReportState] = useState({ loading: false, message: "", error: "" });
 
   useEffect(() => {
     api.get("/analytics/dashboard")
@@ -21,16 +22,37 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  const sendWeeklyReport = async () => {
+    setReportState({ loading: true, message: "", error: "" });
+    try {
+      const response = await api.post("/analytics/weekly-progress-report");
+      setReportState({ loading: false, message: response.data.message, error: "" });
+    } catch (error) {
+      setReportState({
+        loading: false,
+        message: "",
+        error: error.response?.data?.message || "Unable to send the weekly report.",
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Admin overview</p>
-        <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900 dark:text-white">Dashboard</h1>
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-          Welcome back. Here’s the latest at Avenue Power and Fitness Gym.
-        </p>
+      <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Admin overview</p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900 dark:text-white">Dashboard</h1>
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            Welcome back. Here’s the latest at Avenue Power and Fitness Gym.
+          </p>
+        </div>
+        <button type="button" onClick={sendWeeklyReport} disabled={reportState.loading} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60">
+          <Mail size={17}/>{reportState.loading ? "Sending report..." : "Email weekly progress report"}
+        </button>
       </header>
 
+      {reportState.message && <p role="status" className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200">{reportState.message}</p>}
+      {reportState.error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{reportState.error}</p>}
       {fetchError && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           ⚠️ {fetchError}

@@ -119,7 +119,9 @@ const saveAvailability = async (req, res) => {
     client = await pool.connect();
     await client.query("BEGIN");
     const userResult = await client.query(
-      "SELECT activity_level, setup_completed, account_status, first_name, last_name, email FROM users WHERE user_id = $1 FOR UPDATE",
+      `SELECT activity_level, setup_completed, account_status, first_name, last_name, email,
+              workout_days_per_week, workout_duration, preferred_days, preferred_workout_time
+       FROM users WHERE user_id = $1 FOR UPDATE`,
       [req.user.user_id]
     );
     if (!userResult.rowCount) {
@@ -137,11 +139,11 @@ const saveAvailability = async (req, res) => {
         message: `${activityLevel} users should select ${minimum}–${maximum} workout days per week.`,
       });
     }
-    if (frequency > normalized.availability.length) {
+    if (frequency !== normalized.availability.length) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message: `You selected ${frequency} workout days per week, but you are only available on ${normalized.availability.length} days. Please update your availability or workout frequency.`,
+        message: `Select exactly ${frequency} available days to match your weekly workout frequency.`,
       });
     }
 
@@ -156,6 +158,31 @@ const saveAvailability = async (req, res) => {
           workout_duration: duration,
           activity_level: activityLevel,
           availability: normalized.availability,
+        },
+      };
+      const currentAvailability = await client.query(
+        `SELECT day_of_week, time_preference,
+                TO_CHAR(start_time, 'HH24:MI') AS start_time,
+                TO_CHAR(end_time, 'HH24:MI') AS end_time
+         FROM user_workout_availability
+         WHERE user_id = $1
+         ORDER BY array_position(ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'], day_of_week)`,
+        [req.user.user_id]
+      );
+      const previousAvailability = currentAvailability.rows.length
+        ? currentAvailability.rows
+        : (Array.isArray(user.preferred_days) && TIME_WINDOWS[user.preferred_workout_time]
+          ? user.preferred_days.map((day_of_week) => ({
+            day_of_week,
+            time_preference: user.preferred_workout_time,
+          }))
+          : []);
+      const currentValues = {
+        weekly_availability: {
+          workout_days_per_week: user.workout_days_per_week,
+          workout_duration: user.workout_duration,
+          activity_level: user.activity_level,
+          availability: previousAvailability,
         },
       };
       let request;
@@ -186,6 +213,7 @@ const saveAvailability = async (req, res) => {
             memberEmail: user.email,
             requestType: "profile",
             changes: payload,
+            currentValues,
           });
           emailSent = delivery.delivered;
         } catch (emailError) {

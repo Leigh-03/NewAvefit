@@ -3,9 +3,11 @@ import { Users, AlertTriangle, X, ClipboardList, CircleCheck, TrendingUp, Search
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend } from "chart.js";
 import { Bar, Doughnut } from "react-chartjs-2";
 import trainerApi from "../trainerApi";
+import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const CHART_COLORS = ["#f97316", "#22c55e", "#38bdf8", "#a78bfa", "#f43f5e", "#eab308", "#14b8a6"];
+const fetchTrainerProgress = (userId) => trainerApi.get(`/me/members/${userId}/progress`);
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
 
@@ -61,7 +63,7 @@ function calculateBmi(weight, height) {
   return (weightKg / ((heightCm / 100) ** 2)).toFixed(1);
 }
 
-function MemberProfileModal({ member, onClose }) {
+function MemberProfileModal({ member, onClose, onViewProgress }) {
   if (!member) return null;
   const currentWeight = member.latest_weight ?? member.weight;
   const currentBmi = member.latest_bmi ?? calculateBmi(currentWeight, member.height);
@@ -96,6 +98,9 @@ function MemberProfileModal({ member, onClose }) {
           <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">{member.activity_level || "Not set"}</p>
           <p className="mt-1 text-xs text-slate-500">Members manage experience level from their profile, subject to admin approval.</p>
         </div>
+        <button type="button" onClick={() => onViewProgress(member)} className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700">
+          <TrendingUp size={16}/> View Progress
+        </button>
       </div>
     </div>
   </div>;
@@ -129,7 +134,7 @@ function MemberRow({ member, onViewProfile }) {
 }
 
 export default function TrainerDashboard(){
-  const [members,setMembers]=useState([]),[loading,setLoading]=useState(true),[profileMember,setProfileMember]=useState(null),[fetchError,setFetchError]=useState(""),[rosterSearch,setRosterSearch]=useState("");
+  const [members,setMembers]=useState([]),[loading,setLoading]=useState(true),[profileMember,setProfileMember]=useState(null),[progressMember,setProgressMember]=useState(null),[fetchError,setFetchError]=useState(""),[rosterSearch,setRosterSearch]=useState("");
   useEffect(()=>{setLoading(true);trainerApi.get('/me/roster').then(r=>setMembers(r.data.data||[])).catch(err=>{console.error(err);setFetchError(err.response?.data?.message||"Couldn't load your trainer dashboard.")}).finally(()=>setLoading(false))},[]);
   const assignedTotal=members.reduce((total,member)=>total+Number(member.assigned_workouts||0),0);
   const completedTotal=members.reduce((total,member)=>total+Number(member.completed_workouts||0),0);
@@ -169,7 +174,7 @@ export default function TrainerDashboard(){
   const barOptions={...axisOptions,scales:{...axisOptions.scales,x:{...axisOptions.scales.x,stacked:true},y:{...axisOptions.scales.y,stacked:true}}};
   const memberBarOptions={...barOptions,indexAxis:"y",scales:{x:{...axisOptions.scales.x,stacked:true},y:{...axisOptions.scales.y,stacked:true,ticks:{...axisOptions.scales.y.ticks,autoSkip:false}}}};
   const panelClass="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900";
-  return <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8"><MemberProfileModal member={profileMember} onClose={()=>setProfileMember(null)}/>
+  return <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8"><MemberProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onViewProgress={setProgressMember}/>{progressMember&&<ProgressHistoryModal member={progressMember} fetchProgress={fetchTrainerProgress} onClose={()=>setProgressMember(null)}/>}
     <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
       <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach workspace</p>
       <h1 className="mt-2 flex items-center gap-2 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl"><Users size={25} className="text-orange-500"/> My Roster</h1>

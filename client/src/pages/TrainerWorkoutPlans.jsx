@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ClipboardList, LockKeyhole, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import trainerApi from "../trainerApi";
-import { formatWorkoutTime, getCompatibleWorkoutStartTimes } from "../utils/workoutSchedule";
+import { getCompatibleWorkoutStartTimes } from "../utils/workoutSchedule";
 
 const statusColors = {
   Active: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
@@ -190,17 +190,10 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
     if (!planName) nextErrors.plan_name = "Plan name is required.";
     if (!form.goal.trim()) nextErrors.goal = "Goal is required. Enter the member's assessment goal.";
     if (!form.session_date) nextErrors.session_date = "Workout date is required.";
-    if (!form.session_start_time) {
-      nextErrors.session_start_time = compatibleStartTimes.length
-        ? "Choose a session start time."
-        : "No available start time matches the member's saved availability and the coach's schedule.";
-    } else if (!compatibleStartTimes.includes(form.session_start_time)) {
-      nextErrors.session_start_time = "Choose a start time that fits the member's availability and the coach's schedule.";
-    }
     if (existingPlanOnDate) {
       nextErrors.session_date = "A workout plan already exists for this member on that date. Edit the existing plan instead.";
     }
-    if (form.sessions.length === 0) nextErrors.sessions = "Add at least one exercise.";
+    if (form.sessions.length < 3) nextErrors.sessions = "Add at least 3 exercises.";
 
     form.sessions.forEach((session, index) => {
       Object.assign(nextErrors, getSessionErrors(session, index));
@@ -444,53 +437,10 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
               </p>
             )}
           </div>
-          <div>
-            <label htmlFor="trainer-plan-start-time" className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
-              Session Start Time *
-            </label>
-            <div className="relative">
-              <select
-                id="trainer-plan-start-time"
-                required
-                value={form.session_start_time}
-                disabled={!compatibleStartTimes.length}
-                onChange={(event) => {
-                  setForm({ ...form, session_start_time: event.target.value });
-                  setFieldError("session_start_time", event.target.value ? "" : "Choose a session start time.");
-                  setError("");
-                }}
-                aria-invalid={Boolean(fieldErrors.session_start_time)}
-                aria-describedby={fieldErrors.session_start_time ? "session_start_time-error" : undefined}
-                className={`${inputClass("session_start_time")} appearance-none pr-10`}
-              >
-                <option value="">
-                  {!selectedMember
-                    ? "Select a member first..."
-                    : !form.session_date
-                      ? "Select a workout date first..."
-                      : compatibleStartTimes.length
-                        ? "Choose a start time..."
-                        : "No compatible start times"}
-                </option>
-                {compatibleStartTimes.map((time) => (
-                  <option key={time} value={time}>{formatWorkoutTime(time)}</option>
-                ))}
-              </select>
-              <ChevronDown
-                aria-hidden="true"
-                size={18}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500"
-              />
-            </div>
-            {renderFieldError("session_start_time")}
-            <p className="mt-1 text-xs text-slate-500">
-              Times follow the member’s saved availability and are shown in Philippine time. Session length is {selectedMember?.workout_duration || "—"} minutes.
-            </p>
-          </div>
           <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-slate-800 dark:text-white">Routine Exercises *</p>
+                <p className="text-sm font-semibold text-slate-800 dark:text-white">Routine Exercises * (minimum 3)</p>
                 <p className="text-xs text-slate-500">
                   {selectedMember
                     ? preferredDifficulty
@@ -838,12 +788,6 @@ export default function TrainerWorkoutPlans() {
                       {plan.scheduled_date ? (
                         <>
                           {new Date(`${plan.scheduled_date}T00:00:00`).toLocaleDateString()}
-                          {plan.scheduled_start_time && (
-                            <span className="mt-1 block text-xs text-slate-400">
-                              {formatWorkoutTime(plan.scheduled_start_time)}
-                              {plan.scheduled_duration_minutes ? ` · ${plan.scheduled_duration_minutes} min` : ""}
-                            </span>
-                          )}
                         </>
                       ) : "—"}
                     </td>

@@ -114,7 +114,7 @@ const buildProfileChangePayload = (current, body) => {
   return payload;
 };
 
-const notifyRequest = async ({ request, user, changes }) => {
+const notifyRequest = async ({ request, user, changes, currentValues = {} }) => {
   const memberName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || "AveFit member";
   const adminEmail = getConfiguredAdminEmail();
   let emailSent = false;
@@ -127,6 +127,7 @@ const notifyRequest = async ({ request, user, changes }) => {
         memberEmail: user.email,
         requestType: request.request_type,
         changes,
+        currentValues,
       });
       emailSent = result.delivered;
     } catch (err) {
@@ -167,7 +168,11 @@ const createProfileChangeRequest = async ({ userId, payload }) => {
   }
 
   const userResult = await pool.query(
-    `SELECT user_id, first_name, last_name, email
+    `SELECT user_id, first_name, last_name, email, phone, gender, birth_date, age, height,
+            weight, fitness_goal, activity_level, target_weight,
+            workout_days_per_week, workout_duration, preferred_days,
+            preferred_workout_time, intensity, injuries, health_conditions,
+            profile_image
      FROM users
      WHERE user_id = $1 AND LOWER(COALESCE(account_status, 'pending')) = 'active'`,
     [userId]
@@ -212,6 +217,10 @@ const createProfileChangeRequest = async ({ userId, payload }) => {
     request: inserted.rows[0],
     user,
     changes: payload,
+    currentValues: Object.fromEntries(Object.keys(payload).map((field) => [
+      field,
+      field === "profile_image" ? Boolean(user.profile_image) : user[field],
+    ])),
   });
 };
 
@@ -421,7 +430,7 @@ const reviewChangeRequest = async (req, res) => {
           return res.status(400).json({ success: false, message: normalized.error || "The submitted workout availability is invalid." });
         }
         const [minimum, maximum] = getExperienceRange(level);
-        if (frequency < minimum || frequency > maximum || frequency > normalized.availability.length) {
+        if (frequency < minimum || frequency > maximum || frequency !== normalized.availability.length) {
           await client.query("ROLLBACK");
           return res.status(400).json({ success: false, message: `The submitted availability does not match the ${level} workout frequency rules.` });
         }

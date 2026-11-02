@@ -10,7 +10,7 @@ const difficultyColors = {
 };
 
 const MUSCLE_GROUPS = ["Chest", "Back", "Shoulders", "Biceps", "Triceps", "Legs", "Glutes", "Core", "Cardio", "Full Body"];
-const EQUIPMENT_OPTIONS = ["Barbell", "Dumbbell", "Cable Machine", "Machine", "Smith Machine", "Kettlebell", "EZ Bar", "Bodyweight", "Pull-Up Bar", "Dip Station", "Roman Chair", "Landmine Attachment", "T-Bar Row Machine", "Assisted Pull-Up Machine", "Preacher Bench", "Leg Press Machine", "Hack Squat Machine", "Weight Plate", "Decline Bench", "Treadmill", "Stationary Bike", "Rowing Machine", "Stair Climber Machine", "Elliptical Machine", "Assault Bike", "Battle Ropes", "Jump Rope", "Sled", "TRX Suspension Trainer", "Medicine Ball", "Plyo Box"];
+const EQUIPMENT_OPTIONS = ["Barbell", "Dumbbell", "Cable Machine", "Machine", "Smith Machine", "Kettlebell", "EZ Bar", "Bodyweight", "Pull-Up Bar", "Dip Station", "Roman Chair", "Landmine Attachment", "T-Bar Row Machine", "Assisted Pull-Up Machine", "Preacher Bench", "Leg Press Machine", "Hack Squat Machine", "Weight Plate", "Decline Bench", "Treadmill", "Stationary Bike", "Rowing Machine", "Stair Climber Machine", "Elliptical Machine", "Assault Bike", "Battle Ropes", "Jump Rope", "Sled", "TRX Suspension Trainer", "Medicine Ball", "Plyo Box", "Gym Mat"];
 const STEP_TITLES = ["Starting Position", "Movement", "Finish"];
 
 // Letters + spaces only for the name, plus punctuation real names already use
