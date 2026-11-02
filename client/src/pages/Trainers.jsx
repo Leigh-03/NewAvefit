@@ -1,10 +1,20 @@
 import { useEffect, useState, useRef } from "react";
-import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock } from "lucide-react";
+import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock, TrendingUp } from "lucide-react";
 import api from "../services/api";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 import TrainerAvailabilityManager from "../components/trainers/TrainerAvailabilityManager";
 import ScrollReveal from "../components/ScrollReveal";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
+
+const fetchMemberProgress = (userId) => api.get(`/members/${userId}/progress`);
+
+function toList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (typeof value === "string") return value.replace(/^\{|\}$/g, "").split(",").map((item) => item.trim()).filter(Boolean);
+  return [];
+}
 
 const SPECIALIZATION_OPTIONS = [
   "High-Intensity Interval Training (HIIT)",
@@ -541,24 +551,110 @@ function TrainerProfileModal({ trainer, onClose, onEdit }) {
   );
 }
 
-function MemberRow({ member }) {
+function MemberRow({ member, onViewProfile }) {
   return (
-    <div className="border border-[#303030] bg-[#171717] rounded-xl px-4 py-3">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-orange-500/15 flex items-center justify-center text-orange-400 font-bold text-xs">
-          {member.first_name?.charAt(0)}{member.last_name?.charAt(0)}
+    <div className="flex items-center justify-between gap-3 border border-[#303030] bg-[#171717] rounded-xl px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="w-9 h-9 shrink-0 overflow-hidden rounded-full bg-orange-500/15 flex items-center justify-center text-orange-400 font-bold text-xs">
+          {member.profile_image
+            ? <img src={member.profile_image} alt="" className="h-full w-full object-cover" />
+            : <>{member.first_name?.charAt(0)}{member.last_name?.charAt(0)}</>}
         </div>
-        <div>
-          <p className="font-semibold text-gray-100 text-sm">{member.first_name} {member.last_name}</p>
-          <p className="text-gray-400 text-xs">{member.fitness_goal || "No goal set"} · {member.email}</p>
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-gray-100 text-sm">{member.first_name} {member.last_name}</p>
+          <p className="truncate text-gray-400 text-xs">{member.fitness_goal || "No goal set"} · {member.email}</p>
         </div>
       </div>
+      <button type="button" onClick={() => onViewProfile(member)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-orange-500/30 px-2.5 py-2 text-xs font-semibold text-orange-400 transition hover:bg-orange-500/10" aria-label={`View ${member.first_name} ${member.last_name}'s profile`}>
+        <UserCircle size={15} /> <span className="hidden sm:inline">View Profile</span><span className="sm:hidden">Profile</span>
+      </button>
+    </div>
+  );
+}
+
+function RosterMemberProfileModal({ member, onClose, onViewProgress }) {
+  const currentWeight = member.latest_weight ?? member.weight;
+  const currentBmi = member.latest_bmi ?? (currentWeight && member.height
+    ? (Number(currentWeight) / ((Number(member.height) / 100) ** 2)).toFixed(1)
+    : null);
+  const profileFields = [
+    ["Email", member.email],
+    ["Phone", member.phone],
+    ["Gender", member.gender],
+    ["Age", member.age ? `${member.age} years` : null],
+    ["Birth date", member.birth_date ? new Date(member.birth_date).toLocaleDateString() : null],
+    ["Height", member.height ? `${member.height} cm` : null],
+    ["Current weight", currentWeight ? `${currentWeight} kg` : null],
+    ["BMI", currentBmi],
+    ["Fitness goal", member.fitness_goal],
+    ["Target weight", member.target_weight ? `${member.target_weight} kg` : null],
+    ["Experience level", member.activity_level],
+    ["Workout intensity", member.intensity],
+    ["Workout frequency", member.workout_days_per_week ? `${member.workout_days_per_week} days/week` : null],
+    ["Session duration", member.workout_duration ? `${member.workout_duration} minutes` : null],
+    ["Preferred time", member.preferred_workout_time],
+  ];
+  const availability = Array.isArray(member.weekly_availability) ? member.weekly_availability : [];
+  const injuries = toList(member.injuries);
+  const conditions = toList(member.health_conditions);
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <section role="dialog" aria-modal="true" aria-labelledby="roster-member-profile-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#151515] text-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <header className="flex items-center gap-4 border-b border-white/10 p-5 sm:p-6">
+          <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full bg-orange-500/15 text-lg font-bold text-orange-300">
+            {member.profile_image
+              ? <img src={member.profile_image} alt="" className="h-full w-full object-cover" />
+              : `${member.first_name?.charAt(0) || ""}${member.last_name?.charAt(0) || ""}`}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="roster-member-profile-title" className="truncate text-xl font-bold">{member.first_name} {member.last_name}</h2>
+            <p className="truncate text-sm text-slate-400">Member profile</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close member profile" className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"><X size={20} /></button>
+        </header>
+        <div className="space-y-5 p-5 sm:p-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {profileFields.map(([label, value]) => (
+              <div key={label} className="min-w-0 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs text-slate-400">{label}</p>
+                <p className="mt-1 break-words text-sm font-semibold text-slate-100">{value || "Not set"}</p>
+              </div>
+            ))}
+          </div>
+          <section className="rounded-xl border border-white/10 p-4">
+            <h3 className="text-sm font-bold text-slate-200">Weekly availability</h3>
+            {availability.length ? (
+              <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                {availability.map((slot) => <li key={slot.day_of_week}><span className="font-semibold">{slot.day_of_week}:</span> {slot.time_preference || `${slot.start_time || "—"}–${slot.end_time || "—"}`}</li>)}
+              </ul>
+            ) : <p className="mt-2 text-sm text-slate-400">{toList(member.preferred_days).join(", ") || "No availability recorded."}</p>}
+          </section>
+          {(injuries.length || conditions.length) > 0 && (
+            <section className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+              <h3 className="text-sm font-bold text-amber-300">Health and safety notes</h3>
+              <p className="mt-2 text-sm text-slate-300">{[...injuries.map((value) => `Injury: ${value}`), ...conditions].join(" · ")}</p>
+            </section>
+          )}
+          <section className="rounded-xl border border-white/10 p-4">
+            <h3 className="text-sm font-bold text-slate-200">Workout progress</h3>
+            <p className="mt-1 text-sm text-slate-400">{member.completed_workouts ?? 0} completed of {member.assigned_workouts ?? 0} assigned workouts</p>
+          </section>
+          <div className="flex justify-end">
+            <button type="button" onClick={() => onViewProgress(member)} className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700">
+              <TrendingUp size={16} /> View Progress History
+            </button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
 
 function RosterModal({ trainer, onClose }) {
   const [members, setMembers] = useState([]);
+  const [profileMember, setProfileMember] = useState(null);
+  const [progressMember, setProgressMember] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -580,6 +676,8 @@ function RosterModal({ trainer, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      {profileMember && <RosterMemberProfileModal member={profileMember} onClose={() => setProfileMember(null)} onViewProgress={setProgressMember} />}
+      {progressMember && <ProgressHistoryModal member={progressMember} fetchProgress={fetchMemberProgress} onClose={() => setProgressMember(null)} />}
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
         <div className="p-6 border-b flex items-center justify-between">
           <div>
@@ -601,7 +699,7 @@ function RosterModal({ trainer, onClose }) {
           ) : members.length === 0 ? (
             <p className="text-center text-slate-400 py-12 text-sm">No members have chosen this coach yet.</p>
           ) : (
-            members.map((m) => <MemberRow key={m.user_id} member={m} />)
+            members.map((m) => <MemberRow key={m.user_id} member={m} onViewProfile={setProfileMember} />)
           )}
         </div>
       </div>
