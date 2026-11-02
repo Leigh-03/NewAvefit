@@ -37,6 +37,7 @@ import ExerciseLibrary from "./pages/ExerciseLibrary";
 import AboutUs from "./pages/AboutUs";
 import ProfilePage from "./pages/ProfilePage";
 import Coaches from "./pages/Coaches";
+import MembershipPeriod from "./pages/MembershipPeriod";
 
 // Trainer Portal
 import TrainerLogin from "./pages/TrainerLogin";
@@ -87,6 +88,7 @@ function UserProtectedRoute({ children }) {
   if (savedUser?.account_status && savedUser.account_status !== "Active") {
     return <Navigate to="/user/pending" replace />;
   }
+  if (savedUser && !savedUser.membership_months) return <Navigate to="/user/membership" replace />;
   if (savedUser?.setup_completed) return <Navigate to="/user/profile" replace />;
   return children;
 }
@@ -99,7 +101,8 @@ function DashboardProtectedRoute({ children }) {
   if (!token) return <Navigate to="/user/login" state={{ from: location }} replace />;
   const savedUser = JSON.parse(localStorage.getItem("avefit_user") || "null");
   if (savedUser?.account_status && savedUser.account_status !== "Active") return <Navigate to="/user/pending" replace />;
-  if (savedUser && !savedUser.setup_completed) return <Navigate to="/user/assessment" replace />;
+  if (savedUser && !savedUser.membership_months && location.pathname !== "/user/membership") return <Navigate to="/user/membership" replace />;
+  if (savedUser && !savedUser.setup_completed && location.pathname !== "/user/membership") return <Navigate to="/user/assessment" replace />;
   return children;
 }
 
@@ -191,6 +194,7 @@ export default function App() {
                   <Route path="/coaches" element={<Coaches />} />
                   <Route path="/about" element={<AboutUs />} />
                   <Route path="/profile" element={<ProfilePage />} />
+                  <Route path="/membership" element={<MembershipPeriod />} />
                   <Route path="/notifications" element={<Notifications audience="user" />} />
                   <Route path="*" element={<Navigate to="/user/workout" replace />} />
                 </Routes>

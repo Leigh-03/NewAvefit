@@ -61,6 +61,9 @@ export default function ProfilePage() {
           height: d.height,
           weight: d.weight,
           profile_image: d.profile_image || null,
+          membership_months: d.membership_months,
+          membership_start_date: d.membership_start_date,
+          membership_end_date: d.membership_end_date,
         });
         if (d.height && d.weight) {
           const h = parseFloat(d.height) / 100;
@@ -263,7 +266,7 @@ export default function ProfilePage() {
 
         {msg && (
           <p role="status" className={`rounded-xl border px-4 py-3 text-sm font-medium ${
-            /unable|failed|error/i.test(msg)
+            /unable|failed|error|could not be delivered/i.test(msg)
               ? "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300"
               : "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300"
           }`}>
@@ -284,6 +287,21 @@ export default function ProfilePage() {
             </ul>
           </section>
         )}
+
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
+          <div>
+            <h2 className="font-bold text-slate-900 dark:text-white">Membership period</h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              {user?.membership_months
+                ? `${user.membership_months === 12 ? "1 year" : `${user.membership_months} ${user.membership_months === 1 ? "month" : "months"}`} · ₱${Number(user.membership_months) * 100} · ${user.membership_start_date ? String(user.membership_start_date).slice(0, 10) : "Start date pending"} to ${user.membership_end_date ? String(user.membership_end_date).slice(0, 10) : "End date pending"}`
+                : "Choose a membership term to continue."}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">₱100 per month. Online payment is not available.</p>
+          </div>
+          <button type="button" onClick={() => navigate("/user/membership")} className="rounded-xl border border-orange-300 px-4 py-2.5 text-sm font-semibold text-orange-700 transition hover:bg-orange-50 dark:border-orange-500/30 dark:text-orange-300 dark:hover:bg-orange-500/10">
+            {user?.membership_months ? "Edit membership term" : "Choose term"}
+          </button>
+        </section>
 
         {/* Personal Info */}
         <section className="space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">

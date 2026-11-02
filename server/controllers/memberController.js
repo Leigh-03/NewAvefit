@@ -10,6 +10,74 @@ const {
 const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 
+const requiredMemberFields = [
+  ["phone", "phone number"],
+  ["gender", "gender"],
+  ["age", "age"],
+  ["height", "height"],
+  ["weight", "weight"],
+  ["fitness_goal", "fitness goal"],
+  ["activity_level", "experience level"],
+  ["workout_days_per_week", "workout days per week"],
+  ["workout_duration", "workout duration"],
+  ["preferred_days", "preferred workout days"],
+  ["injuries", "injury selection"],
+  ["health_conditions", "health condition selection"],
+];
+
+const isMemberFieldComplete = (field, value) => {
+  if (Array.isArray(value)) return value.length > 0;
+  if (value === null || value === undefined || value === "") return false;
+  if (typeof value === "string" && (!value.trim() || ["{}", "[]"].includes(value.trim()))) return false;
+  if (["age", "height", "weight", "workout_days_per_week", "workout_duration"].includes(field)) {
+    return Number.isFinite(Number(value)) && Number(value) > 0;
+  }
+  return true;
+};
+
+const getMissingMemberFields = (member) =>
+  requiredMemberFields
+    .filter(([field]) => !isMemberFieldComplete(field, member[field]))
+    .map(([, label]) => label);
+
+const updateIncompleteProfileNotifications = async (member, missingFields, adminIds) => {
+  const targetUrl = `/admin/members?member_id=${member.member_id}`;
+  const memberName = member.full_name?.trim() || member.email || "A member";
+  const message = `${memberName} needs to complete profile information: ${missingFields.join(", ")}.`;
+  await Promise.all(adminIds.map(async (adminId) => {
+    if (missingFields.length) {
+      const updated = await pool.query(
+        `UPDATE app_notifications
+         SET message = $2, related_user_name = $3, is_read = FALSE, created_at = NOW()
+         WHERE audience_type = 'admin' AND recipient_id = $1
+           AND notification_type = 'profile_incomplete' AND target_url = $4
+           AND message <> $2`,
+        [adminId, message, memberName, targetUrl]
+      );
+      if (!updated.rowCount) {
+        await pool.query(
+          `INSERT INTO app_notifications
+             (audience_type, recipient_id, message, notification_type, related_user_name, target_url)
+           SELECT 'admin', $1, $2, 'profile_incomplete', $3, $4
+           WHERE NOT EXISTS (
+             SELECT 1 FROM app_notifications
+             WHERE audience_type = 'admin' AND recipient_id = $1
+               AND notification_type = 'profile_incomplete' AND target_url = $4
+           )`,
+          [adminId, message, memberName, targetUrl]
+        );
+      }
+    } else {
+      await pool.query(
+        `UPDATE app_notifications SET is_read = TRUE
+         WHERE audience_type = 'admin' AND notification_type = 'profile_incomplete'
+           AND target_url = $1 AND is_read = FALSE`,
+        [targetUrl]
+      );
+    }
+  }));
+};
+
 // =====================================================
 // GET ALL MEMBERS FROM USERS TABLE
 // =====================================================
@@ -79,9 +147,30 @@ LEFT JOIN trainers t
 ORDER BY u.user_id DESC;
     `);
 
-    console.log(`✅ Retrieved ${result.rows.length} users from users table`);
+    const members = result.rows.map((member) => ({
+      ...member,
+      missing_profile_fields: getMissingMemberFields(member),
+    }));
+    let adminIds = [];
+    try {
+      const admins = await pool.query(
+        "SELECT admin_id FROM admins WHERE LOWER(COALESCE(account_status, 'active')) = 'active'"
+      );
+      adminIds = admins.rows.map((admin) => admin.admin_id);
+    } catch (notificationError) {
+      console.error("Unable to load admins for incomplete profile notifications:", notificationError.message);
+    }
+    await Promise.all(members.map(async (member) => {
+      try {
+        await updateIncompleteProfileNotifications(member, member.missing_profile_fields, adminIds);
+      } catch (notificationError) {
+        console.error(`Incomplete profile notification failed for member ${member.member_id}:`, notificationError.message);
+      }
+    }));
 
-    res.json({ success: true, data: result.rows });
+    console.log(`✅ Retrieved ${members.length} users from users table`);
+
+    res.json({ success: true, data: members });
 
   } catch (error) {
     console.error("❌ Error fetching members:", error);
@@ -639,10 +728,10 @@ const updateMemberMembership = async (req, res) => {
     }
 
     const months = Number(membership_months);
-    if (![1, 3, 6, 10, 12].includes(months)) {
+    if (!Number.isInteger(months) || months < 1 || months > 12) {
       return res.status(400).json({
         success: false,
-        message: "Choose a membership term of 1, 3, 6, 10, or 12 months.",
+        message: "Choose a membership term from 1 to 12 months.",
       });
     }
 

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck } from "lucide-react";
+import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck, TrendingUp } from "lucide-react";
 import api from "../services/api";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 
 const statusColors = {
   Active: "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400",
@@ -9,7 +10,7 @@ const statusColors = {
   Inactive: "bg-slate-100 text-slate-500 dark:bg-slate-700/50 dark:text-slate-400",
 };
 
-const MEMBER_STATUS_OPTIONS = ["Active", "Inactive"];
+const fetchAdminProgress = (memberId) => api.get(`/members/${memberId}/progress`);
 const PROFILE_CHANGE_LABELS = {
   first_name: "First name",
   last_name: "Last name",
@@ -110,82 +111,8 @@ function MemberPhoto({ member, large = false }) {
   );
 }
 
-function MemberModal({ member, onClose, onSave }) {
-  const [form, setForm] = useState(member || { full_name: "", email: "", phone: "", gender: "", age: "", height: "", weight: "", fitness_goal: "", preferred_workout_time: "" });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  // Active/Inactive are the admin-selectable statuses; keep the member's current
-  // value (e.g. Pending/Rejected) selectable so editing never silently changes it.
-  const statusOptions = [...new Set([...(form.status ? [form.status] : []), ...MEMBER_STATUS_OPTIONS])];
-
-  const handleSubmit = async () => {
-    if (!form.full_name || !form.email) return setError("Full name and email are required.");
-    setSaving(true); setError("");
-    try {
-      const response = member
-        ? await api.put(`/members/${member.member_id}`, { ...form, status: form.status || member.status })
-        : await api.post("/members", form);
-      const savedMember = response?.data?.member || response?.data?.data || (member ? { ...member, ...form, status: form.status || member.status } : null);
-      await onSave(savedMember); onClose();
-    } catch (err) {
-      setError(err.response?.data?.message || "Failed to save member.");
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white dark:bg-[#171717] rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-gray-800">
-        <div className="p-6 border-b border-slate-200 dark:border-gray-800 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white">{member ? "Edit Member" : "Add New Member"}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-white"><X size={20}/></button>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            {[
-              {label:"Full Name *",key:"full_name",type:"text",span:true}, {label:"Email *",key:"email",type:"email",span:true},
-              {label:"Phone",key:"phone",type:"text"}, {label:"Gender",key:"gender",type:"select",options:["","Male","Female"]},
-              {label:"Age",key:"age",type:"number"}, {label:"Fitness Goal",key:"fitness_goal",type:"select",options:["","Weight Loss","Muscle Gain","General Fitness","Endurance"]},
-              {label:"Preferred Workout Time",key:"preferred_workout_time",type:"select",options:["","Morning","Afternoon","Evening","Flexible"]},
-              {label:"Height (cm)",key:"height",type:"number"}, {label:"Weight (kg)",key:"weight",type:"number"},
-            ].map(f => <div key={f.key} className={f.span ? "col-span-2" : ""}>
-              <label className="block text-sm font-medium text-slate-600 dark:text-gray-300 mb-1">{f.label}</label>
-              {f.type === "select" ? <select value={form[f.key] || ""} onChange={e=>setForm({...form,[f.key]:e.target.value})} className="w-full border border-slate-300 dark:border-gray-700 rounded-lg bg-white dark:bg-[#111] text-slate-800 dark:text-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500">{f.options.map(o=><option key={o} value={o}>{o || "Select..."}</option>)}</select> : <input type={f.type} value={form[f.key] || ""} onChange={e=>setForm({...form,[f.key]:e.target.value})} className="w-full border border-slate-300 dark:border-gray-700 rounded-lg bg-white dark:bg-[#111] text-slate-800 dark:text-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500" />}
-            </div>)}
-          </div>
-          {form.height && form.weight && <p className="text-sm text-orange-600 dark:text-orange-400 font-medium">BMI: {(parseFloat(form.weight)/Math.pow(parseFloat(form.height)/100,2)).toFixed(1)} (auto-calculated)</p>}
-          {member && (
-            <div>
-              <label className="block text-sm font-medium text-slate-600 dark:text-gray-300 mb-1">Status</label>
-              <select value={form.status || ""} onChange={e => setForm({ ...form, status: e.target.value })} className="w-full border border-slate-300 dark:border-gray-700 rounded-lg bg-white dark:bg-[#111] text-slate-800 dark:text-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500">{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
-              <p className="text-xs text-slate-400 mt-1">Set the member Active or Inactive. Inactive members cannot sign in.</p>
-            </div>
-          )}
-          {error && <p className="text-red-500 text-sm">{error}</p>}
-        </div>
-        <div className="p-6 border-t border-slate-200 dark:border-gray-800 flex gap-3 justify-end">
-          <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-gray-700 text-slate-600 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-800 text-sm font-medium">Cancel</button>
-          <button onClick={handleSubmit} disabled={saving} className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium disabled:opacity-50">{saving?"Saving...":member?"Save Changes":"Add Member"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, onProfileUpdate }) {
+function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, onViewProgress }) {
   const bmiInfo = getBMICategory(member.bmi);
-  const [profileForm, setProfileForm] = useState(() => ({
-    first_name: member.first_name || String(member.full_name || "").split(" ")[0] || "",
-    last_name: member.last_name || String(member.full_name || "").split(" ").slice(1).join(" "),
-    email: member.email || "",
-    phone: member.phone || "",
-    gender: member.gender || "",
-    age: member.age || "",
-    height: member.height || "",
-    weight: member.weight || "",
-    fitness_goal: member.fitness_goal || "",
-    preferred_workout_time: member.preferred_workout_time || "",
-    status: member.status || "Active",
-  }));
   const [selectedTrainer, setSelectedTrainer] = useState(member.trainer_id || "");
   const [recommendations, setRecommendations] = useState([]);
   const [recommendationMessage, setRecommendationMessage] = useState("");
@@ -195,23 +122,6 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
   const [changesError, setChangesError] = useState("");
   const assignedTrainer = trainers.find(t => Number(t.trainer_id) === Number(member.trainer_id));
   const canEditMembershipAndCoach = String(member.status || "").trim() === "Active";
-  const originalProfile = {
-    first_name: member.first_name || String(member.full_name || "").split(" ")[0] || "",
-    last_name: member.last_name || String(member.full_name || "").split(" ").slice(1).join(" "),
-    email: member.email || "",
-    phone: member.phone || "",
-    gender: member.gender || "",
-    age: member.age || "",
-    height: member.height || "",
-    weight: member.weight || "",
-    fitness_goal: member.fitness_goal || "",
-    preferred_workout_time: member.preferred_workout_time || "",
-    status: member.status || "Active",
-  };
-  const profileChanged = Object.keys(originalProfile).some((key) => (
-    String(profileForm[key] ?? "") !== String(originalProfile[key] ?? "")
-  ));
-
   useEffect(() => {
     setMembershipMonths(member.membership_months || "");
     setSelectedTrainer(member.trainer_id || "");
@@ -238,7 +148,6 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
       if (membershipChanged) {
         await onMembershipUpdate(member, membershipMonths ? Number(membershipMonths) : null);
       }
-      if (profileChanged) await onProfileUpdate(member, profileForm);
     } catch (err) {
       setChangesError(err.response?.data?.message || err.message || "Failed to save member changes.");
     } finally {
@@ -248,15 +157,17 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
 
   const membershipStatus = getMembershipStatus(member);
   const membershipStartDate = member.membership_start_date
+    && member.membership_end_date
+    && String(member.membership_end_date).slice(0, 10) >= getManilaToday()
     ? String(member.membership_start_date).slice(0, 10)
-    : member.joined_date ? String(member.joined_date).slice(0, 10) : null;
+    : getManilaToday();
   const membershipEndDate = membershipMonths
     ? getMembershipEndDate(membershipStartDate, membershipMonths)
     : null;
   const membershipChanged = String(membershipMonths || "") !== String(member.membership_months || "");
   const selectedCoach = recommendations.find((coach) => String(coach.trainer_id) === String(selectedTrainer));
   const coachChanged = String(selectedTrainer || "") !== String(member.trainer_id || "");
-  const hasChanges = profileChanged || membershipChanged || coachChanged;
+  const hasChanges = membershipChanged || coachChanged;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
@@ -276,32 +187,37 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
         </div>
 
         <div className="p-6 space-y-5">
+          {member.missing_profile_fields?.length > 0 && (
+            <div role="status" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-500/30 dark:bg-red-500/10">
+              <p className="text-sm font-bold text-red-700 dark:text-red-300">Profile information to complete</p>
+              <p className="mt-1 text-sm text-red-700 dark:text-red-300">{member.missing_profile_fields.join(", ")}</p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
             {[
-              ["First name", "first_name", "text"],
-              ["Last name", "last_name", "text"],
-              ["Email", "email", "email"],
-              ["Phone", "phone", "tel"],
-              ["Gender", "gender", "select", ["", "Male", "Female"]],
-              ["Age", "age", "number"],
-              ["Height (cm)", "height", "number"],
-              ["Weight (kg)", "weight", "number"],
-              ["Fitness goal", "fitness_goal", "select", ["", "Weight Loss", "Muscle Gain", "General Fitness", "Endurance", "Maintain Weight"]],
-              ["Preferred workout time", "preferred_workout_time", "select", ["", "Morning", "Afternoon", "Evening", "Flexible"]],
-              ["Status", "status", "select", ["Active", "Inactive"]],
-            ].map(([label, key, type, options]) => (
-              <label key={key} className="min-w-0 rounded-xl bg-slate-50 p-3 dark:bg-[#222]">
+              ["First name", member.first_name],
+              ["Last name", member.last_name],
+              ["Email", member.email],
+              ["Phone", member.phone],
+              ["Gender", member.gender],
+              ["Age", member.age],
+              ["Height (cm)", member.height],
+              ["Weight (kg)", member.weight],
+              ["Fitness goal", member.fitness_goal],
+              ["Preferred workout time", member.preferred_workout_time],
+              ["Status", member.status],
+            ].map(([label, value]) => (
+              <div key={label} className="min-w-0 rounded-xl bg-slate-50 p-3 dark:bg-[#222]">
                 <span className="block text-xs text-slate-500 dark:text-slate-400">{label}</span>
-                {type === "select" ? (
-                  <select value={profileForm[key]} onChange={(event) => setProfileForm((current) => ({ ...current, [key]: event.target.value }))} className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-800 dark:border-slate-700 dark:bg-[#111] dark:text-slate-100">
-                    {options.map((option) => <option key={option || "empty"} value={option}>{option || "Not set"}</option>)}
-                  </select>
-                ) : (
-                  <input type={type} value={profileForm[key]} onChange={(event) => setProfileForm((current) => ({ ...current, [key]: event.target.value }))} className="mt-1 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-800 dark:border-slate-700 dark:bg-[#111] dark:text-slate-100" />
-                )}
-              </label>
+                <p className="mt-1 break-words text-sm font-semibold text-slate-800 dark:text-slate-100">{value || "Not set"}</p>
+              </div>
             ))}
             <div className="rounded-xl bg-slate-50 p-3 dark:bg-[#222]"><p className="text-xs text-slate-400">Email verified</p><p className="mt-1 font-semibold text-slate-700 dark:text-gray-200">{member.email_verified ? "Yes" : "No"}</p></div>
+          </div>
+          <div className="flex justify-end">
+            <button type="button" onClick={() => onViewProgress(member)} className="inline-flex items-center gap-2 rounded-xl border border-orange-200 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 dark:border-orange-500/30 dark:text-orange-300 dark:hover:bg-orange-500/10">
+              <TrendingUp size={16} /> View Progress
+            </button>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900 p-4 text-center">
             <p className="text-xs font-medium text-slate-500 dark:text-slate-300">BMI</p>
@@ -323,7 +239,7 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                 {membershipMonths && membershipEndDate && ` – ${formatMembershipDate(membershipEndDate)}`}
               </p>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                The start date is the join date or latest reactivation date. The end date is calculated from the selected term.
+                The preview starts today when the membership is new or expired; otherwise it uses the current period start date.
               </p>
             </div>
             <div className="grid gap-3">
@@ -335,13 +251,15 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                   disabled={!canEditMembershipAndCoach}
                   className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-[#111] dark:text-white"
                 >
-                  <option value="1">1 month</option>
-                  <option value="3">3 months</option>
-                  <option value="6">6 months</option>
-                  <option value="10">10 months</option>
-                  <option value="12">1 year</option>
+                  <option value="">Not selected</option>
+                  {Array.from({ length: 12 }, (_, index) => index + 1).map((months) => (
+                    <option key={months} value={months}>{months === 12 ? "1 year" : `${months} ${months === 1 ? "month" : "months"}`}</option>
+                  ))}
                 </select>
               </label>
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                Total: ₱{(Number(membershipMonths) || 0) * 100}
+              </p>
             </div>
             {!canEditMembershipAndCoach && <p className="mt-2 text-xs text-slate-500">Membership editing is locked until this member is active. Approve or activate the member to edit.</p>}
           </div>
@@ -433,7 +351,7 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
 }
 
 export default function Members() {
-  const [members,setMembers]=useState([]), [trainers,setTrainers]=useState([]), [loading,setLoading]=useState(true), [fetchError,setFetchError]=useState(""), [search,setSearch]=useState(""), [filter,setFilter]=useState("All"), [showAddModal,setShowAddModal]=useState(false), [viewMember,setViewMember]=useState(null);
+  const [members,setMembers]=useState([]), [trainers,setTrainers]=useState([]), [loading,setLoading]=useState(true), [fetchError,setFetchError]=useState(""), [search,setSearch]=useState(""), [filter,setFilter]=useState("All"), [viewMember,setViewMember]=useState(null), [progressMember,setProgressMember]=useState(null);
   const [confirmMember, setConfirmMember] = useState(null);
   const [deletingMember, setDeletingMember] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -533,56 +451,13 @@ export default function Members() {
       ? { ...current, ...updatedMembership }
       : current);
   };
-  const handleViewProfileUpdate = async (member, changes) => {
-    if (!String(changes.first_name || "").trim() || !String(changes.last_name || "").trim() || !String(changes.email || "").trim()) {
-      throw new Error("First name, last name, and email are required.");
-    }
-    const profileChanges = { ...changes };
-    for (const field of ["age", "height", "weight"]) {
-      if (profileChanges[field] === "") delete profileChanges[field];
-    }
-    await api.put(`/members/${member.member_id}`, profileChanges);
-    await fetchData();
-  };
-
-  const handleMemberSave = async (savedMember = null) => {
-    // Refresh the member list so table status/fields are current.
-    let rows = [];
-    try {
-      const response = await api.get("/members");
-      rows = Array.isArray(response.data)
-        ? response.data
-        : (response.data?.data || []);
-    } catch {
-      // Fall back to a full reload if the refresh request fails.
-      await fetchData();
-      return;
-    }
-
-    setMembers(rows);
-
-    // Update any open profile views in real time using the fresh record.
-    const savedId = Number(savedMember?.member_id ?? savedMember?.user_id);
-    const updated = Number.isNaN(savedId)
-      ? null
-      : rows.find((row) => Number(row.member_id ?? row.user_id) === savedId) || savedMember;
-
-    if (updated) {
-      setViewMember((current) =>
-        current && Number(current.member_id ?? current.user_id) === Number(updated.member_id ?? updated.user_id)
-          ? updated
-          : current
-      );
-    }
-  };
-
   const filtered=members.filter(m=>{const q=search.toLowerCase();return (m.full_name?.toLowerCase().includes(q)||m.email?.toLowerCase().includes(q))&&(filter==="All"||String(m.status||"").trim().toLowerCase()===filter.toLowerCase());});
   const pendingCount=members.filter(m=>String(m.status||"").trim().toLowerCase()==="pending").length;
   const activeCount=members.filter(m=>String(m.status||"").trim().toLowerCase()==="active").length;
 
   return <div className="space-y-6">
-    {showAddModal&&<MemberModal onClose={()=>setShowAddModal(false)} onSave={handleMemberSave}/>} 
-    {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate} onProfileUpdate={handleViewProfileUpdate}/>}
+    {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate} onViewProgress={setProgressMember}/>}
+    {progressMember&&<ProgressHistoryModal member={progressMember} fetchProgress={fetchAdminProgress} onClose={()=>setProgressMember(null)}/>}
     {confirmMember&&<ConfirmDialog title={`Delete ${confirmMember.full_name || "this member"} permanently?`} description="This action cannot be undone. The member’s account and associated records will be permanently deleted." confirmLabel="Delete member" isLoading={deletingMember} error={deleteError} onCancel={()=>{if(!deletingMember){setConfirmMember(null);setDeleteError("");}}} onConfirm={confirmDelete}/>}
     {reviewRequestToReject&&<ConfirmDialog title="Reject this change request?" description="The member's current profile and password will remain unchanged. The member will be notified by email." confirmLabel="Reject request" isLoading={reviewingRequestId === reviewRequestToReject.request_id} error={reviewError} onCancel={()=>{if(!reviewingRequestId)setReviewRequestToReject(null);}} onConfirm={()=>handleReviewChangeRequest(reviewRequestToReject, "reject")}/>}
 
@@ -660,7 +535,7 @@ export default function Members() {
     )}
     <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-slate-100 px-3 dark:bg-white/5 sm:max-w-xs"><Search size={16} className="shrink-0 text-slate-400"/><span className="sr-only">Search members</span><input type="search" placeholder="Search name or email..." value={search} onChange={e=>setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"/></label><div role="group" aria-label="Filter  members by status" className="flex gap-2 overflow-x-auto">{["All","Active","Pending","Inactive","Rejected"].map(s=><button key={s} type="button" aria-pressed={filter===s} onClick={()=>setFilter(s)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${filter===s?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"}`}>{s}{s==="Pending"&&pendingCount>0?` (${pendingCount})`:""}</button>)}</div></div>
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
-      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full min-w-[1080px] table-fixed text-sm"><colgroup><col style={{ width: "22%" }} /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "15%" }} /><col style={{ width: "10%" }} /><col style={{ width: "16%" }} /></colgroup><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Status","Membership","Joined","Actions"].map(h=><th key={h} className="text-left px-2 py-4 sm:px-3 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:filtered.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 items-center gap-2"><MemberPhoto member={member}/><div className="min-w-0"><p className="truncate font-semibold text-slate-800 dark:text-white">{member.full_name}</p><p className="truncate text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-2 py-4 sm:px-3 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-2 py-4 sm:px-3">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span className="truncate">{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 flex-col items-start"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"?"}</span><span className={`text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></div></td><td className="px-2 py-4 sm:px-3 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-2 py-4 sm:px-3"><div className="space-y-1"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Expired" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-2 py-4 sm:px-3 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-2 py-4 sm:px-3" onClick={e=>e.stopPropagation()}><div className="flex items-center justify-start gap-1"><button onClick={()=>setViewMember(member)} className="grid h-8 w-8 place-items-center rounded-lg text-orange-500 transition hover:bg-orange-50 dark:hover:bg-orange-500/10" title="View member / change coach" aria-label={`View ${member.full_name}`}><UserRoundCog size={16}/></button>{memberStatus==="pending"?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Approve member" aria-label={`Approve ${member.full_name}`}><CheckCircle size={16}/></button>:(memberStatus==="inactive"||memberStatus==="rejected")?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title={memberStatus==="rejected"?"Approve member":"Reactivate member"} aria-label={`${memberStatus==="rejected"?"Approve":"Reactivate"} ${member.full_name}`}><CheckCircle size={16}/></button>:null}{memberStatus==="pending"?<button onClick={()=>handleReject(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Reject" aria-label={`Reject ${member.full_name}`}><XCircle size={16}/></button>:null}<button onClick={()=>handleDelete(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Delete" aria-label={`Delete ${member.full_name}`}><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
+      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full min-w-[1080px] table-fixed text-sm"><colgroup><col style={{ width: "22%" }} /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "15%" }} /><col style={{ width: "10%" }} /><col style={{ width: "16%" }} /></colgroup><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Status","Membership","Joined","Actions"].map(h=><th key={h} className="text-left px-2 py-4 sm:px-3 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:filtered.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 items-center gap-2"><MemberPhoto member={member}/><div className="min-w-0">      <p className="flex min-w-0 items-center gap-1.5 font-semibold text-slate-800 dark:text-white"><span className="truncate">{member.full_name}</span>{member.missing_profile_fields?.length > 0 && <span title={`Missing information: ${member.missing_profile_fields.join(", ")}`} aria-label={`Incomplete profile: ${member.missing_profile_fields.join(", ")}`} className="h-2 w-2 shrink-0 rounded-full bg-red-500"/>}</p><p className="truncate text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-2 py-4 sm:px-3 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-2 py-4 sm:px-3">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span className="truncate">{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 flex-col items-start"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"?"}</span><span className={`text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></div></td><td className="px-2 py-4 sm:px-3 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-2 py-4 sm:px-3"><div className="space-y-1"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Expired" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-2 py-4 sm:px-3 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-2 py-4 sm:px-3" onClick={e=>e.stopPropagation()}><div className="flex items-center justify-start gap-1"><button onClick={()=>setViewMember(member)} className="grid h-8 w-8 place-items-center rounded-lg text-orange-500 transition hover:bg-orange-50 dark:hover:bg-orange-500/10" title="View member / change coach" aria-label={`View ${member.full_name}`}><UserRoundCog size={16}/></button>{memberStatus==="pending"?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Approve member" aria-label={`Approve ${member.full_name}`}><CheckCircle size={16}/></button>:(memberStatus==="inactive"||memberStatus==="rejected")?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title={memberStatus==="rejected"?"Approve member":"Reactivate member"} aria-label={`${memberStatus==="rejected"?"Approve":"Reactivate"} ${member.full_name}`}><CheckCircle size={16}/></button>:null}{memberStatus==="pending"?<button onClick={()=>handleReject(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Reject" aria-label={`Reject ${member.full_name}`}><XCircle size={16}/></button>:null}<button onClick={()=>handleDelete(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Delete" aria-label={`Delete ${member.full_name}`}><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
       <div className="px-6 py-3 border-t border-slate-100 dark:border-gray-800 text-sm text-slate-400">Showing {filtered.length} of {members.length} registered members</div>
     </div>
   </div>;

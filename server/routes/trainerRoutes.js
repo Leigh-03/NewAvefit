@@ -8,13 +8,14 @@ const { updateCapacity } = require("../controllers/coachCapacityController");
 const {
   getTrainers, getTrainerById, createTrainer, updateTrainer, approveTrainer, rejectTrainer, deactivateTrainer, deleteTrainer, getTrainerRoster,
   loginTrainer, getMyRoster, getMyProfile, updateMyPhoto, getExerciseCatalog,
-  getMyWorkoutPlans, createMyWorkoutPlan, updateMyWorkoutPlan, deleteMyWorkoutPlan,
+  getMyWorkoutPlans, createMyWorkoutPlan, updateMyWorkoutPlan, deleteMyWorkoutPlan, getMyMemberProgress,
   getRosterMemberSessions, assignSessionAsTrainer, deleteSessionAsTrainer,
 } = require("../controllers/trainerController");
 
 // Trainer Portal (self-service, trainer-authenticated)
 router.post("/login", userLoginLimiter, loginTrainer);
 router.get("/me/roster", verifyTrainer, getMyRoster);
+router.get("/me/members/:userId/progress", verifyTrainer, getMyMemberProgress);
 router.get("/me/profile", verifyTrainer, getMyProfile);
 router.put("/me/photo", verifyTrainer, updateMyPhoto);
 router.get("/me/availability", verifyTrainer, availabilityController.getForTrainer);

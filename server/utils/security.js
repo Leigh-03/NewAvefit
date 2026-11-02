@@ -114,11 +114,11 @@ function publicUser(row) {
   const {
     user_id, first_name, last_name, email, phone, account_status, trainer_id,
     fitness_goal, height, weight, gender, activity_level, setup_completed, profile_image,
-    email_verified
+    email_verified, membership_months, membership_start_date, membership_end_date
   } = row;
   return { user_id, first_name, last_name, email, phone, account_status, trainer_id,
     fitness_goal, height, weight, gender, activity_level, setup_completed, profile_image,
-    email_verified: Boolean(email_verified) };
+    email_verified: Boolean(email_verified), membership_months, membership_start_date, membership_end_date };
 }
 
 module.exports = {

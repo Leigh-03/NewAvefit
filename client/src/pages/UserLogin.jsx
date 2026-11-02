@@ -115,6 +115,10 @@ export default function UserLogin() {
   }, []);
 
   const goToDestination = (user) => {
+    if (!user?.membership_months) {
+      navigate("/user/membership", { replace: true });
+      return;
+    }
     const returnLocation = location.state?.from;
     const returnPath = returnLocation?.pathname;
     const isValidReturnPath = typeof returnPath === "string"

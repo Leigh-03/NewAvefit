@@ -95,11 +95,16 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
   const isLegacyFrequency = daysPerWeek && !frequencyOptions.includes(frequency);
   const frequencyMessage = isLegacyFrequency
     ? `${level} users should select ${range.min}–${range.max} workout days per week. Please choose a valid frequency.`
-    : frequency > availability.length
-      ? `You selected ${frequency} workout days per week, but you are only available on ${availability.length} days. Please update your availability or workout frequency.`
+    : frequency > 0 && frequency !== availability.length
+      ? `Select exactly ${frequency} available days to match your weekly workout frequency. You currently selected ${availability.length}.`
       : "";
 
   const toggleDay = (day) => {
+    const alreadySelected = availability.some((slot) => slot.day_of_week === day);
+    if (!alreadySelected && frequency > 0 && availability.length >= frequency) {
+      setError(`You can select only ${frequency} available days for your workout frequency.`);
+      return;
+    }
     setError("");
     setNotice("");
     setAvailability((current) => current.some((slot) => slot.day_of_week === day)
@@ -143,6 +148,11 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
       if (data.request) {
         setPendingRequest(true);
         setNotice(data.message || "Your weekly availability change was submitted for admin approval.");
+        if (data.email_sent === false) {
+          setError("The schedule request was saved, but the administrator email could not be delivered. Contact the gym administrator to confirm.");
+        } else {
+          setNotice(`${data.message || "Your weekly availability change was submitted for admin approval."} An email notification was sent to the administrator.`);
+        }
         return;
       }
       const savedAvailability = data.data.availability;
@@ -213,8 +223,9 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
                       <input
                         type="checkbox"
                         checked={Boolean(selected)}
+                        disabled={!selected && frequency > 0 && availability.length >= frequency}
                         onChange={() => toggleDay(day)}
-                        className="h-4 w-4 accent-orange-500"
+                        className="h-4 w-4 accent-orange-500 disabled:cursor-not-allowed disabled:opacity-40"
                       />
                       {day}
                     </label>
