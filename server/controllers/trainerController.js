@@ -1466,8 +1466,12 @@ const getMyWorkoutPlans = async (req, res) => {
             JSON_AGG(
               JSON_BUILD_OBJECT(
                 'exercise_id', ws.exercise_id,
+                'exercise_name', e.exercise_name,
+                'equipment', e.equipment,
                 'sets', ws.sets,
                 'reps', ws.reps,
+                'session_date', ws.session_date,
+                'completed', ws.completed,
                 'muscle_group', e.muscle_group
               )
               ORDER BY ws.session_id

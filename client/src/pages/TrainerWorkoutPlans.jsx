@@ -1,7 +1,53 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, ClipboardList, LockKeyhole, Pencil, Plus, Search, Trash2, X, XCircle } from "lucide-react";
+import { Check, ChevronDown, ClipboardList, Eye, LockKeyhole, Pencil, Plus, Search, Trash2, X, XCircle } from "lucide-react";
 import trainerApi from "../trainerApi";
 import { getWorkoutGoalRules } from "../utils/workoutGoalRules";
+
+function PlanDetailsModal({ plan, onClose }) {
+  const sessions = Array.isArray(plan.sessions) ? plan.sessions : [];
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <section role="dialog" aria-modal="true" aria-labelledby="trainer-plan-details-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]" onClick={(event) => event.stopPropagation()}>
+        <header className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 dark:border-slate-800 sm:p-6">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Workout plan details</p>
+            <h2 id="trainer-plan-details-title" className="mt-1 text-xl font-black text-slate-900 dark:text-white">{plan.plan_name}</h2>
+            <p className="mt-1 text-sm text-slate-500">{plan.member_name || "Member"} · {plan.goal || "Goal not set"}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {plan.scheduled_date ? new Date(`${String(plan.scheduled_date).slice(0, 10)}T00:00:00`).toLocaleDateString() : "Workout date not set"}
+              {plan.approval_status === "Pending" ? " · Awaiting your approval" : ""}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close plan details" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10"><X size={20} /></button>
+        </header>
+        <div className="space-y-3 p-5 sm:p-6">
+          {sessions.length ? sessions.map((session, index) => (
+            <article key={`${session.exercise_id}-${index}`} className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white">{index + 1}. {session.exercise_name || "Exercise"}</h3>
+                  <p className="mt-1 text-xs text-slate-500">{[session.muscle_group, session.equipment].filter(Boolean).join(" · ") || "No exercise details"}</p>
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${session.completed ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300" : "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300"}`}>
+                  {session.completed ? "Completed" : "Scheduled"}
+                </span>
+              </div>
+              <p className="mt-3 text-sm text-slate-700 dark:text-slate-300">
+                <strong>{session.sets ?? "—"}</strong> sets × <strong>{session.reps ?? "—"}</strong> reps
+                {session.session_date ? ` · ${new Date(`${String(session.session_date).slice(0, 10)}T00:00:00`).toLocaleDateString()}` : ""}
+              </p>
+            </article>
+          )) : (
+            <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-white/5">No exercises are attached to this plan.</p>
+          )}
+        </div>
+        <footer className="flex justify-end border-t border-slate-200 p-4 dark:border-slate-800">
+          <button type="button" onClick={onClose} className="min-h-10 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">Close</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
 
 const statusColors = {
   Active: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
@@ -594,6 +640,7 @@ export default function TrainerWorkoutPlans() {
   const [rosterFilter, setRosterFilter] = useState("All");
   const [showModal, setShowModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
+  const [viewingPlan, setViewingPlan] = useState(null);
   const [fetchError, setFetchError] = useState("");
   const [reviewingPlanId, setReviewingPlanId] = useState(null);
 
@@ -674,6 +721,7 @@ export default function TrainerWorkoutPlans() {
           onSave={fetchData}
         />
       )}
+      {viewingPlan && <PlanDetailsModal plan={viewingPlan} onClose={() => setViewingPlan(null)} />}
 
       <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
         <div>
@@ -791,6 +839,15 @@ export default function TrainerWorkoutPlans() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setViewingPlan(plan)}
+                          aria-label={`View exercises in ${plan.plan_name}`}
+                          title="View workout plan exercises"
+                          className="rounded-lg p-2 text-slate-500 transition hover:bg-orange-500/10 hover:text-orange-600"
+                        >
+                          <Eye size={16} />
+                        </button>
                         {pendingApproval && (
                           <>
                             <button type="button" onClick={() => handleReviewRequest(plan, "approve")} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Approve ${plan.plan_name}`} title="Approve member workout plan" className="rounded-lg p-2 text-green-600 transition hover:bg-green-500/10 disabled:opacity-50">
