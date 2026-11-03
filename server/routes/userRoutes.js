@@ -8,7 +8,7 @@ const {
   getProfile, updateProfile, updatePhoto, getUserChangeRequests,
 } = require("../controllers/userController");
 const { submitMembershipTermRequest, getMembershipTermRequest } = require("../controllers/memberController");
-const { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, requestWorkoutPlanDeletion, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
+const { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
 const { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
 const { getActiveTrainers } = require("../controllers/trainerController");
 const workoutAvailabilityController = require("../controllers/userWorkoutAvailabilityController");
@@ -47,7 +47,6 @@ router.post("/feedback", verifyUser, feedbackLimiter, submitMemberFeedback);
 router.get("/workouts", verifyUser, getUserWorkoutPlan);
 router.get("/plans", verifyUser, getUserPlans);
 router.post("/workout-plan-requests", verifyUser, requestWorkoutPlan);
-router.post("/plans/:planId/delete-request", verifyUser, requestWorkoutPlanDeletion);
 router.post("/workouts", verifyUser, addWorkoutSession);
 router.put("/workouts/:id", verifyUser, updateWorkoutSession);
 router.put("/workouts/:id/start", verifyUser, startWorkoutSession);
