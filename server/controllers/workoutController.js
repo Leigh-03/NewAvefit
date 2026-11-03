@@ -1,7 +1,6 @@
 const pool = require("../db");
 const getExerciseCatalog = require("../utils/exerciseCatalog");
 const { createNotification } = require("../utils/notifications");
-const equipmentOptions = require("../utils/equipmentOptions");
 const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutGoalRules");
 
 const getWorkouts = async (req, res) => {
@@ -14,69 +13,170 @@ const getWorkouts = async (req, res) => {
   }
 };
 
+const equipmentConditions = ["Not assessed", "Good", "Rusty", "Worn", "Damaged", "Poor", "Other"];
+const equipmentStatuses = ["Needs inspection", "In service", "Under repair", "Repaired", "Replaced", "Retired"];
+
+const validateEquipmentInput = (body) => {
+  const equipmentName = typeof body.equipment_name === "string" ? body.equipment_name.trim() : "";
+  const quantity = Number(body.quantity);
+  const condition = typeof body.condition === "string" ? body.condition.trim() : "";
+  const conditionNotes = typeof body.condition_notes === "string" ? body.condition_notes.trim() : "";
+  const status = typeof body.status === "string" ? body.status.trim() : "";
+  if (!equipmentName || equipmentName.length > 120) {
+    return { error: "Equipment name is required and must be 120 characters or fewer." };
+  }
+  if (!Number.isInteger(quantity) || quantity < 0 || quantity > 100000) {
+    return { error: "Quantity must be a whole number from 0 to 100000." };
+  }
+  if (!equipmentConditions.includes(condition)) {
+    return { error: "Choose a valid equipment condition." };
+  }
+  if (!equipmentStatuses.includes(status)) {
+    return { error: "Choose a valid equipment status." };
+  }
+  if (conditionNotes.length > 500) {
+    return { error: "Condition details must be 500 characters or fewer." };
+  }
+  if (condition === "Other" && !conditionNotes) {
+    return { error: "Describe the equipment condition when selecting Other." };
+  }
+  return {
+    value: {
+      equipmentName,
+      quantity,
+      condition,
+      conditionNotes,
+      status,
+    },
+  };
+};
+
 const getEquipmentInventory = async (_req, res) => {
   try {
     const result = await pool.query(`
-      WITH equipment_catalog AS (
-        SELECT BTRIM(equipment) AS equipment
-        FROM UNNEST($1::text[]) AS equipment_option(equipment)
-        UNION
-        SELECT DISTINCT BTRIM(equipment) AS equipment
-        FROM exercises
-        WHERE NULLIF(BTRIM(equipment), '') IS NOT NULL
-      )
-      SELECT catalog.equipment,
-             COALESCE(exercise_details.exercises, '[]'::json) AS exercises,
-             COALESCE(exercise_details.exercise_count, 0)::int AS exercise_count,
+      SELECT inventory.equipment_id,
+             inventory.equipment_name,
+             inventory.quantity,
+             inventory.equipment_condition AS condition,
+             inventory.condition_notes,
+             inventory.status,
+             inventory.updated_at,
              COALESCE(plan_usage.planned_session_count, 0)::int AS planned_session_count,
              COALESCE(plan_usage.usage_count, 0)::int AS usage_count,
              COALESCE(plan_usage.users, '[]'::json) AS users
-      FROM equipment_catalog catalog
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS exercise_count,
-               JSON_AGG(
-                 JSON_BUILD_OBJECT(
-                   'exercise_id', e.exercise_id,
-                   'exercise_name', e.exercise_name,
-                   'muscle_group', e.muscle_group,
-                   'difficulty', e.difficulty,
-                   'description', e.description
-                 )
-                 ORDER BY e.exercise_name
-               ) AS exercises
-        FROM exercises e
-        WHERE BTRIM(e.equipment) = catalog.equipment
-      ) exercise_details ON TRUE
+      FROM equipment_inventory inventory
       LEFT JOIN LATERAL (
         SELECT COUNT(*)::int AS planned_session_count,
-               COUNT(*) FILTER (WHERE ws.completed = TRUE)::int AS usage_count,
+               COUNT(*) FILTER (WHERE session_usage.completed)::int AS usage_count,
                JSON_AGG(
                  JSON_BUILD_OBJECT(
-                   'user_id', u.user_id,
-                   'member_name', CONCAT_WS(' ', u.first_name, u.last_name),
-                   'plan_name', wp.plan_name,
-                   'exercise_id', e.exercise_id,
-                   'exercise_name', e.exercise_name,
-                   'session_date', ws.session_date,
-                   'sets', ws.sets,
-                   'reps', ws.reps,
-                   'completed', ws.completed
+                   'user_id', session_usage.user_id,
+                   'member_name', session_usage.member_name,
+                   'plan_name', session_usage.plan_name,
+                   'session_date', session_usage.session_date,
+                   'completed', session_usage.completed
                  )
-                 ORDER BY ws.session_date DESC, u.last_name, u.first_name
+                 ORDER BY session_usage.session_date DESC, session_usage.member_name
                ) AS users
-        FROM workout_sessions ws
-        JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
-        JOIN exercises e ON e.exercise_id = ws.exercise_id
-        JOIN users u ON u.user_id = wp.user_id
-        WHERE BTRIM(e.equipment) = catalog.equipment
-          AND wp.approval_status = 'Approved'
+        FROM (
+          SELECT u.user_id,
+                 CONCAT_WS(' ', u.first_name, u.last_name) AS member_name,
+                 wp.plan_name,
+                 ws.session_date,
+                 BOOL_AND(ws.completed = TRUE) AS completed
+          FROM workout_sessions ws
+          JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+          JOIN exercises e ON e.exercise_id = ws.exercise_id
+          JOIN users u ON u.user_id = wp.user_id
+          WHERE LOWER(BTRIM(e.equipment)) = LOWER(BTRIM(inventory.equipment_name))
+            AND wp.approval_status = 'Approved'
+          GROUP BY u.user_id, u.first_name, u.last_name, wp.workout_plan_id, wp.plan_name, ws.session_date
+        ) session_usage
       ) plan_usage ON TRUE
-      ORDER BY catalog.equipment ASC
-    `, [equipmentOptions]);
+      ORDER BY inventory.equipment_name ASC
+    `);
     return res.json({ success: true, data: result.rows });
   } catch (error) {
     console.error("getEquipmentInventory error:", error.message);
     return res.status(500).json({ success: false, message: "Unable to load equipment inventory." });
+  }
+};
+
+const createEquipment = async (req, res) => {
+  const validated = validateEquipmentInput(req.body);
+  if (validated.error) {
+    return res.status(400).json({ success: false, message: validated.error });
+  }
+  const { equipmentName, quantity, condition, conditionNotes, status } = validated.value;
+  try {
+    const result = await pool.query(
+      `INSERT INTO equipment_inventory
+        (equipment_name, quantity, equipment_condition, condition_notes, status, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       RETURNING equipment_id, equipment_name, quantity, equipment_condition AS condition, condition_notes, status, updated_at`,
+      [equipmentName, quantity, condition, conditionNotes, status]
+    );
+    return res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    if (error.code === "23505") {
+      return res.status(409).json({ success: false, message: "This equipment is already in the inventory." });
+    }
+    console.error("createEquipment error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to add equipment." });
+  }
+};
+
+const updateEquipment = async (req, res) => {
+  const equipmentId = Number(req.params.equipmentId);
+  if (!Number.isInteger(equipmentId) || equipmentId < 1) {
+    return res.status(400).json({ success: false, message: "Choose valid equipment." });
+  }
+  const validated = validateEquipmentInput(req.body);
+  if (validated.error) {
+    return res.status(400).json({ success: false, message: validated.error });
+  }
+  const { equipmentName, quantity, condition, conditionNotes, status } = validated.value;
+  let client;
+  let transactionStarted = false;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const current = await client.query(
+      "SELECT equipment_name FROM equipment_inventory WHERE equipment_id = $1 FOR UPDATE",
+      [equipmentId]
+    );
+    if (!current.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(404).json({ success: false, message: "Equipment was not found." });
+    }
+    const result = await client.query(
+      `UPDATE equipment_inventory
+       SET equipment_name = $1, quantity = $2, equipment_condition = $3,
+           condition_notes = $4, status = $5, updated_at = NOW()
+       WHERE equipment_id = $6
+       RETURNING equipment_id, equipment_name, quantity, equipment_condition AS condition, condition_notes, status, updated_at`,
+      [equipmentName, quantity, condition, conditionNotes, status, equipmentId]
+    );
+    if (current.rows[0].equipment_name !== equipmentName) {
+      await client.query(
+        "UPDATE exercises SET equipment = $1 WHERE LOWER(BTRIM(equipment)) = LOWER(BTRIM($2))",
+        [equipmentName, current.rows[0].equipment_name]
+      );
+    }
+    await client.query("COMMIT");
+    transactionStarted = false;
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    if (transactionStarted) await client.query("ROLLBACK");
+    if (error.code === "23505") {
+      return res.status(409).json({ success: false, message: "This equipment name is already in the inventory." });
+    }
+    console.error("updateEquipment error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to update equipment details." });
+  } finally {
+    client?.release();
   }
 };
 
@@ -256,6 +356,8 @@ const deleteAssignedSession = async (req, res) => {
 module.exports = {
   getWorkouts, getCategories, updateWorkout, deleteWorkout,
   getEquipmentInventory,
+  createEquipment,
+  updateEquipment,
   getWorkoutPlans, createWorkoutPlan, deleteWorkoutPlan,
   getMemberSessions, assignSessionToMember, deleteAssignedSession,
 };

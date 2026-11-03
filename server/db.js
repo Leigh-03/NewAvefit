@@ -1,5 +1,6 @@
 const { Pool } = require("pg");
 const path = require("path");
+const equipmentOptions = require("./utils/equipmentOptions");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const getDatabaseConfig = () => {
@@ -127,6 +128,33 @@ const initializeDatabase = async () => {
         UNIQUE (trainer_id, day_of_week, start_time, end_time)
       )
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS equipment_inventory (
+        equipment_id BIGSERIAL PRIMARY KEY,
+        equipment_name VARCHAR(120) NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+        equipment_condition VARCHAR(40) NOT NULL DEFAULT 'Not assessed',
+        condition_notes VARCHAR(500) NOT NULL DEFAULT '',
+        status VARCHAR(40) NOT NULL DEFAULT 'Needs inspection',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS equipment_inventory_name_unique
+      ON equipment_inventory (LOWER(BTRIM(equipment_name)))
+    `);
+    await client.query(
+      `INSERT INTO equipment_inventory (equipment_name)
+       SELECT DISTINCT BTRIM(name)
+       FROM (
+         SELECT UNNEST($1::text[]) AS name
+         UNION ALL
+         SELECT equipment FROM exercises WHERE NULLIF(BTRIM(equipment), '') IS NOT NULL
+       ) equipment_names
+       WHERE NULLIF(BTRIM(name), '') IS NOT NULL
+       ON CONFLICT DO NOTHING`,
+      [equipmentOptions]
+    );
     await client.query(`
       DO $$
       BEGIN
