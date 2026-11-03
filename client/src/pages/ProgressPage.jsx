@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from "chart.js";
 import { Line } from "react-chartjs-2";
-import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Scale, Target, TrendingUp } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Scale, Target } from "lucide-react";
 import userApi from "../userApi";
 import { useUserAuth } from "../context/UserAuthContext";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
@@ -607,16 +606,6 @@ export default function ProgressPage() {
             {logging ? "Logging..." : "Log Progress"}
           </button>
         </div>
-
-        <section className="flex flex-col justify-between gap-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:flex-row sm:items-center">
-          <div>
-            <h2 className="font-bold text-slate-900 dark:text-white">Weight prediction</h2>
-            <p className="mt-1 text-xs text-slate-500">Estimate the time and BMI associated with your goal weight.</p>
-          </div>
-          <Link to="/user/prediction" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-bold text-white transition hover:bg-orange-700">
-            <TrendingUp size={17} /> Open prediction
-          </Link>
-        </section>
 
         {/* History */}
         {logs.length > 0 && (

@@ -29,6 +29,8 @@ export default function ProfilePage() {
   const [photo, setPhoto] = useState(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [bmi, setBmi] = useState(null);
+  const [savingBmi, setSavingBmi] = useState(false);
+  const [bmiLogFeedback, setBmiLogFeedback] = useState({ message: "", isError: false });
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(true);
@@ -112,6 +114,7 @@ export default function ProfilePage() {
   };
 
   const handleChange = (key, val) => {
+    setBmiLogFeedback({ message: "", isError: false });
     setForm((f) => {
       const updated = { ...f, [key]: val };
       if ((key === "weight" || key === "height") && updated.weight && updated.height) {
@@ -120,6 +123,33 @@ export default function ProfilePage() {
       }
       return updated;
     });
+  };
+
+  const handleCalculateBmi = async () => {
+    const heightCm = Number(form.height);
+    const weightKg = Number(form.weight);
+    if (!Number.isFinite(heightCm) || heightCm <= 0 || !Number.isFinite(weightKg) || weightKg < 20 || weightKg > 200) {
+      setBmiLogFeedback({ message: "Enter a valid height and a weight between 20 and 200 kg.", isError: true });
+      return;
+    }
+
+    const heightMeters = heightCm / 100;
+    const calculatedBmi = (weightKg / (heightMeters * heightMeters)).toFixed(1);
+    setBmi(calculatedBmi);
+    setSavingBmi(true);
+    setBmiLogFeedback({ message: "", isError: false });
+    try {
+      await userApi.post("/progress", { weight: weightKg, bmi: Number(calculatedBmi) });
+      setBmiLogFeedback({ message: "BMI calculated and added to your progress trend.", isError: false });
+    } catch (err) {
+      console.error(err);
+      setBmiLogFeedback({
+        message: err.response?.data?.message || "BMI calculated, but it could not be added to your progress trend.",
+        isError: true,
+      });
+    } finally {
+      setSavingBmi(false);
+    }
   };
 
   const handleSave = async () => {
@@ -393,6 +423,14 @@ export default function ProfilePage() {
               </div>
             ))}
           </div>
+          <button type="button" onClick={handleCalculateBmi} disabled={savingBmi} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
+            {savingBmi ? "Calculating..." : "Calculate BMI"}
+          </button>
+          {bmiLogFeedback.message && (
+            <p role={bmiLogFeedback.isError ? "alert" : "status"} className={`text-sm ${bmiLogFeedback.isError ? "text-red-600 dark:text-red-300" : "text-green-700 dark:text-green-300"}`}>
+              {bmiLogFeedback.message}
+            </p>
+          )}
           {bmi && (
             <div className="rounded-xl border border-orange-100 bg-orange-50/70 p-3 text-center dark:border-orange-500/20 dark:bg-orange-500/[0.06]">
               <p className="text-xs text-slate-500">Calculated BMI</p>
