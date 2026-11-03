@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle, Dumbbell, Moon, Play, Plus, RotateCcw, Target } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle, Dumbbell, Moon, Play, Plus, RotateCcw, Target, Trash2, X } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
@@ -68,12 +68,24 @@ export default function WorkoutPage() {
   const [hasAssignedCoach, setHasAssignedCoach] = useState(false);
   const [showPlanRequest, setShowPlanRequest] = useState(false);
   const [planRequestNotice, setPlanRequestNotice] = useState("");
+  const [showPlanStatusNotices, setShowPlanStatusNotices] = useState(true);
+  const [deletingPlan, setDeletingPlan] = useState(null);
+  const [deletionReason, setDeletionReason] = useState("");
+  const [deletionError, setDeletionError] = useState("");
+  const [submittingDeletion, setSubmittingDeletion] = useState(false);
 
   useEffect(() => {
     if (!planRequestNotice) return undefined;
     const timer = window.setTimeout(() => setPlanRequestNotice(""), 5000);
     return () => window.clearTimeout(timer);
   }, [planRequestNotice]);
+
+  useEffect(() => {
+    if (loading) return undefined;
+    setShowPlanStatusNotices(true);
+    const timer = window.setTimeout(() => setShowPlanStatusNotices(false), 10000);
+    return () => window.clearTimeout(timer);
+  }, [loading, userPlans]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -181,6 +193,29 @@ export default function WorkoutPage() {
     await fetchData();
   };
 
+  const handleDeletionRequest = async () => {
+    const reason = deletionReason.trim();
+    if (reason.length < 5 || reason.length > 1000) {
+      setDeletionError("Enter a reason between 5 and 1,000 characters.");
+      return;
+    }
+    setSubmittingDeletion(true);
+    setDeletionError("");
+    setError("");
+    try {
+      const response = await userApi.post(`/plans/${deletingPlan.workout_plan_id}/delete-request`, { reason });
+      setDeletingPlan(null);
+      setDeletionReason("");
+      setPlanRequestNotice(response.data.message || "Deletion request sent to your coach.");
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      setDeletionError(err.response?.data?.message || "Unable to submit your deletion request. Please try again.");
+    } finally {
+      setSubmittingDeletion(false);
+    }
+  };
+
   const today = philippinesDateString();
   const daySessions = sessions.filter((session) => (
     philippinesDateKey(session.session_date) === activeDay ||
@@ -226,6 +261,11 @@ export default function WorkoutPage() {
   const hasRequestedPlanChange = changedPlansForActiveDay.some(
     (plan) => Number(plan.workout_plan_id) === requestedPlanId
   );
+  const manageablePlans = userPlans.filter((plan) => {
+    const scheduledDate = philippinesDateKey(plan.session_date);
+    const dateHasPassed = /^\d{4}-\d{2}-\d{2}$/.test(scheduledDate) && scheduledDate < today;
+    return !plan.has_started && !dateHasPassed;
+  });
 
   useEffect(() => {
     if (loading || !requestedPlanId || !hasRequestedPlanChange) return;
@@ -242,9 +282,33 @@ export default function WorkoutPage() {
           initialDate={activeDay}
           initialGoal={fitnessGoal}
           workoutDays={Array.isArray(workoutDays) ? workoutDays : []}
+          existingSessions={sessions}
           onClose={() => setShowPlanRequest(false)}
           onSubmitted={handlePlanRequestSubmitted}
         />
+      )}
+      {deletingPlan && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => !submittingDeletion && setDeletingPlan(null)}>
+          <section role="dialog" aria-modal="true" aria-labelledby="delete-plan-title" className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]" onClick={(event) => event.stopPropagation()}>
+            <header className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 dark:border-slate-800">
+              <div>
+                <h2 id="delete-plan-title" className="text-lg font-bold text-slate-900 dark:text-white">Request workout plan deletion</h2>
+                <p className="mt-1 text-sm text-slate-500">{deletingPlan.plan_name}</p>
+              </div>
+              <button type="button" onClick={() => setDeletingPlan(null)} disabled={submittingDeletion} aria-label="Close deletion request" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-white/10"><X size={20} /></button>
+            </header>
+            <div className="space-y-2 p-5">
+              <p className="text-sm text-slate-600 dark:text-slate-300">Your coach must approve this request before the plan is removed.</p>
+              <label htmlFor="plan-deletion-reason" className="block text-sm font-medium text-slate-700 dark:text-slate-200">Reason for deletion *</label>
+              <textarea id="plan-deletion-reason" value={deletionReason} onChange={(event) => { setDeletionReason(event.target.value); setDeletionError(""); }} maxLength={1000} rows={4} aria-invalid={Boolean(deletionError)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-orange-500 dark:border-slate-700 dark:bg-[#0b0b0b] dark:text-white" placeholder="Tell your coach why you want this plan deleted." />
+              {deletionError && <p role="alert" className="text-sm text-red-500">{deletionError}</p>}
+            </div>
+            <footer className="flex justify-end gap-3 border-t border-slate-200 p-5 dark:border-slate-800">
+              <button type="button" onClick={() => setDeletingPlan(null)} disabled={submittingDeletion} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200">Cancel</button>
+              <button type="button" onClick={handleDeletionRequest} disabled={submittingDeletion} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{submittingDeletion ? "Sending..." : "Send deletion request"}</button>
+            </footer>
+          </section>
+        </div>
       )}
       {/* Header */}
       <div className="ave-page-hero border-b border-orange-100 px-5 pb-6 pt-8 dark:border-white/5 sm:px-8 sm:pb-8">
@@ -309,7 +373,7 @@ export default function WorkoutPage() {
           {planRequestNotice}
         </div>
       )}
-      {userPlans.filter((plan) => ["Pending", "Rejected"].includes(plan.approval_status)).length > 0 && (
+      {showPlanStatusNotices && userPlans.filter((plan) => ["Pending", "Rejected"].includes(plan.approval_status)).length > 0 && (
         <section aria-label="Workout plan requests" className="mx-5 mt-5 space-y-2 sm:mx-8">
           {userPlans.filter((plan) => ["Pending", "Rejected"].includes(plan.approval_status)).map((plan) => (
             <p key={plan.workout_plan_id} role="status" className={`rounded-xl border px-4 py-3 text-sm ${plan.approval_status === "Pending" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200" : "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200"}`}>
@@ -319,6 +383,36 @@ export default function WorkoutPage() {
                 <span className="mt-2 block"><strong>Reason for coach changes:</strong> {plan.trainer_change_reason}</span>
               )}
             </p>
+          ))}
+        </section>
+      )}
+      {manageablePlans.length > 0 && (
+        <section aria-label="Manage workout plans" className="mx-5 mt-5 space-y-2 sm:mx-8">
+          {manageablePlans.map((plan) => (
+            <div key={plan.workout_plan_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-white/10 dark:bg-[#111]">
+              <div className="min-w-0">
+                <p className="font-semibold text-slate-900 dark:text-white">{plan.plan_name}</p>
+                <p className="text-xs text-slate-500">
+                  {plan.deletion_request_status === "Rejected"
+                    ? `Deletion request declined${plan.deletion_review_reason ? `: ${plan.deletion_review_reason}` : ""}`
+                    : plan.approval_status === "Pending"
+                      ? "Waiting for your coach's workout plan approval"
+                      : plan.approval_status === "Rejected"
+                        ? "Workout plan declined by your coach"
+                        : "Workout plan"}
+                  {plan.deletion_request_status === "Pending" && " · Deletion request waiting for coach approval"}
+                  {plan.session_date && <> · {formatWorkoutDate(plan.session_date)}</>}
+                </p>
+                {plan.deletion_request_status === "Pending" && plan.deletion_request_reason && (
+                  <p className="mt-1 text-xs text-slate-500">Your reason: {plan.deletion_request_reason}</p>
+                )}
+              </div>
+              {plan.deletion_request_status !== "Pending" && (
+                <button type="button" onClick={() => { setDeletingPlan(plan); setDeletionReason(""); setDeletionError(""); }} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-red-300 px-3 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10">
+                  <Trash2 size={15} /> Request deletion
+                </button>
+              )}
+            </div>
           ))}
         </section>
       )}
@@ -479,7 +573,9 @@ export default function WorkoutPage() {
                   <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${WORKOUT_STATUS_STYLES[session.completed ? "Complete" : dayWorkoutStatus]}`}>
                     {session.completed ? "Complete" : dayWorkoutStatus}
                   </span>
-                  {!session.completed && (
+                  {session.deletion_request_status === "Pending" ? (
+                    <span className="text-right text-[11px] font-semibold text-red-600 dark:text-red-300">Paused · deletion request pending</span>
+                  ) : !session.completed && (
                     isSessionScheduledForDate(session, today) ? (
                     session.started_at ? (
                       <div className="flex flex-col items-end gap-1">

@@ -16,10 +16,20 @@ const weekdayForDate = (date) => {
     .format(new Date(`${date}T00:00:00.000Z`));
 };
 
+const getWeekDateRange = (dateKey) => {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  if (!dateKey || Number.isNaN(date.getTime())) return { start: "", end: "" };
+  date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+  const start = date.toISOString().slice(0, 10);
+  date.setUTCDate(date.getUTCDate() + 6);
+  return { start, end: date.toISOString().slice(0, 10) };
+};
+
 export default function MemberWorkoutPlanRequestModal({
   initialDate,
   initialGoal,
   workoutDays,
+  existingSessions = [],
   onClose,
   onSubmitted,
 }) {
@@ -34,6 +44,18 @@ export default function MemberWorkoutPlanRequestModal({
   const [loadingExercises, setLoadingExercises] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const selectedWeek = getWeekDateRange(sessionDate);
+  const scheduledExerciseIds = new Set(
+    (Array.isArray(existingSessions) ? existingSessions : [])
+      .filter((scheduledSession) => {
+        const scheduledDate = String(scheduledSession.session_date || "").slice(0, 10);
+        return selectedWeek.start &&
+          scheduledDate >= selectedWeek.start &&
+          scheduledDate <= selectedWeek.end;
+      })
+      .map((scheduledSession) => String(scheduledSession.exercise_id))
+  );
 
   useEffect(() => {
     let active = true;
@@ -151,10 +173,15 @@ export default function MemberWorkoutPlanRequestModal({
                         <option value="">Choose exercise</option>
                         {exercises.map((exercise) => (
                           <option key={exercise.exercise_id} value={exercise.exercise_id} disabled={sessions.some((other, otherIndex) => otherIndex !== index && String(other.exercise_id) === String(exercise.exercise_id))}>
-                            {exercise.exercise_name}
+                            {exercise.exercise_name}{scheduledExerciseIds.has(String(exercise.exercise_id)) ? " (Scheduled this week)" : ""}
                           </option>
                         ))}
                       </select>
+                      {scheduledExerciseIds.has(String(session.exercise_id)) && (
+                        <span className="mt-1 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
+                          Scheduled this week
+                        </span>
+                      )}
                     </label>
                     <label className="text-xs font-semibold text-slate-500">
                       Sets

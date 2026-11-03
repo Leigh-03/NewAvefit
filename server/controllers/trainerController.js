@@ -10,6 +10,7 @@ const {
   sendAccountPasswordChangedEmail,
   sendCoachAccountStatusEmail,
   sendCoachAccountUpdatedEmail,
+  sendWorkoutPlanDeletionDecisionEmail,
 } = require("../utils/mailer");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const { getCapacityStatus } = require("../utils/coachAssignment");
@@ -1433,6 +1434,10 @@ const getMyWorkoutPlans = async (req, res) => {
         wp.goal,
         wp.status,
         wp.approval_status,
+        wp.deletion_request_status,
+        wp.deletion_request_reason,
+        wp.deletion_requested_at,
+        wp.deletion_review_reason,
         wp.created_at,
         u.user_id,
         plan_sessions.scheduled_date,
@@ -1846,6 +1851,7 @@ const reviewMemberWorkoutPlan = async (req, res) => {
     transactionStarted = true;
     const planResult = await client.query(
       `SELECT wp.workout_plan_id, wp.user_id, wp.plan_name, wp.approval_status,
+              wp.deletion_request_status,
               u.first_name, u.last_name, u.email, u.workout_duration, u.workout_days_per_week,
               MIN(ws.session_date) AS session_date
        FROM workout_plans wp
@@ -1861,6 +1867,11 @@ const reviewMemberWorkoutPlan = async (req, res) => {
       return res.status(404).json({ success: false, message: "Workout plan request not found on your roster." });
     }
     const plan = planResult.rows[0];
+    if (plan.deletion_request_status === "Pending") {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({ success: false, message: "Review the member's deletion request before reviewing this workout plan." });
+    }
     if (plan.approval_status !== "Pending") {
       await client.query("ROLLBACK");
       transactionStarted = false;
@@ -2018,6 +2029,110 @@ const reviewMemberWorkoutPlan = async (req, res) => {
   }
 };
 
+const reviewMemberWorkoutPlanDeletion = async (req, res) => {
+  const trainerId = req.trainer.trainer_id;
+  const planId = Number(req.params.planId);
+  const decision = req.body.decision;
+  const reason = typeof req.body.reason === "string" ? req.body.reason.trim() : "";
+  if (!Number.isInteger(planId) || planId < 1 || !["approve", "reject"].includes(decision)) {
+    return res.status(400).json({ success: false, message: "Choose a valid workout plan and deletion decision." });
+  }
+  if (decision === "reject" && (reason.length < 5 || reason.length > 1000)) {
+    return res.status(400).json({ success: false, message: "Enter a response between 5 and 1,000 characters." });
+  }
+
+  let client;
+  let transactionStarted = false;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const result = await client.query(
+      `SELECT wp.workout_plan_id, wp.plan_name, wp.deletion_request_status,
+              wp.deletion_request_reason, u.user_id, u.first_name, u.email
+       FROM workout_plans wp
+       JOIN users u ON u.user_id = wp.user_id AND u.trainer_id = $2
+       WHERE wp.workout_plan_id = $1 AND wp.trainer_id = $2
+       FOR UPDATE OF wp`,
+      [planId, trainerId]
+    );
+    if (!result.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(404).json({ success: false, message: "Workout plan not found on your roster." });
+    }
+    const plan = result.rows[0];
+    if (plan.deletion_request_status !== "Pending") {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({ success: false, message: "This deletion request has already been reviewed." });
+    }
+
+    if (decision === "approve") {
+      const state = await client.query(
+        `SELECT COALESCE(BOOL_OR(started_at IS NOT NULL OR completed = TRUE), FALSE) AS has_started
+         FROM workout_sessions WHERE workout_plan_id = $1`,
+        [planId]
+      );
+      if (state.rows[0].has_started) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(409).json({ success: false, message: "This workout has started or been completed and cannot be deleted." });
+      }
+      await client.query("DELETE FROM workout_sessions WHERE workout_plan_id = $1", [planId]);
+      await client.query("DELETE FROM workout_plans WHERE workout_plan_id = $1", [planId]);
+    } else {
+      const updated = await client.query(
+        `UPDATE workout_plans
+         SET deletion_request_status = 'Rejected', deletion_review_reason = $1
+         WHERE workout_plan_id = $2 AND deletion_request_status = 'Pending'`,
+        [reason, planId]
+      );
+      if (!updated.rowCount) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(409).json({ success: false, message: "This deletion request has already been reviewed." });
+      }
+    }
+    await client.query("COMMIT");
+    transactionStarted = false;
+
+    await createNotification({
+      audience: "user",
+      recipientId: Number(plan.user_id),
+      message: decision === "approve"
+        ? `Your coach approved the deletion request for "${plan.plan_name}". The workout plan was deleted.`
+        : `Your coach declined the deletion request for "${plan.plan_name}". Reason: ${reason}`,
+      notificationType: "workout",
+      targetUrl: "/user/workout",
+    }).catch((notificationError) => {
+      console.error("Workout plan deletion review notification failed:", notificationError.message);
+    });
+    try {
+      const email = await sendWorkoutPlanDeletionDecisionEmail({
+        to: plan.email,
+        firstName: plan.first_name,
+        planName: plan.plan_name,
+        approved: decision === "approve",
+        reason: decision === "reject" ? reason : "",
+      });
+      if (!email.delivered) console.warn("Workout plan deletion decision email was not delivered because SMTP is not configured.");
+    } catch (emailError) {
+      console.error("Workout plan deletion decision email failed:", emailError.message);
+    }
+    return res.json({
+      success: true,
+      message: decision === "approve" ? "Deletion request approved; the workout plan was deleted." : "Deletion request declined.",
+    });
+  } catch (err) {
+    if (transactionStarted) await client.query("ROLLBACK");
+    console.error("reviewMemberWorkoutPlanDeletion error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to review this workout plan deletion request." });
+  } finally {
+    client?.release();
+  }
+};
+
 const updateMyWorkoutPlan = async (req, res) => {
   const trainerId = req.trainer.trainer_id;
   const planId = Number(req.params.planId);
@@ -2084,7 +2199,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     transactionStarted = true;
     const plan = await client.query(
       `
-      SELECT wp.workout_plan_id, wp.user_id, wp.approval_status
+      SELECT wp.workout_plan_id, wp.user_id, wp.approval_status, wp.deletion_request_status
       FROM workout_plans wp
       JOIN users u ON u.user_id = wp.user_id
       WHERE wp.workout_plan_id = $1
@@ -2099,6 +2214,11 @@ const updateMyWorkoutPlan = async (req, res) => {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(404).json({ success: false, message: "Workout plan not found in your roster." });
+    }
+    if (plan.rows[0].deletion_request_status === "Pending") {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({ success: false, message: "Review the member's deletion request before editing this workout plan." });
     }
 
     const planSessions = await client.query(
@@ -2377,7 +2497,7 @@ const deleteMyWorkoutPlan = async (req, res) => {
     transactionStarted = true;
     const plan = await client.query(
       `
-      SELECT wp.workout_plan_id
+      SELECT wp.workout_plan_id, wp.deletion_request_status
       FROM workout_plans wp
       WHERE wp.workout_plan_id = $1
         AND wp.trainer_id = $2
@@ -2401,6 +2521,14 @@ const deleteMyWorkoutPlan = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: "Workout plan not found in your plans.",
+      });
+    }
+    if (plan.rows[0].deletion_request_status === "Pending") {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: "Review the member's deletion request using the approval controls before deleting this plan.",
       });
     }
 
@@ -3100,6 +3228,7 @@ module.exports = {
   getMyWorkoutPlans,
   createMyWorkoutPlan,
   reviewMemberWorkoutPlan,
+  reviewMemberWorkoutPlanDeletion,
   updateMyWorkoutPlan,
   deleteMyWorkoutPlan,
   getExerciseCatalog,

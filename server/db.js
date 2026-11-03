@@ -398,6 +398,22 @@ const initializeDatabase = async () => {
       ALTER TABLE workout_plans
       ADD COLUMN IF NOT EXISTS trainer_change_reason TEXT
     `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS deletion_request_status VARCHAR(20)
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS deletion_request_reason TEXT
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS deletion_review_reason TEXT
+    `);
 
     await client.query(`
       ALTER TABLE users
