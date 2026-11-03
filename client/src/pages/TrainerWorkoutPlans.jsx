@@ -3,9 +3,16 @@ import { useSearchParams } from "react-router-dom";
 import { Check, ChevronDown, ClipboardList, Eye, LockKeyhole, Pencil, Plus, Search, Trash2, X, XCircle } from "lucide-react";
 import trainerApi from "../trainerApi";
 import { getWorkoutGoalRules } from "../utils/workoutGoalRules";
+import {
+  exerciseMatchesProgram,
+  getProgramForDate,
+  requiresConservativeWorkout,
+} from "../utils/trainingPrograms";
 
 function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApproveDeletion, onRejectDeletion }) {
   const sessions = Array.isArray(plan.sessions) ? plan.sessions : [];
+  const injuries = toList(plan.injuries).filter((item) => item !== "None");
+  const healthConditions = toList(plan.health_conditions).filter((item) => item !== "None");
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
       <section role="dialog" aria-modal="true" aria-labelledby="trainer-plan-details-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]" onClick={(event) => event.stopPropagation()}>
@@ -14,6 +21,13 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApprov
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Workout plan details</p>
             <h2 id="trainer-plan-details-title" className="mt-1 text-xl font-black text-slate-900 dark:text-white">{plan.plan_name}</h2>
             <p className="mt-1 text-sm text-slate-500">{plan.member_name || "Member"} · {plan.goal || "Goal not set"}</p>
+            {plan.training_program && (
+              <p className="mt-1 text-xs font-semibold text-orange-600 dark:text-orange-400">
+                {plan.is_program_switch
+                  ? `Program switch: ${plan.previous_training_program || "scheduled"} → ${plan.training_program}`
+                  : `Program: ${plan.training_program}`}
+              </p>
+            )}
             <p className="mt-1 text-xs text-slate-500">
               {plan.scheduled_date ? new Date(`${String(plan.scheduled_date).slice(0, 10)}T00:00:00`).toLocaleDateString() : "Workout date not set"}
               {plan.deletion_request_status === "Pending"
@@ -31,6 +45,15 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApprov
               <p className="mt-1 text-xs text-slate-500">
                 Requested {plan.deletion_requested_at ? new Date(plan.deletion_requested_at).toLocaleString() : ""}
               </p>
+            </section>
+          )}
+          {(injuries.length > 0 || healthConditions.length > 0) && (
+            <section className="rounded-xl border border-amber-300/50 bg-amber-50 p-4 dark:border-amber-500/20 dark:bg-amber-500/10">
+              <p className="text-sm font-bold text-amber-800 dark:text-amber-200">Member health and safety information</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                {[injuries.length ? `Injury/pain areas: ${injuries.join(", ")}` : "", healthConditions.length ? `Health conditions: ${healthConditions.join(", ")}` : ""].filter(Boolean).join(" · ")}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">Review any requested exercise adjustment with the member and defer medical restrictions to their healthcare professional.</p>
             </section>
           )}
           {sessions.length ? sessions.map((session, index) => (
@@ -202,12 +225,25 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
     && String(item.workout_plan_id) !== String(plan?.workout_plan_id)
   );
   const availableDays = toList(selectedMember?.preferred_days);
+  const trainingProgram = plan?.training_program || getProgramForDate(form.session_date, availableDays);
   const preferredDifficulty = EXERCISE_DIFFICULTIES.find(
     (difficulty) => difficultyRank(difficulty) === allowedDifficultyRank(selectedMember?.activity_level)
   );
   const matchingExercises = preferredDifficulty
-    ? exercises.filter((exercise) => isExerciseAllowedForMember(exercise, selectedMember?.activity_level))
+    ? exercises.filter((exercise) => (
+      isExerciseAllowedForMember(exercise, selectedMember?.activity_level) &&
+      (!trainingProgram || exerciseMatchesProgram(exercise, trainingProgram)) &&
+      (!requiresConservativeWorkout(exercise, toList(selectedMember?.injuries), toList(selectedMember?.health_conditions))
+        || String(exercise.difficulty || "").toLowerCase() === "beginner")
+    ))
     : [];
+  const getSessionDoseRules = (session) => {
+    const exercise = exercises.find((item) => String(item.exercise_id) === String(session.exercise_id));
+    if (exercise && requiresConservativeWorkout(exercise, toList(selectedMember?.injuries), toList(selectedMember?.health_conditions))) {
+      return plan ? { sets: [1, 6], reps: [3, 16] } : { sets: [1, 2], reps: [6, 10] };
+    }
+    return doseRules || { sets: [1, 6], reps: [3, 16] };
+  };
 
   const setFieldError = (field, message) => {
     setFieldErrors((current) => ({ ...current, [field]: message }));
@@ -231,9 +267,13 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
     )) {
       errors[`sessions.${index}.exercise_id`] = "Choose an exercise that is not already in this day's plan.";
     }
-    const setsError = integerRangeError(session.sets, "Sets", doseRules.sets[0], doseRules.sets[1]);
+    if (session.exercise_id && !matchingExercises.some((exercise) => String(exercise.exercise_id) === String(session.exercise_id))) {
+      errors[`sessions.${index}.exercise_id`] = `Choose an exercise for the ${trainingProgram || "selected"} program and member's level.`;
+    }
+    const sessionRules = getSessionDoseRules(session);
+    const setsError = integerRangeError(session.sets, "Sets", sessionRules.sets[0], sessionRules.sets[1]);
     if (setsError) errors[`sessions.${index}.sets`] = setsError;
-    const repsError = integerRangeError(session.reps, "Reps", doseRules.reps[0], doseRules.reps[1]);
+    const repsError = integerRangeError(session.reps, "Reps", sessionRules.reps[0], sessionRules.reps[1]);
     if (repsError) errors[`sessions.${index}.reps`] = repsError;
     return errors;
   };
@@ -273,6 +313,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
         ...form,
         plan_name: planName,
         change_reason: changeReason.trim(),
+        training_program: trainingProgram,
         sessions: form.sessions.map(({ exercise_id, sets, reps }) => ({
           exercise_id,
           sets,
@@ -301,10 +342,27 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   ) : null;
 
   const updateSessionField = (index, field, value) => {
+    const chosenExercise = field === "exercise_id"
+      ? exercises.find((exercise) => String(exercise.exercise_id) === String(value))
+      : null;
+    const injuryAdjusted = chosenExercise && requiresConservativeWorkout(
+      chosenExercise,
+      toList(selectedMember?.injuries),
+      toList(selectedMember?.health_conditions)
+    );
+    const nextDose = injuryAdjusted && !plan
+      ? { sets: [1, 2], reps: [6, 10] }
+      : doseRules || { sets: [1, 6], reps: [3, 16] };
     setForm((current) => ({
       ...current,
       sessions: current.sessions.map((session, sessionIndex) =>
-        sessionIndex === index ? { ...session, [field]: value } : session
+        sessionIndex === index
+          ? {
+            ...session,
+            [field]: value,
+            ...(field === "exercise_id" ? { sets: String(nextDose.sets[0]), reps: String(nextDose.reps[0]) } : {}),
+          }
+          : session
       ),
     }));
     const key = `sessions.${index}.${field}`;
@@ -317,8 +375,8 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
           ? "Choose an exercise that is not already in this day's plan."
           : ""
       : field === "sets"
-        ? integerRangeError(value, "Sets", 1, 6)
-        : integerRangeError(value, "Reps", 3, 16);
+      ? integerRangeError(value, "Sets", nextDose.sets[0], nextDose.sets[1])
+      : integerRangeError(value, "Reps", nextDose.reps[0], nextDose.reps[1]);
     setFieldErrors((current) => ({ ...current, sessions: "", [key]: fieldError }));
     setError("");
   };
@@ -626,13 +684,13 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                     {renderFieldError(`sessions.${index}.exercise_id`)}
                   </div>
                   <div className="min-w-0">
-                    <label htmlFor={`sessions-${index}-sets`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Sets ({doseRules.sets[0]}–{doseRules.sets[1]})</label>
+                    <label htmlFor={`sessions-${index}-sets`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Sets ({getSessionDoseRules(session).sets[0]}–{getSessionDoseRules(session).sets[1]})</label>
                     <input
                       id={`sessions-${index}-sets`}
                       aria-label={`Exercise ${index + 1} sets`}
                       type="number"
-                      min={doseRules.sets[0]}
-                      max={doseRules.sets[1]}
+                      min={getSessionDoseRules(session).sets[0]}
+                      max={getSessionDoseRules(session).sets[1]}
                       step="1"
                       required
                       placeholder="Sets"
@@ -645,13 +703,13 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                     {renderFieldError(`sessions.${index}.sets`)}
                   </div>
                   <div className="min-w-0">
-                    <label htmlFor={`sessions-${index}-reps`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Reps ({doseRules.reps[0]}–{doseRules.reps[1]})</label>
+                    <label htmlFor={`sessions-${index}-reps`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Reps ({getSessionDoseRules(session).reps[0]}–{getSessionDoseRules(session).reps[1]})</label>
                     <input
                       id={`sessions-${index}-reps`}
                       aria-label={`Exercise ${index + 1} reps`}
                       type="number"
-                      min={doseRules.reps[0]}
-                      max={doseRules.reps[1]}
+                      min={getSessionDoseRules(session).reps[0]}
+                      max={getSessionDoseRules(session).reps[1]}
                       step="1"
                       required
                       placeholder="Reps"
@@ -1036,6 +1094,9 @@ export default function TrainerWorkoutPlans() {
                         </span>
                         {plan.deletion_request_status === "Pending" && (
                           <span className="inline-flex rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">Deletion requested</span>
+                        )}
+                        {plan.is_program_switch && (
+                          <span className="inline-flex rounded-full border border-orange-300 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300">Program switch: {plan.training_program}</span>
                         )}
                       </div>
                     </td>

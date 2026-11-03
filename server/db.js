@@ -414,6 +414,23 @@ const initializeDatabase = async () => {
       ALTER TABLE workout_plans
       ADD COLUMN IF NOT EXISTS deletion_review_reason TEXT
     `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS training_program VARCHAR(40)
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS previous_training_program VARCHAR(40)
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS is_program_switch BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS workout_plans_user_program_switch_idx
+      ON workout_plans (user_id, training_program)
+      WHERE is_program_switch = TRUE
+    `);
 
     await client.query(`
       ALTER TABLE users

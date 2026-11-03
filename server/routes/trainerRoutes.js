@@ -5,6 +5,7 @@ const verifyTrainer = require("../middleware/trainerAuthMiddleware");
 const { userLoginLimiter } = require("../middleware/rateLimit");
 const availabilityController = require("../controllers/trainerAvailabilityController");
 const { updateCapacity } = require("../controllers/coachCapacityController");
+const { getTrainingPulse } = require("../controllers/analyticsController");
 const {
   getTrainers, getTrainerById, createTrainer, updateTrainer, approveTrainer, rejectTrainer, deactivateTrainer, deleteTrainer, getTrainerRoster,
   loginTrainer, getMyRoster, getMyProfile, updateMyPhoto, getExerciseCatalog,
@@ -15,6 +16,10 @@ const {
 // Trainer Portal (self-service, trainer-authenticated)
 router.post("/login", userLoginLimiter, loginTrainer);
 router.get("/me/roster", verifyTrainer, getMyRoster);
+router.get("/me/training-pulse", verifyTrainer, (req, res, next) => {
+  req.trainingAudience = "trainer";
+  next();
+}, getTrainingPulse);
 router.get("/me/members/:userId/progress", verifyTrainer, getMyMemberProgress);
 router.get("/me/profile", verifyTrainer, getMyProfile);
 router.put("/me/photo", verifyTrainer, updateMyPhoto);

@@ -3,6 +3,14 @@ import { Plus, X } from "lucide-react";
 import userApi from "../../userApi";
 import { philippinesDateString } from "../../utils/philippinesDate";
 import { getWorkoutGoalRules } from "../../utils/workoutGoalRules";
+import {
+  TRAINING_PROGRAMS,
+  exerciseMatchesProgram,
+  getExerciseDose,
+  getProgramForDate,
+  getScheduledPrograms,
+  requiresConservativeWorkout,
+} from "../../utils/trainingPrograms";
 
 const blankExercise = (goal) => ({
   exercise_id: "",
@@ -29,6 +37,10 @@ export default function MemberWorkoutPlanRequestModal({
   initialDate,
   initialGoal,
   workoutDays,
+  workoutFrequency,
+  injuries = [],
+  healthConditions = [],
+  existingPlans = [],
   existingSessions = [],
   onClose,
   onSubmitted,
@@ -39,6 +51,9 @@ export default function MemberWorkoutPlanRequestModal({
   const [sessionDate, setSessionDate] = useState(() => (
     initialDate && initialDate >= philippinesDateString() ? initialDate : philippinesDateString()
   ));
+  const defaultProgram = getProgramForDate(sessionDate, workoutDays, workoutFrequency);
+  const [isSwitchingProgram, setIsSwitchingProgram] = useState(false);
+  const [selectedProgram, setSelectedProgram] = useState(defaultProgram);
   const doseRules = getWorkoutGoalRules(initialGoal);
   const [sessions, setSessions] = useState([blankExercise(initialGoal), blankExercise(initialGoal), blankExercise(initialGoal)]);
   const [loadingExercises, setLoadingExercises] = useState(true);
@@ -56,6 +71,26 @@ export default function MemberWorkoutPlanRequestModal({
       })
       .map((scheduledSession) => String(scheduledSession.exercise_id))
   );
+  const selectedWeekPlan = getWeekDateRange(sessionDate);
+  const scheduledPrograms = getScheduledPrograms(workoutDays);
+  const usedSwitchPrograms = new Set(
+    existingPlans
+      .filter((plan) => plan.is_program_switch && plan.session_date >= selectedWeekPlan.start && plan.session_date <= selectedWeekPlan.end)
+      .map((plan) => plan.training_program)
+  );
+  const availableSwitchPrograms = TRAINING_PROGRAMS.filter((program) => (
+    program !== defaultProgram && !scheduledPrograms.has(program) && !usedSwitchPrograms.has(program)
+  ));
+  const visibleExercises = exercises.filter((exercise) => (
+    exerciseMatchesProgram(exercise, selectedProgram) &&
+    (!requiresConservativeWorkout(exercise, injuries, healthConditions) || String(exercise.difficulty || "").toLowerCase() === "beginner")
+  ));
+
+  useEffect(() => {
+    setSelectedProgram(defaultProgram);
+    setIsSwitchingProgram(false);
+    setSessions((current) => current.map(() => blankExercise(initialGoal)));
+  }, [defaultProgram, initialGoal]);
 
   useEffect(() => {
     let active = true;
@@ -77,6 +112,29 @@ export default function MemberWorkoutPlanRequestModal({
     )));
   };
 
+  const getDoseRulesForExercise = (exerciseId) => {
+    const exercise = exercises.find((item) => String(item.exercise_id) === String(exerciseId));
+    return exercise ? getExerciseDose(exercise, injuries, doseRules, healthConditions) : doseRules;
+  };
+
+  const handleProgramChange = (program) => {
+    setSelectedProgram(program);
+    setSessions((current) => current.map(() => ({
+      ...blankExercise(initialGoal),
+      sets: String(doseRules.sets[0]),
+      reps: String(doseRules.reps[0]),
+    })));
+  };
+
+  const handleExerciseSelection = (index, exerciseId) => {
+    const rules = getDoseRulesForExercise(exerciseId);
+    setSessions((current) => current.map((session, sessionIndex) => (
+      sessionIndex === index
+        ? { ...session, exercise_id: exerciseId, sets: String(rules.sets[0]), reps: String(rules.reps[0]) }
+        : session
+    )));
+  };
+
   const submitRequest = async (event) => {
     event.preventDefault();
     setError("");
@@ -92,11 +150,16 @@ export default function MemberWorkoutPlanRequestModal({
       setError("Choose an exercise and enter sets and reps for every row.");
       return;
     }
-    if (sessions.some((session) =>
-      Number(session.sets) < doseRules.sets[0] || Number(session.sets) > doseRules.sets[1]
-      || Number(session.reps) < doseRules.reps[0] || Number(session.reps) > doseRules.reps[1]
-    )) {
-      setError(`For your fitness goal, each exercise must use ${doseRules.sets[0]}–${doseRules.sets[1]} sets and ${doseRules.reps[0]}–${doseRules.reps[1]} reps.`);
+    if (isSwitchingProgram && !availableSwitchPrograms.includes(selectedProgram)) {
+      setError("That program has already been scheduled or switched to this week. Choose another program.");
+      return;
+    }
+    if (sessions.some((session) => {
+      const rules = getDoseRulesForExercise(session.exercise_id);
+      return Number(session.sets) < rules.sets[0] || Number(session.sets) > rules.sets[1]
+        || Number(session.reps) < rules.reps[0] || Number(session.reps) > rules.reps[1];
+    })) {
+      setError("Use the displayed sets and reps range for each exercise. Injury-aware exercises use a reduced beginner range.");
       return;
     }
     const usedExercises = sessions.map((session) => session.exercise_id);
@@ -116,6 +179,9 @@ export default function MemberWorkoutPlanRequestModal({
         plan_name: planName.trim(),
         goal: goal.trim(),
         session_date: sessionDate,
+        training_program: selectedProgram,
+        is_program_switch: isSwitchingProgram,
+        previous_program: isSwitchingProgram ? defaultProgram : "",
         sessions: sessions.map(({ exercise_id, sets, reps }) => ({ exercise_id, sets, reps })),
       });
       onSubmitted(data.message);
@@ -153,11 +219,39 @@ export default function MemberWorkoutPlanRequestModal({
             <input value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={200} required className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 dark:border-slate-700 dark:bg-[#171717] dark:text-white" placeholder="What do you want to focus on?" />
           </label>
 
+          <section className="rounded-xl border border-orange-200 bg-orange-50/70 p-4 dark:border-orange-500/20 dark:bg-orange-500/[0.06]">
+            <p className="text-sm font-bold text-slate-900 dark:text-white">Today&apos;s program: {defaultProgram || "Not set"}</p>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Your program is assigned from your preferred workout days and weekly frequency.</p>
+            <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <input type="checkbox" checked={isSwitchingProgram} disabled={!availableSwitchPrograms.length} onChange={(event) => {
+                const switching = event.target.checked;
+                setIsSwitchingProgram(switching);
+                handleProgramChange(switching ? availableSwitchPrograms[0] : defaultProgram);
+              }} />
+              Would you like to switch program today?
+            </label>
+            {isSwitchingProgram && (
+              <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                Choose another program (coach approval required)
+                <select value={selectedProgram} onChange={(event) => handleProgramChange(event.target.value)} className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white">
+                  {availableSwitchPrograms.map((program) => <option key={program} value={program}>{program}</option>)}
+                </select>
+              </label>
+            )}
+            {isSwitchingProgram && <p className="mt-2 text-xs text-slate-500">A switched program can only be requested once per week. Your coach will be notified by email and must approve the workout.</p>}
+            {!availableSwitchPrograms.length && <p className="mt-2 text-xs text-slate-500">All alternative programs are already scheduled or have been used this week.</p>}
+            {(injuries.length > 0 || healthConditions.length > 0) && (
+              <p className="mt-3 rounded-lg border border-amber-300/50 bg-amber-100/60 p-3 text-xs leading-relaxed text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
+                Injury-related exercises and workouts for members with recorded health conditions use a conservative beginner starting range for coach review. This is not medical advice; consult a healthcare professional about exercise restrictions.
+              </p>
+            )}
+          </section>
+
           <div>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-800 dark:text-white">Exercises (minimum 3)</h3>
-                <p className="mt-1 text-xs text-slate-500">Your coach will review this plan before it is added to your workouts. Goal standard: {doseRules.sets[0]}–{doseRules.sets[1]} sets and {doseRules.reps[0]}–{doseRules.reps[1]} reps.</p>
+                <p className="mt-1 text-xs text-slate-500">Only exercises for {selectedProgram || "your selected program"} are shown. Injury-affected exercises are limited to beginner options and reduced volume for coach review.</p>
               </div>
               <button type="button" onClick={() => setSessions((current) => [...current, blankExercise(initialGoal)])} disabled={sessions.length >= 30} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-orange-500/30 px-3 text-xs font-semibold text-orange-600 hover:bg-orange-500/10 disabled:opacity-50 dark:text-orange-300">
                 <Plus size={14} /> Add exercise
@@ -169,11 +263,11 @@ export default function MemberWorkoutPlanRequestModal({
                   <div key={`request-exercise-${index}`} className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800 sm:grid-cols-[minmax(0,1fr)_90px_90px_36px]">
                     <label className="col-span-2 min-w-0 text-xs font-semibold text-slate-500 sm:col-span-1">
                       Exercise {index + 1}
-                      <select value={session.exercise_id} onChange={(event) => updateSession(index, "exercise_id", event.target.value)} required className="mt-1 block min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white">
+                      <select value={session.exercise_id} onChange={(event) => handleExerciseSelection(index, event.target.value)} required className="mt-1 block min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white">
                         <option value="">Choose exercise</option>
-                        {exercises.map((exercise) => (
+                        {visibleExercises.map((exercise) => (
                           <option key={exercise.exercise_id} value={exercise.exercise_id} disabled={sessions.some((other, otherIndex) => otherIndex !== index && String(other.exercise_id) === String(exercise.exercise_id))}>
-                            {exercise.exercise_name}{scheduledExerciseIds.has(String(exercise.exercise_id)) ? " (Scheduled this week)" : ""}
+                            {exercise.exercise_name}{scheduledExerciseIds.has(String(exercise.exercise_id)) ? " (Scheduled this week)" : ""}{requiresConservativeWorkout(exercise, injuries, healthConditions) ? " (Beginner / conservative)" : ""}
                           </option>
                         ))}
                       </select>
@@ -185,11 +279,11 @@ export default function MemberWorkoutPlanRequestModal({
                     </label>
                     <label className="text-xs font-semibold text-slate-500">
                       Sets
-                      <input type="number" min={doseRules.sets[0]} max={doseRules.sets[1]} step="1" value={session.sets} onChange={(event) => updateSession(index, "sets", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
+                      <input type="number" min={getDoseRulesForExercise(session.exercise_id).sets[0]} max={getDoseRulesForExercise(session.exercise_id).sets[1]} step="1" value={session.sets} onChange={(event) => updateSession(index, "sets", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
                     </label>
                     <label className="text-xs font-semibold text-slate-500">
                       Reps
-                      <input type="number" min={doseRules.reps[0]} max={doseRules.reps[1]} step="1" value={session.reps} onChange={(event) => updateSession(index, "reps", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
+                      <input type="number" min={getDoseRulesForExercise(session.exercise_id).reps[0]} max={getDoseRulesForExercise(session.exercise_id).reps[1]} step="1" value={session.reps} onChange={(event) => updateSession(index, "reps", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
                     </label>
                     <button type="button" onClick={() => setSessions((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={sessions.length <= 3} aria-label={`Remove exercise ${index + 1}`} className="col-span-2 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-30 sm:col-span-1">
                       <X size={16} />

@@ -2,6 +2,107 @@ const pool = require("../db");
 const equipmentOptions = require("../utils/equipmentOptions");
 const { isMailConfigured, sendMail } = require("../utils/mailer");
 
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const PROGRAM_SCHEDULES = {
+  2: ["Upper", "Lower"],
+  3: ["Push", "Pull", "Legs"],
+  4: ["Upper", "Lower", "Upper", "Lower"],
+  5: ["Push", "Pull", "Legs", "Upper", "Lower"],
+  6: ["Push", "Pull", "Legs", "Chest & Back", "Shoulders & Arms", "Legs"],
+};
+
+const getTodayProgramTotals = (members, today) => {
+  const totals = new Map();
+  for (const member of members) {
+    const preferredDays = Array.isArray(member.preferred_days) ? member.preferred_days : [];
+    const orderedDays = WEEKDAYS.filter((day) => preferredDays.some(
+      (preferredDay) => String(preferredDay).toLowerCase() === day.toLowerCase()
+    ));
+    const dayIndex = orderedDays.findIndex((day) => day.toLowerCase() === today.toLowerCase());
+    if (dayIndex < 0) continue;
+
+    const schedule = PROGRAM_SCHEDULES[orderedDays.length] || ["Full Body"];
+    const program = schedule[dayIndex % schedule.length];
+    totals.set(program, (totals.get(program) || 0) + 1);
+  }
+  return [...totals.entries()]
+    .map(([program, count]) => ({ program, count }))
+    .sort((left, right) => right.count - left.count || left.program.localeCompare(right.program));
+};
+
+const getTrainingPulse = async (req, res) => {
+  try {
+    const audience = req.trainingAudience;
+    const trainerId = audience === "trainer" ? Number(req.trainer.trainer_id) : null;
+    const memberResult = await pool.query(`
+      SELECT preferred_days
+      FROM users
+      WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
+        AND ($1::int IS NULL OR trainer_id = $1)
+    `, [trainerId]);
+
+    const today = new Intl.DateTimeFormat("en", {
+      timeZone: "Asia/Manila",
+      weekday: "long",
+    }).format(new Date());
+    const todayPrograms = getTodayProgramTotals(memberResult.rows, today);
+    const currentDay = WEEKDAYS.find((day) => day.toLowerCase() === today.toLowerCase());
+    const availabilityResult = await pool.query(`
+      SELECT period.label, COUNT(DISTINCT member.user_id)::int AS count
+      FROM (VALUES
+        ('Morning', TIME '06:00', TIME '12:00'),
+        ('Afternoon', TIME '12:00', TIME '17:00'),
+        ('Evening', TIME '17:00', TIME '22:00')
+      ) AS period(label, start_time, end_time)
+      LEFT JOIN user_workout_availability availability
+        ON LOWER(availability.day_of_week) = LOWER($1)
+        AND availability.start_time < period.end_time
+        AND availability.end_time > period.start_time
+      LEFT JOIN users member
+        ON member.user_id = availability.user_id
+        AND LOWER(COALESCE(member.account_status, 'pending')) = 'active'
+        AND ($2::int IS NULL OR member.trainer_id = $2)
+      GROUP BY period.label, period.start_time
+      ORDER BY period.start_time
+    `, [currentDay, trainerId]);
+    const equipmentResult = await pool.query(`
+      SELECT BTRIM(e.equipment) AS equipment, COUNT(*)::int AS count
+      FROM workout_sessions ws
+      JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+      JOIN exercises e ON e.exercise_id = ws.exercise_id
+      WHERE wp.approval_status = 'Approved'
+        AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+        AND (
+          (
+            ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            AND ws.session_date = TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD')
+          )
+          OR (
+            ws.session_date !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            AND LOWER(BTRIM(ws.session_date)) = LOWER(TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'FMDay'))
+          )
+        )
+      GROUP BY BTRIM(e.equipment)
+      ORDER BY count DESC, equipment ASC
+      LIMIT 5
+    `);
+
+    return res.json({
+      success: true,
+      data: {
+        today,
+        todayPrograms,
+        busiestProgram: todayPrograms[0] || null,
+        todayAvailability: availabilityResult.rows,
+        mostUsedEquipment: equipmentResult.rows,
+      },
+    });
+  } catch (err) {
+    console.error("getTrainingPulse error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to load today's training overview." });
+  }
+};
+
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
   "&": "&amp;",
   "<": "&lt;",
@@ -200,6 +301,7 @@ const getDashboardStats = async (req, res) => {
 const getAnalytics = async (req, res) => {
   try {
     const equipmentDay = req.query.equipment_day || "";
+    const equipmentPeriod = req.query.equipment_period || "today";
     const equipmentHour = req.query.equipment_hour || "";
     const equipmentTimePeriod = req.query.equipment_time_period || "";
     const manilaDateParts = new Intl.DateTimeFormat("en", {
@@ -222,6 +324,9 @@ const getAnalytics = async (req, res) => {
     }
     if (equipmentDay && equipmentDay > todayInManila) {
       return res.status(400).json({ success: false, message: "Equipment day can't be in the future." });
+    }
+    if (!["today", "week", "month"].includes(equipmentPeriod)) {
+      return res.status(400).json({ success: false, message: "Choose today, week, or month for the equipment period." });
     }
     if (equipmentHour && (
       typeof equipmentHour !== "string" ||
@@ -411,11 +516,6 @@ const getAnalytics = async (req, res) => {
       ORDER BY weekdays.day_order
     `);
 
-    const equipmentCompletedAtManila = `CASE
-      WHEN pg_typeof(ws.completed_at) = 'timestamp with time zone'::regtype
-        THEN ws.completed_at AT TIME ZONE 'Asia/Manila'
-      ELSE ws.completed_at::timestamp
-    END`;
     const mostUsedEquipment = await pool.query(`
       WITH equipment_catalog AS (
         SELECT BTRIM(equipment) AS equipment
@@ -425,36 +525,56 @@ const getAnalytics = async (req, res) => {
         FROM exercises
         WHERE NULLIF(BTRIM(equipment), '') IS NOT NULL
       ),
-      filtered_usage AS (
-        SELECT BTRIM(e.equipment) AS equipment, COUNT(*)::int AS count
+      period_bounds AS (
+        SELECT
+          COALESCE($1::date, CASE $5
+            WHEN 'week' THEN DATE_TRUNC('week', NOW() AT TIME ZONE 'Asia/Manila')::date
+            WHEN 'month' THEN DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Manila')::date
+            ELSE (NOW() AT TIME ZONE 'Asia/Manila')::date
+          END) AS starts_on,
+          COALESCE($1::date, CASE $5
+            WHEN 'week' THEN (DATE_TRUNC('week', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '6 days')::date
+            WHEN 'month' THEN (DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '1 month - 1 day')::date
+            ELSE (NOW() AT TIME ZONE 'Asia/Manila')::date
+          END) AS ends_on
+      ),
+      scheduled_occurrences AS (
+        SELECT BTRIM(e.equipment) AS equipment,
+          occurrence.scheduled_on,
+          wp.scheduled_start_time,
+          u.preferred_workout_time
         FROM workout_sessions ws
         JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+        JOIN users u ON u.user_id = wp.user_id
         JOIN exercises e ON e.exercise_id = ws.exercise_id
-        WHERE ws.completed = TRUE
+        CROSS JOIN period_bounds bounds
+        CROSS JOIN LATERAL GENERATE_SERIES(bounds.starts_on, bounds.ends_on, INTERVAL '1 day') AS occurrence(scheduled_on)
+        WHERE wp.approval_status = 'Approved'
           AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
-          AND ($1::date IS NULL OR (
-            ws.completed_at IS NOT NULL
-            AND (${equipmentCompletedAtManila})::date = $1::date
-          ))
-          AND ($2::integer IS NULL OR (
-            ws.completed_at IS NOT NULL
-            AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila}))::integer = $2::integer
-          ))
-          AND ($3::text IS NULL OR (
-            ws.completed_at IS NOT NULL
-            AND CASE $3
-              WHEN 'Morning' THEN EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) >= 6
-                AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) < 12
-              WHEN 'Afternoon' THEN EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) >= 12
-                AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) < 17
-              WHEN 'Evening' THEN EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) >= 17
-                AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) < 22
-              WHEN 'Flexible' THEN EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) >= 6
-                AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila})) < 22
+          AND (
+            (ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' AND ws.session_date::date = occurrence.scheduled_on::date)
+            OR (
+              ws.session_date !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+              AND LOWER(BTRIM(ws.session_date)) = LOWER(TO_CHAR(occurrence.scheduled_on, 'FMDay'))
+            )
+          )
+      ),
+      filtered_usage AS (
+        SELECT occurrence.equipment, COUNT(*)::int AS count
+        FROM scheduled_occurrences occurrence
+        WHERE ($2::integer IS NULL OR EXTRACT(HOUR FROM occurrence.scheduled_start_time)::integer = $2::integer)
+          AND ($3::text IS NULL OR CASE $3
+              WHEN 'Morning' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Morning' THEN 6 ELSE NULL END) >= 6
+                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Morning' THEN 6 ELSE NULL END) < 12
+              WHEN 'Afternoon' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Afternoon' THEN 12 ELSE NULL END) >= 12
+                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Afternoon' THEN 12 ELSE NULL END) < 17
+              WHEN 'Evening' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Evening' THEN 17 ELSE NULL END) >= 17
+                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Evening' THEN 17 ELSE NULL END) < 22
+              WHEN 'Flexible' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), 6) >= 6
+                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), 6) < 22
               ELSE FALSE
             END
-          ))
-        GROUP BY BTRIM(e.equipment)
+        GROUP BY occurrence.equipment
       )
       SELECT catalog.equipment, COALESCE(usage_stats.count, 0)::int AS count
       FROM equipment_catalog catalog
@@ -465,6 +585,7 @@ const getAnalytics = async (req, res) => {
       equipmentHour === "" ? null : Number(equipmentHour),
       equipmentTimePeriod || null,
       equipmentOptions,
+      equipmentPeriod,
     ]);
 
     // Summary
@@ -504,4 +625,4 @@ const getAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getDashboardStats, getAnalytics, sendWeeklyProgressReport };
+module.exports = { getDashboardStats, getAnalytics, getTrainingPulse, sendWeeklyProgressReport };

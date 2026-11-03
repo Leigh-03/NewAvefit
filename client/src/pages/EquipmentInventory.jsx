@@ -152,6 +152,10 @@ export default function EquipmentInventory() {
   const [deleteError, setDeleteError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [usagePeriod, setUsagePeriod] = useState("today");
+  const [usageRows, setUsageRows] = useState([]);
+  const [usageLoading, setUsageLoading] = useState(true);
+  const [usageError, setUsageError] = useState("");
 
   const fetchEquipment = async () => {
     setError("");
@@ -168,6 +172,24 @@ export default function EquipmentInventory() {
   useEffect(() => {
     fetchEquipment();
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    setUsageLoading(true);
+    api.get("/analytics", { params: { equipment_period: usagePeriod } })
+      .then(({ data }) => {
+        if (active) {
+          setUsageRows(data.data?.mostUsedEquipment || []);
+          setUsageError("");
+        }
+      })
+      .catch((requestError) => {
+        console.error(requestError);
+        if (active) setUsageError(requestError.response?.data?.message || "Unable to load equipment usage.");
+      })
+      .finally(() => active && setUsageLoading(false));
+    return () => { active = false; };
+  }, [usagePeriod]);
 
   const filteredEquipment = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -229,6 +251,40 @@ export default function EquipmentInventory() {
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total quantity</p>
           <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading ? "—" : totalQuantity}</p>
         </div>
+      </section>
+
+      <section aria-labelledby="equipment-usage-heading" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="equipment-usage-heading" className="text-base font-bold text-slate-900 dark:text-white">Most used equipment</h2>
+            <p className="mt-1 text-xs text-slate-500">Ranked from exercises in approved workout plans for the selected period.</p>
+          </div>
+          <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+            Period
+            <select value={usagePeriod} onChange={(event) => setUsagePeriod(event.target.value)} className="ml-2 min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200">
+              <option value="today">Today</option>
+              <option value="week">This week</option>
+              <option value="month">This month</option>
+            </select>
+          </label>
+        </div>
+        {usageError ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{usageError}</p> : usageLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading workout-plan usage...</p> : usageRows.length ? (
+          <div className="mt-5 space-y-3">
+            {usageRows.slice(0, 8).map((row, index) => {
+              const maximum = Math.max(0, ...usageRows.map((item) => Number(item.count) || 0));
+              const count = Number(row.count) || 0;
+              return (
+                <div key={row.equipment} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5">
+                  <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">{index + 1}. {row.equipment}</p>
+                  <p className="text-sm font-bold text-slate-900 dark:text-white">{count} planned {count === 1 ? "use" : "uses"}</p>
+                  <div className="col-span-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
+                    <div className="h-full rounded-full bg-orange-500" style={{ width: `${maximum ? (count / maximum) * 100 : 0}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : <p className="py-8 text-center text-sm text-slate-500">No equipment has been scheduled in approved workout plans for this period.</p>}
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">

@@ -4,8 +4,10 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 import MemberWorkoutPlanRequestModal from "../components/workout/MemberWorkoutPlanRequestModal";
+import TrainingPulse from "../components/TrainingPulse";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
 import { getWorkoutDayGroups } from "../utils/workoutSessions";
+import { getProgramForDate } from "../utils/trainingPrograms";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const WORKOUT_STATUS_STYLES = {
@@ -59,6 +61,8 @@ export default function WorkoutPage() {
   const [workoutDays, setWorkoutDays] = useState([]); // days the user picked as their availability
   const [workoutFrequency, setWorkoutFrequency] = useState(0);
   const [fitnessGoal, setFitnessGoal] = useState("");
+  const [injuries, setInjuries] = useState([]);
+  const [healthConditions, setHealthConditions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [weekStart, setWeekStart] = useState(() => philippinesMondayString());
@@ -100,6 +104,8 @@ export default function WorkoutPage() {
       setWorkoutDays(days);
       setWorkoutFrequency(Number(profile.workout_days_per_week) || 0);
       setFitnessGoal(profile.fitness_goal || "");
+      setInjuries(Array.isArray(profile.injuries) ? profile.injuries.filter((injury) => injury && injury !== "None") : []);
+      setHealthConditions(Array.isArray(profile.health_conditions) ? profile.health_conditions.filter((condition) => condition && condition !== "None") : []);
       setHasAssignedCoach(Boolean(profile.trainer_id));
       const today = philippinesDateString();
       if (!initializedSchedule.current) {
@@ -223,6 +229,7 @@ export default function WorkoutPage() {
     .sort((a, b) => philippinesDateKey(a.session_date).localeCompare(philippinesDateKey(b.session_date)))[0];
   const weekDates = DAYS.map((_, index) => addDays(weekStart, index));
   const activeDayLabel = formatWorkoutDate(activeDay);
+  const activeDayProgram = getProgramForDate(activeDay, workoutDays, workoutFrequency);
   const weekEnd = weekDates[6];
   const weekLabel = `${formatPhilippinesDate(weekStart, { month: "short", day: "numeric" })} – ${formatPhilippinesDate(weekEnd, { month: "short", day: "numeric", year: "numeric" })}`;
   const changedPlansForActiveDay = userPlans.filter((plan) =>
@@ -254,6 +261,10 @@ export default function WorkoutPage() {
           initialDate={activeDay}
           initialGoal={fitnessGoal}
           workoutDays={Array.isArray(workoutDays) ? workoutDays : []}
+          workoutFrequency={workoutFrequency}
+          injuries={injuries}
+          healthConditions={healthConditions}
+          existingPlans={userPlans}
           existingSessions={sessions}
           onClose={() => setShowPlanRequest(false)}
           onSubmitted={handlePlanRequestSubmitted}
@@ -272,12 +283,21 @@ export default function WorkoutPage() {
                 <Target size={15} className="text-orange-500" /> {fitnessGoal}
               </span>
             )}
+            {activeDayProgram && (
+              <span className="inline-flex items-center gap-1.5">
+                <Dumbbell size={15} className="text-orange-500" /> {activeDayLabel} program: {activeDayProgram}
+              </span>
+            )}
             {nextSession && (
               <span className="inline-flex items-center gap-1.5">
                 <CalendarDays size={15} className="text-orange-500" />
                 Next workout {formatWorkoutDate(nextSession.session_date)}
               </span>
             )}
+          </div>
+
+          <div className="mx-5 mt-5 sm:mx-8">
+            <TrainingPulse audience="user" />
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]">
@@ -482,6 +502,13 @@ export default function WorkoutPage() {
                     {session.exercise_name || "Workout"}
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">{session.muscle_group || ""}</p>
+                  {session.training_program && (
+                    <span className="mt-1 inline-flex rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">
+                      {session.is_program_switch
+                        ? `Switched program: ${session.previous_training_program || "scheduled"} → ${session.training_program}`
+                        : `${session.training_program} program`}
+                    </span>
+                  )}
                   {session.scheduled_duration_minutes && (
                     <p className="mt-1 text-xs font-medium text-orange-600 dark:text-orange-300">
                       {session.scheduled_duration_minutes}-minute session

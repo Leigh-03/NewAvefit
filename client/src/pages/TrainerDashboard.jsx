@@ -4,6 +4,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, T
 import { Bar, Doughnut } from "react-chartjs-2";
 import trainerApi from "../trainerApi";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
+import TrainingPulse from "../components/TrainingPulse";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const CHART_COLORS = ["#f97316", "#22c55e", "#38bdf8", "#a78bfa", "#f43f5e", "#eab308", "#14b8a6"];
@@ -182,6 +183,7 @@ export default function TrainerDashboard(){
     </header>
     {fetchError&&<div role="alert" className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{fetchError}</div>}
     <section aria-labelledby="trainer-analytics-heading" className="mb-8">
+      <div className="mb-4"><TrainingPulse audience="trainer" /></div>
       <div className="mb-3 flex items-center gap-2"><TrendingUp size={18} className="text-orange-500"/><h2 id="trainer-analytics-heading" className="text-base font-bold text-slate-900 dark:text-white">Workout analytics</h2></div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
         {[

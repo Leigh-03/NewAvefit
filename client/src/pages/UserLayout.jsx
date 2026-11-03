@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { Bell, Dumbbell, Home, Info, Target, TrendingUp, User, UsersRound } from "lucide-react";
+import { BarChart3, Bell, Dumbbell, Home, Info, Target, TrendingUp, User, UsersRound } from "lucide-react";
 import AppShell from "../components/layout/AppShell";
 import useUnreadCount from "../components/layout/useUnreadCount";
 import { useUserAuth } from "../context/UserAuthContext";
@@ -8,6 +8,7 @@ const NAV = [
   { to: "/user/workout", icon: Home, label: "Home" },
   { to: "/user/exercises", icon: Dumbbell, label: "Exercises" },
   { to: "/user/progress", icon: TrendingUp, label: "Progress" },
+  { to: "/user/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/user/prediction", icon: Target, label: "Prediction" },
   { to: "/user/coaches", icon: UsersRound, label: "Coaches" },
   { to: "/user/about", icon: Info, label: "About" },
