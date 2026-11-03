@@ -548,15 +548,18 @@ const getAnalytics = async (req, res) => {
         JOIN users u ON u.user_id = wp.user_id
         JOIN exercises e ON e.exercise_id = ws.exercise_id
         CROSS JOIN period_bounds bounds
-        CROSS JOIN LATERAL GENERATE_SERIES(bounds.starts_on, bounds.ends_on, INTERVAL '1 day') AS occurrence(scheduled_on)
+        CROSS JOIN LATERAL GENERATE_SERIES(
+          bounds.starts_on::timestamp,
+          bounds.ends_on::timestamp,
+          INTERVAL '1 day'
+        ) AS occurrence(scheduled_on)
         WHERE wp.approval_status = 'Approved'
           AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
           AND (
-            (ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' AND ws.session_date::date = occurrence.scheduled_on::date)
-            OR (
-              ws.session_date !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-              AND LOWER(BTRIM(ws.session_date)) = LOWER(TO_CHAR(occurrence.scheduled_on, 'FMDay'))
+            (
+              ws.session_date::text = TO_CHAR(occurrence.scheduled_on, 'YYYY-MM-DD')
             )
+            OR LOWER(BTRIM(ws.session_date::text)) = LOWER(TO_CHAR(occurrence.scheduled_on, 'FMDay'))
           )
       ),
       filtered_usage AS (
@@ -573,7 +576,7 @@ const getAnalytics = async (req, res) => {
               WHEN 'Flexible' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), 6) >= 6
                 AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), 6) < 22
               ELSE FALSE
-            END
+            END)
         GROUP BY occurrence.equipment
       )
       SELECT catalog.equipment, COALESCE(usage_stats.count, 0)::int AS count
