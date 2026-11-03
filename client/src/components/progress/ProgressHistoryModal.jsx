@@ -95,7 +95,7 @@ export default function ProgressHistoryModal({ member, fetchProgress, onClose })
                   <table className="w-full min-w-[760px] text-left text-sm">
                     <thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-white/5">
                       <tr>
-                        {["Date", "Weight", "BMI", "Body fat", "Waist", "Chest", "Hips", "Left arm"].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}
+                        {["Date", "Weight", "BMI", "Body fat"].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -105,10 +105,6 @@ export default function ProgressHistoryModal({ member, fetchProgress, onClose })
                           <td className="px-4 py-3">{entry.weight ?? "—"}{entry.weight != null ? " kg" : ""}</td>
                           <td className="px-4 py-3">{entry.bmi ?? "—"}</td>
                           <td className="px-4 py-3">{entry.body_fat ?? "—"}{entry.body_fat != null ? "%" : ""}</td>
-                          <td className="px-4 py-3">{entry.waist ?? "—"}{entry.waist != null ? " cm" : ""}</td>
-                          <td className="px-4 py-3">{entry.chest ?? "—"}{entry.chest != null ? " cm" : ""}</td>
-                          <td className="px-4 py-3">{entry.hips ?? "—"}{entry.hips != null ? " cm" : ""}</td>
-                          <td className="px-4 py-3">{entry.left_arm ?? "—"}{entry.left_arm != null ? " cm" : ""}</td>
                         </tr>
                       ))}
                     </tbody>

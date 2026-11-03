@@ -3,7 +3,9 @@ const router = express.Router();
 const verifyToken = require("../middleware/authMiddleware");
 const {
   getMembers, getMemberById, createMember, assignTrainer, getCoachRecommendations,
-  updateMemberMembership, approveMember, rejectMember, deleteMember, getMemberProgress
+  updateMemberMembership, approveMember, rejectMember, deleteMember, getMemberProgress,
+  getMembershipTermRequests,
+  reviewMembershipTermRequest,
 } = require("../controllers/memberController");
 const {
   getAdminChangeRequests,
@@ -12,6 +14,8 @@ const {
 
 router.get("/change-requests", verifyToken, getAdminChangeRequests);
 router.put("/change-requests/:requestId/:decision", verifyToken, reviewChangeRequest);
+router.get("/membership-term-requests", verifyToken, getMembershipTermRequests);
+router.put("/membership-term-requests/:requestId/:decision", verifyToken, reviewMembershipTermRequest);
 router.get("/", verifyToken, getMembers);
 router.get("/:id/coach-recommendations", verifyToken, getCoachRecommendations);
 router.get("/:id", verifyToken, getMemberById);

@@ -13,6 +13,7 @@ import Dashboard from "./pages/Dashboard";
 import Members from "./pages/Members";
 import Trainers from "./pages/Trainers";
 import Workouts from "./pages/Workouts";
+import EquipmentInventory from "./pages/EquipmentInventory";
 import Nutrition from "./pages/Nutrition";
 import Analytics from "./pages/Analytics";
 import Settings from "./pages/Settings";
@@ -88,7 +89,9 @@ function UserProtectedRoute({ children }) {
   if (savedUser?.account_status && savedUser.account_status !== "Active") {
     return <Navigate to="/user/pending" replace />;
   }
-  if (savedUser && !savedUser.membership_months) return <Navigate to="/user/membership" replace />;
+  if (!savedUser?.membership_months && location.pathname !== "/user/membership") {
+    return <Navigate to="/user/membership" state={{ from: location }} replace />;
+  }
   if (savedUser?.setup_completed) return <Navigate to="/user/profile" replace />;
   return children;
 }
@@ -101,8 +104,12 @@ function DashboardProtectedRoute({ children }) {
   if (!token) return <Navigate to="/user/login" state={{ from: location }} replace />;
   const savedUser = JSON.parse(localStorage.getItem("avefit_user") || "null");
   if (savedUser?.account_status && savedUser.account_status !== "Active") return <Navigate to="/user/pending" replace />;
-  if (savedUser && !savedUser.membership_months && location.pathname !== "/user/membership") return <Navigate to="/user/membership" replace />;
-  if (savedUser && !savedUser.setup_completed && location.pathname !== "/user/membership") return <Navigate to="/user/assessment" replace />;
+  if (!savedUser?.membership_months && location.pathname !== "/user/membership") {
+    return <Navigate to="/user/membership" state={{ from: location }} replace />;
+  }
+  if (savedUser && !savedUser.setup_completed && location.pathname !== "/user/membership") {
+    return <Navigate to="/user/assessment" replace />;
+  }
   return children;
 }
 
@@ -136,6 +143,7 @@ export default function App() {
                   <Route path="/members" element={<Members />} />
                   <Route path="/trainers" element={<Trainers />} />
                   <Route path="/workouts" element={<Workouts />} />
+                  <Route path="/equipment" element={<EquipmentInventory />} />
                   <Route path="/nutrition" element={<Nutrition />} />
                   <Route path="/analytics" element={<Analytics />} />
                   <Route path="/notifications" element={<Notifications />} />

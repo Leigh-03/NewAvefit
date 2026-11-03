@@ -1346,45 +1346,6 @@ const getProfile = async (req, res) => {
   }
 };
 
-const selectMembershipTerm = async (req, res) => {
-  const months = Number(req.body?.membership_months);
-  if (!Number.isInteger(months) || months < 1 || months > 12) {
-    return res.status(400).json({
-      success: false,
-      message: "Choose a membership term from 1 to 12 months.",
-    });
-  }
-
-  try {
-    const result = await pool.query(
-      `UPDATE users
-       SET membership_months = $2,
-           membership_start_date = (NOW() AT TIME ZONE 'Asia/Manila')::date,
-           membership_end_date = (
-             (NOW() AT TIME ZONE 'Asia/Manila')::date
-             + make_interval(months => $2) - INTERVAL '1 day'
-           )::date,
-           updated_at = NOW()
-       WHERE user_id = $1
-         AND LOWER(COALESCE(account_status, 'pending')) = 'active'
-       RETURNING user_id, membership_months, membership_start_date, membership_end_date`,
-      [req.user.user_id, months]
-    );
-    if (!result.rowCount) {
-      return res.status(403).json({ success: false, message: "An active approved account is required to select a membership term." });
-    }
-
-    return res.json({
-      success: true,
-      data: { ...result.rows[0], total_cost: months * 100 },
-      message: "Membership term saved. Payment is not processed online; please settle the displayed amount with the gym.",
-    });
-  } catch (err) {
-    console.error("selectMembershipTerm error:", err.message);
-    return res.status(500).json({ success: false, message: "Unable to save the membership term." });
-  }
-};
-
 // PUT update profile
 const updateProfile = async (req, res) => {
   try {
@@ -1412,6 +1373,13 @@ const updateProfile = async (req, res) => {
       trainer_id,
       setup_completed,
     } = req.body;
+    const normalizeHealthSelections = (value) => {
+      if (value === undefined || value === null) return setup_completed ? ["None"] : null;
+      if (!Array.isArray(value)) return ["None"];
+      return value.length ? value : ["None"];
+    };
+    const normalizedInjuries = normalizeHealthSelections(injuries);
+    const normalizedHealthConditions = normalizeHealthSelections(health_conditions);
 
     if (
       first_name !== undefined &&
@@ -1666,8 +1634,8 @@ const updateProfile = async (req, res) => {
         preferred_days ?? null,
         preferred_workout_time ?? null,
         intensity ?? null,
-        injuries ?? null,
-        health_conditions ?? null,
+        normalizedInjuries,
+        normalizedHealthConditions,
         typeof setup_completed === "boolean"
           ? setup_completed
           : null,
@@ -1912,7 +1880,6 @@ module.exports = {
   resendVerification,
   getVerificationStatus,
   getProfile,
-  selectMembershipTerm,
   updateProfile,
   updatePhoto,
   getUserChangeRequests,

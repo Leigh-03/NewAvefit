@@ -4,6 +4,7 @@ const verifyToken = require("../middleware/authMiddleware");
 const { getDashboardStats, getAnalytics, sendWeeklyProgressReport } = require("../controllers/analyticsController");
 
 router.post("/weekly-progress-report", verifyToken, sendWeeklyProgressReport);
+router.post("/weekly-progress-report/:userId", verifyToken, sendWeeklyProgressReport);
 router.get("/dashboard", verifyToken, getDashboardStats);
 router.get("/", verifyToken, getAnalytics);
 

@@ -5,9 +5,10 @@ const {
   register, login, googleLogin, forgotPassword, resetPassword,
   requestPasswordChangeCode, changePasswordWithCode,
   verifyEmail, resendVerification, getVerificationStatus,
-  getProfile, updateProfile, updatePhoto, getUserChangeRequests, selectMembershipTerm,
+  getProfile, updateProfile, updatePhoto, getUserChangeRequests,
 } = require("../controllers/userController");
-const { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
+const { submitMembershipTermRequest, getMembershipTermRequest } = require("../controllers/memberController");
+const { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
 const { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
 const { getActiveTrainers } = require("../controllers/trainerController");
 const workoutAvailabilityController = require("../controllers/userWorkoutAvailabilityController");
@@ -33,8 +34,9 @@ router.get("/verification-status", verificationAttemptLimiter, getVerificationSt
 
 // Profile
 router.get("/profile", verifyUser, getProfile);
-router.post("/profile/membership", verifyUser, selectMembershipTerm);
 router.get("/profile/change-requests", verifyUser, getUserChangeRequests);
+router.get("/profile/membership-request", verifyUser, getMembershipTermRequest);
+router.post("/profile/membership-request", verifyUser, submitMembershipTermRequest);
 router.put("/profile", verifyUser, updateProfile);
 router.put("/profile/photo", verifyUser, updatePhoto);
 router.get("/profile/availability", verifyUser, workoutAvailabilityController.getAvailability);
@@ -44,6 +46,7 @@ router.post("/feedback", verifyUser, feedbackLimiter, submitMemberFeedback);
 // Workouts
 router.get("/workouts", verifyUser, getUserWorkoutPlan);
 router.get("/plans", verifyUser, getUserPlans);
+router.post("/workout-plan-requests", verifyUser, requestWorkoutPlan);
 router.post("/workouts", verifyUser, addWorkoutSession);
 router.put("/workouts/:id", verifyUser, updateWorkoutSession);
 router.put("/workouts/:id/start", verifyUser, startWorkoutSession);

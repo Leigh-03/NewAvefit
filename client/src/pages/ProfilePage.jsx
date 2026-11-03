@@ -293,14 +293,13 @@ export default function ProfilePage() {
             <h2 className="font-bold text-slate-900 dark:text-white">Membership period</h2>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
               {user?.membership_months
-                ? `${user.membership_months === 12 ? "1 year" : `${user.membership_months} ${user.membership_months === 1 ? "month" : "months"}`} · ₱${Number(user.membership_months) * 100} · ${user.membership_start_date ? String(user.membership_start_date).slice(0, 10) : "Start date pending"} to ${user.membership_end_date ? String(user.membership_end_date).slice(0, 10) : "End date pending"}`
-                : "Choose a membership term to continue."}
+                ? `${user.membership_months === 12 ? "1 year" : `${user.membership_months} ${user.membership_months === 1 ? "month" : "months"}`} · ${user.membership_start_date ? String(user.membership_start_date).slice(0, 10) : "Start date pending"} to ${user.membership_end_date ? String(user.membership_end_date).slice(0, 10) : "End date pending"}`
+                : "No membership period has been set."}
             </p>
-            <p className="mt-1 text-xs text-slate-500">₱100 per month. Online payment is not available.</p>
+            <button type="button" onClick={() => navigate("/user/membership")} className="mt-2 text-xs font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400">
+              Request a membership term change
+            </button>
           </div>
-          <button type="button" onClick={() => navigate("/user/membership")} className="rounded-xl border border-orange-300 px-4 py-2.5 text-sm font-semibold text-orange-700 transition hover:bg-orange-50 dark:border-orange-500/30 dark:text-orange-300 dark:hover:bg-orange-500/10">
-            {user?.membership_months ? "Edit membership term" : "Choose term"}
-          </button>
         </section>
 
         {/* Personal Info */}

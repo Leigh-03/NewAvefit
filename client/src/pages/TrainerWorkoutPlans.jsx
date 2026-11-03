@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ClipboardList, LockKeyhole, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ClipboardList, LockKeyhole, Pencil, Plus, Search, Trash2, X, XCircle } from "lucide-react";
 import trainerApi from "../trainerApi";
-import { getCompatibleWorkoutStartTimes } from "../utils/workoutSchedule";
+import { getWorkoutGoalRules } from "../utils/workoutGoalRules";
 
 const statusColors = {
   Active: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
+  "Pending Approval": "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300",
+  Rejected: "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300",
   Incomplete: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300",
   Complete: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   Absent: "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300",
@@ -94,13 +96,12 @@ const isPreferredWorkoutDate = (date, preferredDays) => {
   return preferences.includes(dayNames[weekday].toLowerCase());
 };
 
-function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose, onSave }) {
+function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   const [form, setForm] = useState(() => plan ? {
     user_id: String(plan.user_id),
     plan_name: plan.plan_name || "",
     goal: plan.goal || "",
     session_date: plan.scheduled_date || "",
-    session_start_time: String(plan.scheduled_start_time || "").slice(0, 5),
     sessions: (plan.sessions || []).map((session) => ({
       exercise_id: String(session.exercise_id || ""),
       sets: String(session.sets ?? ""),
@@ -111,13 +112,13 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
     plan_name: "",
     goal: "",
     session_date: "",
-    session_start_time: "",
     sessions: [],
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const selectedMember = members.find((member) => String(member.user_id) === form.user_id);
+  const doseRules = getWorkoutGoalRules(selectedMember?.fitness_goal);
   const keepingExistingDate = plan
     && String(plan.scheduled_date || "").slice(0, 10) === form.session_date;
   const existingPlanOnDate = !keepingExistingDate && plans.find((item) =>
@@ -126,33 +127,12 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
     && String(item.workout_plan_id) !== String(plan?.workout_plan_id)
   );
   const availableDays = toList(selectedMember?.preferred_days);
-  const compatibleStartTimes = getCompatibleWorkoutStartTimes(
-    selectedMember,
-    coachAvailability,
-    form.session_date
-  );
-  const compatibleStartTimesKey = compatibleStartTimes.join(",");
   const preferredDifficulty = EXERCISE_DIFFICULTIES.find(
     (difficulty) => difficultyRank(difficulty) === allowedDifficultyRank(selectedMember?.activity_level)
   );
   const matchingExercises = preferredDifficulty
     ? exercises.filter((exercise) => isExerciseAllowedForMember(exercise, selectedMember?.activity_level))
     : [];
-
-  useEffect(() => {
-    const availableTimes = compatibleStartTimesKey ? compatibleStartTimesKey.split(",") : [];
-    if (!availableTimes.length && form.session_start_time) {
-      setForm((current) => ({ ...current, session_start_time: "" }));
-      return;
-    }
-    if (
-      availableTimes.length &&
-      !availableTimes.includes(form.session_start_time)
-    ) {
-      setForm((current) => ({ ...current, session_start_time: availableTimes[0] }));
-      setFieldErrors((current) => ({ ...current, session_start_time: "" }));
-    }
-  }, [compatibleStartTimesKey, form.session_start_time]);
 
   const setFieldError = (field, message) => {
     setFieldErrors((current) => ({ ...current, [field]: message }));
@@ -176,9 +156,9 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
     )) {
       errors[`sessions.${index}.exercise_id`] = "Choose an exercise that is not already in this day's plan.";
     }
-    const setsError = integerRangeError(session.sets, "Sets", 1, 6);
+    const setsError = integerRangeError(session.sets, "Sets", doseRules.sets[0], doseRules.sets[1]);
     if (setsError) errors[`sessions.${index}.sets`] = setsError;
-    const repsError = integerRangeError(session.reps, "Reps", 3, 16);
+    const repsError = integerRangeError(session.reps, "Reps", doseRules.reps[0], doseRules.reps[1]);
     if (repsError) errors[`sessions.${index}.reps`] = repsError;
     return errors;
   };
@@ -288,13 +268,11 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
                     .filter((item) => String(item.user_id) === event.target.value)
                     .map((item) => item.scheduled_date);
                   const sessionDate = member ? nextPreferredDate(member.preferred_days, reservedDates) : "";
-                  const startTimes = getCompatibleWorkoutStartTimes(member, coachAvailability, sessionDate);
                   setForm({
                     ...form,
                     user_id: event.target.value,
                     goal,
                     session_date: sessionDate,
-                    session_start_time: startTimes[0] || "",
                     plan_name: form.plan_name || (member ? `${member.first_name}'s Workout Routine` : ""),
                     sessions: form.sessions.map((session) => {
                       const exercise = exercises.find((item) => String(item.exercise_id) === String(session.exercise_id));
@@ -308,7 +286,6 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
                     user_id: "",
                     goal: goal.trim() ? "" : current.goal,
                     session_date: "",
-                    session_start_time: "",
                   }));
                   setError("");
                 }}
@@ -409,8 +386,7 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
               onChange={(event) => {
                 const sessionDate = event.target.value;
                 if (!isPreferredWorkoutDate(sessionDate, availableDays)) {
-                  setForm({ ...form, session_date: "", session_start_time: "" });
-                  setFieldErrors((current) => ({ ...current, session_start_time: "" }));
+                  setForm({ ...form, session_date: "" });
                   setFieldError("session_date", `Choose one of the member's preferred workout days: ${availableDays.join(", ")}.`);
                   return;
                 }
@@ -418,7 +394,6 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
                 setFieldErrors((current) => ({
                   ...current,
                   session_date: sessionDate ? "" : "Workout date is required.",
-                  session_start_time: "",
                 }));
                 setError("");
               }}
@@ -469,7 +444,11 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
                   }
                   setForm({
                     ...form,
-                    sessions: [...form.sessions, { exercise_id: "", sets: "", reps: "" }],
+                    sessions: [...form.sessions, {
+                      exercise_id: "",
+                      sets: String(doseRules.sets[0]),
+                      reps: String(doseRules.reps[0]),
+                    }],
                   });
                   setFieldError("sessions", "");
                   setError("");
@@ -530,13 +509,13 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
                     {renderFieldError(`sessions.${index}.exercise_id`)}
                   </div>
                   <div className="min-w-0">
-                    <label htmlFor={`sessions-${index}-sets`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Sets (1–6)</label>
+                    <label htmlFor={`sessions-${index}-sets`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Sets ({doseRules.sets[0]}–{doseRules.sets[1]})</label>
                     <input
                       id={`sessions-${index}-sets`}
                       aria-label={`Exercise ${index + 1} sets`}
                       type="number"
-                      min="1"
-                      max="6"
+                      min={doseRules.sets[0]}
+                      max={doseRules.sets[1]}
                       step="1"
                       required
                       placeholder="Sets"
@@ -549,13 +528,13 @@ function PlanModal({ members, exercises, plans, coachAvailability, plan, onClose
                     {renderFieldError(`sessions.${index}.sets`)}
                   </div>
                   <div className="min-w-0">
-                    <label htmlFor={`sessions-${index}-reps`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Reps (3–16)</label>
+                    <label htmlFor={`sessions-${index}-reps`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Reps ({doseRules.reps[0]}–{doseRules.reps[1]})</label>
                     <input
                       id={`sessions-${index}-reps`}
                       aria-label={`Exercise ${index + 1} reps`}
                       type="number"
-                      min="3"
-                      max="16"
+                      min={doseRules.reps[0]}
+                      max={doseRules.reps[1]}
                       step="1"
                       required
                       placeholder="Reps"
@@ -609,7 +588,6 @@ export default function TrainerWorkoutPlans() {
   const [plans, setPlans] = useState([]);
   const [members, setMembers] = useState([]);
   const [exercises, setExercises] = useState([]);
-  const [coachAvailability, setCoachAvailability] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -617,20 +595,19 @@ export default function TrainerWorkoutPlans() {
   const [showModal, setShowModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
   const [fetchError, setFetchError] = useState("");
+  const [reviewingPlanId, setReviewingPlanId] = useState(null);
 
   const fetchData = async () => {
     setFetchError("");
     try {
-      const [plansResponse, membersResponse, exercisesResponse, availabilityResponse] = await Promise.all([
+      const [plansResponse, membersResponse, exercisesResponse] = await Promise.all([
         trainerApi.get("/me/workout-plans"),
         trainerApi.get("/me/roster"),
         trainerApi.get("/me/exercises"),
-        trainerApi.get("/me/availability"),
       ]);
       setPlans(plansResponse.data.data || []);
       setMembers(membersResponse.data.data || []);
       setExercises(exercisesResponse.data.data || []);
-      setCoachAvailability(availabilityResponse.data.data || []);
     } catch (err) {
       console.error(err);
       setFetchError(err.response?.data?.message || err.message || "Couldn't load workout plans.");
@@ -660,6 +637,19 @@ export default function TrainerWorkoutPlans() {
     setShowModal(true);
   };
 
+  const handleReviewRequest = async (plan, decision) => {
+    setReviewingPlanId(plan.workout_plan_id);
+    setFetchError("");
+    try {
+      await trainerApi.put(`/me/workout-plans/${plan.workout_plan_id}/review`, { decision });
+      await fetchData();
+    } catch (err) {
+      setFetchError(err.response?.data?.message || "Unable to review this workout plan request.");
+    } finally {
+      setReviewingPlanId(null);
+    }
+  };
+
   const query = search.trim().toLowerCase();
   const filtered = plans.filter((plan) =>
     plan.plan_name?.toLowerCase().includes(query) ||
@@ -676,7 +666,6 @@ export default function TrainerWorkoutPlans() {
           members={members}
           exercises={exercises}
           plans={plans}
-          coachAvailability={coachAvailability}
           plan={editingPlan}
           onClose={() => {
             setShowModal(false);
@@ -737,7 +726,7 @@ export default function TrainerWorkoutPlans() {
       </label>
       <label className="sr-only" htmlFor="trainer-plan-status">Filter plans by status</label>
       <select id="trainer-plan-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
-        {["All", "Active", "Complete", "Incomplete", "Absent"].map((status) => <option key={status} value={status}>{status === "All" ? "All Status" : status}</option>)}
+        {["All", "Pending Approval", "Active", "Complete", "Incomplete", "Absent", "Rejected"].map((status) => <option key={status} value={status}>{status === "All" ? "All Status" : status}</option>)}
       </select>
       <label className="sr-only" htmlFor="trainer-plan-roster">Filter by My Roster</label>
       <select id="trainer-plan-roster" value={rosterFilter} onChange={(event) => setRosterFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
@@ -778,7 +767,8 @@ export default function TrainerWorkoutPlans() {
                   </tr>
                 ) : filtered.map((plan) => {
                   const pastWorkoutDate = isPastWorkoutPlan(plan);
-                  const planLocked = Boolean(plan.has_started || pastWorkoutDate);
+                  const pendingApproval = plan.approval_status === "Pending";
+                  const planLocked = Boolean(pendingApproval || plan.approval_status === "Rejected" || plan.has_started || pastWorkoutDate);
                   return (
                   <tr key={plan.workout_plan_id} className="hover:bg-orange-500/5">
                     <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-800 dark:text-white">{plan.plan_name}</td>
@@ -801,6 +791,16 @@ export default function TrainerWorkoutPlans() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1">
+                        {pendingApproval && (
+                          <>
+                            <button type="button" onClick={() => handleReviewRequest(plan, "approve")} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Approve ${plan.plan_name}`} title="Approve member workout plan" className="rounded-lg p-2 text-green-600 transition hover:bg-green-500/10 disabled:opacity-50">
+                              <Check size={17} />
+                            </button>
+                            <button type="button" onClick={() => handleReviewRequest(plan, "reject")} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Reject ${plan.plan_name}`} title="Reject member workout plan" className="rounded-lg p-2 text-red-500 transition hover:bg-red-500/10 disabled:opacity-50">
+                              <XCircle size={17} />
+                            </button>
+                          </>
+                        )}
                         {plan.user_id && !planLocked && (
                           <button
                             type="button"
