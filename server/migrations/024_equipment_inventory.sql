@@ -5,12 +5,14 @@ CREATE TABLE IF NOT EXISTS equipment_inventory (
   equipment_condition VARCHAR(40) NOT NULL DEFAULT 'Not assessed',
   condition_notes VARCHAR(500) NOT NULL DEFAULT '',
   status VARCHAR(40) NOT NULL DEFAULT 'Needs inspection',
-  is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE equipment_inventory
   ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
+
+DELETE FROM equipment_inventory WHERE is_deleted = TRUE;
+ALTER TABLE equipment_inventory DROP COLUMN is_deleted;
 
 DO $$
 BEGIN
