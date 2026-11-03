@@ -85,8 +85,8 @@ export default function SetupConfirmation() {
         preferred_days: availability.days || [],
         preferred_workout_time: availability.preferredWorkoutTime || null,
         intensity: 3,
-        injuries: healthData.injuries || [],
-        health_conditions: healthData.healthConditions || [],
+        injuries: healthData.injuries?.length ? healthData.injuries : ["None"],
+        health_conditions: healthData.healthConditions?.length ? healthData.healthConditions : ["None"],
         setup_completed: true,
       });
 

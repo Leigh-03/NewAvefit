@@ -1,79 +1,149 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { CalendarDays, ReceiptText } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 
+const MEMBERSHIP_TERMS = [1, 3, 6, 12];
+
+const labelForTerm = (months) => (
+  Number(months) === 12 ? "1 year" : `${months} ${Number(months) === 1 ? "month" : "months"}`
+);
+
 export default function MembershipPeriod() {
   const navigate = useNavigate();
-  const { user, updateUser } = useUserAuth();
-  const [months, setMonths] = useState(() => String(user?.membership_months || 1));
+  const location = useLocation();
+  const { user, updateUser, logoutUser } = useUserAuth();
+  const [selectedMonths, setSelectedMonths] = useState(String(user?.membership_months || 1));
+  const [request, setRequest] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const saveTerm = async (event) => {
+  const refreshStatus = useCallback(async () => {
+    const [profileResponse, requestResponse] = await Promise.all([
+      userApi.get("/profile"),
+      userApi.get("/profile/membership-request"),
+    ]);
+    const profile = profileResponse.data.data;
+    const latestRequest = requestResponse.data.data;
+    setRequest(latestRequest);
+    if (latestRequest?.status === "Pending") {
+      setSelectedMonths(String(latestRequest.membership_months));
+    } else if (profile.membership_months) {
+      setSelectedMonths(String(profile.membership_months));
+      updateUser({
+        membership_months: profile.membership_months,
+        membership_start_date: profile.membership_start_date,
+        membership_end_date: profile.membership_end_date,
+      });
+    }
+    return { profile, latestRequest };
+  }, [updateUser]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([userApi.get("/profile"), userApi.get("/profile/membership-request")])
+      .then(([profileResponse, requestResponse]) => {
+        if (!active) return;
+        const profile = profileResponse.data.data;
+        const latestRequest = requestResponse.data.data;
+        setRequest(latestRequest);
+        if (latestRequest?.status === "Pending") setSelectedMonths(String(latestRequest.membership_months));
+        else if (profile.membership_months) setSelectedMonths(String(profile.membership_months));
+        updateUser({
+          membership_months: profile.membership_months,
+          membership_start_date: profile.membership_start_date,
+          membership_end_date: profile.membership_end_date,
+        });
+        if (!user?.membership_months && profile.membership_months && latestRequest?.status !== "Pending") {
+          navigate(location.state?.from?.pathname || (profile.setup_completed ? "/user/profile" : "/user/assessment"), { replace: true });
+        }
+        setLoading(false);
+      })
+      .catch((loadError) => {
+        if (active) {
+          setError(loadError.response?.data?.message || "Unable to load your membership information.");
+          setLoading(false);
+        }
+      });
+    return () => { active = false; };
+  }, [location.state, navigate, updateUser, user?.membership_months]);
+
+  useEffect(() => {
+    if (request?.status !== "Pending") return undefined;
+    const timer = window.setInterval(() => {
+      refreshStatus()
+        .then(({ profile, latestRequest }) => {
+          if (latestRequest?.status === "Approved" && profile.membership_months) {
+            navigate(location.state?.from?.pathname || (user?.setup_completed ? "/user/profile" : "/user/assessment"), { replace: true });
+          }
+        })
+        .catch((refreshError) => setError(refreshError.response?.data?.message || "Unable to refresh membership approval status."));
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [location.state, navigate, refreshStatus, request?.status, user?.setup_completed]);
+
+  const submitRequest = async (event) => {
     event.preventDefault();
     setSaving(true);
     setError("");
     try {
-      const { data } = await userApi.post("/profile/membership", { membership_months: Number(months) });
-      updateUser({
-        membership_months: data.data.membership_months,
-        membership_start_date: data.data.membership_start_date,
-        membership_end_date: data.data.membership_end_date,
+      const { data } = await userApi.post("/profile/membership-request", {
+        membership_months: Number(selectedMonths),
       });
-      navigate(user?.setup_completed ? "/user/workout" : "/user/assessment", { replace: true });
-    } catch (requestError) {
-      setError(requestError.response?.data?.message || "Unable to save your membership term. Please try again.");
+      setRequest(data.data);
+    } catch (submitError) {
+      setError(submitError.response?.data?.message || "Unable to submit your membership term for approval.");
     } finally {
       setSaving(false);
     }
   };
 
+  const activeMembership = user?.membership_months
+    ? `${labelForTerm(user.membership_months)}${user.membership_end_date ? ` · ends ${String(user.membership_end_date).slice(0, 10)}` : ""}`
+    : "";
+  const isPending = request?.status === "Pending";
+  const isCurrentSelection = Number(selectedMonths) === Number(user?.membership_months);
+
   return (
-    <main className="mx-auto w-full max-w-2xl space-y-6 p-4 sm:p-8">
-      <header>
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Membership setup</p>
-        <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Choose your membership period</h1>
-        <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-          Select a term from 1 to 12 months. Saving starts the selected period today, and your account will continue to setup.
-        </p>
-      </header>
+    <main className="min-h-screen bg-slate-50 px-4 py-10 dark:bg-[#080808]">
+      <section className="mx-auto max-w-xl rounded-3xl border border-orange-100 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-8">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Membership</p>
+        <h1 className="mt-2 text-2xl font-black text-slate-900 dark:text-white">Choose your membership term</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Select a membership period. Your selection takes effect after administrator approval.</p>
+        {activeMembership && (
+          <p className="mt-5 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:bg-white/5 dark:text-slate-300">
+            Current membership: <strong>{activeMembership}</strong>
+          </p>
+        )}
 
-      <form onSubmit={saveTerm} className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-7">
-        <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Membership term
-          <span className="relative mt-2 block">
-            <CalendarDays size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-orange-500" />
-            <select
-              value={months}
-              onChange={(event) => setMonths(event.target.value)}
-              className="min-h-12 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 dark:border-white/10 dark:bg-[#171717] dark:text-white"
-            >
-              {Array.from({ length: 12 }, (_, index) => index + 1).map((count) => (
-                <option key={count} value={count}>{count === 12 ? "1 year (12 months)" : `${count} ${count === 1 ? "month" : "months"}`}</option>
-              ))}
-            </select>
-          </span>
-        </label>
+        {loading ? <p className="py-8 text-center text-sm text-slate-500">Loading membership information...</p> : (
+          <form onSubmit={submitRequest} className="mt-6 space-y-5">
+            <label htmlFor="membership-term" className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Membership period
+              <select id="membership-term" value={selectedMonths} onChange={(event) => setSelectedMonths(event.target.value)} disabled={isPending} className="mt-2 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 disabled:opacity-60 dark:border-slate-700 dark:bg-[#171717] dark:text-white">
+                {MEMBERSHIP_TERMS.map((months) => <option key={months} value={months}>{labelForTerm(months)}</option>)}
+              </select>
+            </label>
 
-        <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-500/20 dark:bg-orange-500/10">
-          <div className="flex items-center gap-2 text-orange-800 dark:text-orange-200">
-            <ReceiptText size={18} />
-            <p className="text-sm font-semibold">Membership total</p>
-          </div>
-          <p className="mt-2 text-3xl font-black text-slate-900 dark:text-white">₱{Number(months) * 100}</p>
-          <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">₱100 per month × {months} {Number(months) === 1 ? "month" : "months"}</p>
-        </div>
+            {isPending && (
+              <p role="status" className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-200">
+                Your request for {labelForTerm(request.membership_months)} is awaiting administrator approval.
+              </p>
+            )}
+            {request?.status === "Rejected" && <p className="text-sm text-red-600 dark:text-red-400">Your previous request was not approved. You may submit a new request.</p>}
+            {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-        <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          This amount is shown for reference only. Online payment is not available; please settle it with the gym.
-        </p>
-        {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
-        <button type="submit" disabled={saving} className="min-h-12 w-full rounded-xl bg-orange-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60">
-          {saving ? "Saving..." : "Save membership term"}
-        </button>
-      </form>
+            {isPending ? (
+              <button type="button" onClick={logoutUser} className="min-h-12 w-full rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-white/5">Log out</button>
+            ) : (
+              <button type="submit" disabled={saving || isCurrentSelection} className="min-h-12 w-full rounded-xl bg-orange-600 px-4 text-sm font-bold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
+                {saving ? "Submitting..." : isCurrentSelection ? "This membership term is already active" : "Submit for approval"}
+              </button>
+            )}
+          </form>
+        )}
+      </section>
     </main>
   );
 }

@@ -47,7 +47,7 @@ export default function Dashboard() {
           </p>
         </div>
         <button type="button" onClick={sendWeeklyReport} disabled={reportState.loading} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60">
-          <Mail size={17}/>{reportState.loading ? "Sending report..." : "Email weekly progress report"}
+          <Mail size={17}/>{reportState.loading ? "Sending reports..." : "Weekly Progress Report"}
         </button>
       </header>
 

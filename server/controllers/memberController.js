@@ -1,14 +1,38 @@
 const pool = require("../db");
-const { createNotification } = require("../utils/notifications");
+const { createNotification, notifyAdmins } = require("../utils/notifications");
 const { validateAge } = require("../utils/security");
 const {
   sendCoachAssignmentEmail,
   sendCoachCapacityStatusEmail,
   sendUserCoachAssignedEmail,
   sendMemberAccountDecisionEmail,
+  isMailConfigured,
+  sendMail,
 } = require("../utils/mailer");
 const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
+const { getConfiguredAdminEmail } = require("../utils/adminAccess");
+
+const MEMBERSHIP_TERMS = [1, 3, 6, 12];
+
+const sendMembershipTermRequestEmail = async (member, months) => {
+  const adminEmail = getConfiguredAdminEmail();
+  if (!adminEmail) {
+    console.error("Membership term request email was not sent because ADMIN_EMAIL is not configured.");
+    return false;
+  }
+  if (!isMailConfigured()) {
+    console.error("Membership term request email was not sent because SMTP is not configured.");
+    return false;
+  }
+  const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || "A member";
+  await sendMail({
+    to: adminEmail,
+    subject: "Membership term approval requested",
+    text: `${memberName} (${member.email}) requested a ${months}-month membership term. Review this request in the AveFit admin Members page.`,
+  });
+  return true;
+};
 
 const requiredMemberFields = [
   ["phone", "phone number"],
@@ -728,10 +752,10 @@ const updateMemberMembership = async (req, res) => {
     }
 
     const months = Number(membership_months);
-    if (!Number.isInteger(months) || months < 1 || months > 12) {
+    if (!MEMBERSHIP_TERMS.includes(months)) {
       return res.status(400).json({
         success: false,
-        message: "Choose a membership term from 1 to 12 months.",
+        message: "Choose a membership term of 1, 3, 6, or 12 months.",
       });
     }
 
@@ -772,6 +796,167 @@ const updateMemberMembership = async (req, res) => {
       message: "Failed to update member membership.",
       error: error.message,
     });
+  }
+};
+
+const submitMembershipTermRequest = async (req, res) => {
+  const months = Number(req.body.membership_months);
+  if (!MEMBERSHIP_TERMS.includes(months)) {
+    return res.status(400).json({
+      success: false,
+      message: "Choose a membership term of 1, 3, 6, or 12 months.",
+    });
+  }
+
+  try {
+    const memberResult = await pool.query(
+      `SELECT user_id, first_name, last_name, email, membership_months
+       FROM users
+       WHERE user_id = $1 AND LOWER(COALESCE(account_status, 'pending')) = 'active'`,
+      [req.user.user_id]
+    );
+    if (!memberResult.rowCount) {
+      return res.status(403).json({ success: false, message: "An active member account is required." });
+    }
+    const member = memberResult.rows[0];
+    if (Number(member.membership_months) === months) {
+      return res.status(400).json({ success: false, message: "That membership term is already active." });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO user_membership_term_requests (user_id, membership_months)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) WHERE status = 'Pending'
+       DO UPDATE SET membership_months = EXCLUDED.membership_months, created_at = NOW()
+       RETURNING request_id, membership_months, status, created_at`,
+      [member.user_id, months]
+    );
+    const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || member.email;
+    await notifyAdmins({
+      message: `${memberName} requested a ${months}-month membership term for approval.`,
+      notificationType: "membership",
+      userName: memberName,
+      targetUrl: "/admin/members",
+    }).catch((error) => console.error("Membership request admin notification failed:", error.message));
+
+    try {
+      await sendMembershipTermRequestEmail(member, months);
+    } catch (error) {
+      console.error("Membership term request email failed:", error.message);
+    }
+
+    return res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error("submitMembershipTermRequest error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to submit membership term request." });
+  }
+};
+
+const getMembershipTermRequest = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT request_id, membership_months, status, created_at, reviewed_at
+       FROM user_membership_term_requests
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [req.user.user_id]
+    );
+    return res.json({ success: true, data: result.rows[0] || null });
+  } catch (error) {
+    console.error("getMembershipTermRequest error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load membership request status." });
+  }
+};
+
+const getMembershipTermRequests = async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT r.request_id, r.user_id, r.membership_months, r.status, r.created_at,
+              u.first_name, u.last_name, u.email, u.membership_months AS current_membership_months
+       FROM user_membership_term_requests r
+       JOIN users u ON u.user_id = r.user_id
+       WHERE r.status = 'Pending'
+       ORDER BY r.created_at ASC`
+    );
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error("getMembershipTermRequests error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load membership term requests." });
+  }
+};
+
+const reviewMembershipTermRequest = async (req, res) => {
+  const requestId = Number(req.params.requestId);
+  const decision = String(req.params.decision || "").toLowerCase();
+  if (!Number.isInteger(requestId) || requestId < 1 || !["approve", "reject"].includes(decision)) {
+    return res.status(400).json({ success: false, message: "Choose a valid membership request and decision." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const request = await client.query(
+      `SELECT r.request_id, r.user_id, r.membership_months, u.email
+       FROM user_membership_term_requests r
+       JOIN users u ON u.user_id = r.user_id
+       WHERE r.request_id = $1 AND r.status = 'Pending'
+       FOR UPDATE OF r, u`,
+      [requestId]
+    );
+    if (!request.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Pending membership request not found." });
+    }
+
+    const term = request.rows[0];
+    if (decision === "approve") {
+      await client.query(
+        `UPDATE users
+         SET membership_months = $1,
+             membership_start_date = CASE
+               WHEN membership_start_date IS NULL OR membership_end_date IS NULL
+                 OR membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+                 THEN (NOW() AT TIME ZONE 'Asia/Manila')::date
+               ELSE membership_start_date
+             END,
+             membership_end_date = (
+               CASE
+                 WHEN membership_start_date IS NULL OR membership_end_date IS NULL
+                   OR membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+                   THEN (NOW() AT TIME ZONE 'Asia/Manila')::date
+                 ELSE membership_start_date
+               END + make_interval(months => $1) - INTERVAL '1 day'
+             )::date,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $2`,
+        [term.membership_months, term.user_id]
+      );
+    }
+    await client.query(
+      `UPDATE user_membership_term_requests
+       SET status = $1, reviewed_by = $2, reviewed_at = NOW()
+       WHERE request_id = $3`,
+      [decision === "approve" ? "Approved" : "Rejected", req.admin.admin_id, requestId]
+    );
+    await client.query("COMMIT");
+
+    await createNotification({
+      audience: "user",
+      recipientId: term.user_id,
+      message: decision === "approve"
+        ? `Your ${term.membership_months}-month membership term was approved.`
+        : "Your membership term request was not approved. Please contact the gym administrator.",
+      notificationType: "membership",
+      targetUrl: "/user/profile",
+    }).catch((error) => console.error("Membership decision notification failed:", error.message));
+    return res.json({ success: true, message: `Membership request ${decision}d.` });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("reviewMembershipTermRequest error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to review membership term request." });
+  } finally {
+    client.release();
   }
 };
 
@@ -1186,6 +1371,10 @@ module.exports = {
   createMember,
   updateMember,
   updateMemberMembership,
+  submitMembershipTermRequest,
+  getMembershipTermRequest,
+  getMembershipTermRequests,
+  reviewMembershipTermRequest,
   assignTrainer,
   getCoachRecommendations,
   approveMember,

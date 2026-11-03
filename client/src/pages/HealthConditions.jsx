@@ -24,8 +24,8 @@ function Chip({ label, selected, onClick }) {
 export default function HealthConditions() {
   const navigate = useNavigate();
   const [experience, setExperience] = useState("Beginner");
-  const [injuries, setInjuries] = useState([]);
-  const [healthConditions, setHealthConditions] = useState([]);
+  const [injuries, setInjuries] = useState(["None"]);
+  const [healthConditions, setHealthConditions] = useState(["None"]);
   const [validationError, setValidationError] = useState("");
 
   const toggleChip = (value, list, setList) => {
@@ -39,13 +39,10 @@ export default function HealthConditions() {
   };
 
   const handleContinue = () => {
-    if (!injuries.length || !healthConditions.length) {
-      setValidationError("Please select at least one option for both injury areas and health conditions. Choose “None” if you have no concerns.");
-      return;
-    }
-
-    const selectedAllInjuries = injuries.length === injuryOptions.length - 1;
-    const selectedAllConditions = healthConditions.length === healthOptions.length - 1;
+    const savedInjuries = injuries.length ? injuries : ["None"];
+    const savedHealthConditions = healthConditions.length ? healthConditions : ["None"];
+    const selectedAllInjuries = savedInjuries.filter((item) => item !== "None").length === injuryOptions.length - 1;
+    const selectedAllConditions = savedHealthConditions.filter((item) => item !== "None").length === healthOptions.length - 1;
     if ((selectedAllInjuries || selectedAllConditions) && !window.confirm(
       "You selected every listed " +
       [selectedAllInjuries && "injury area", selectedAllConditions && "health condition"].filter(Boolean).join(" and ") +
@@ -55,7 +52,11 @@ export default function HealthConditions() {
     }
 
     setValidationError("");
-    sessionStorage.setItem("avefit_health", JSON.stringify({ experience, injuries, healthConditions }));
+    sessionStorage.setItem("avefit_health", JSON.stringify({
+      experience,
+      injuries: savedInjuries,
+      healthConditions: savedHealthConditions,
+    }));
     navigate("/user/availability");
   };
 

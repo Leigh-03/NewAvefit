@@ -115,16 +115,14 @@ export default function UserLogin() {
   }, []);
 
   const goToDestination = (user) => {
-    if (!user?.membership_months) {
-      navigate("/user/membership", { replace: true });
-      return;
-    }
     const returnLocation = location.state?.from;
     const returnPath = returnLocation?.pathname;
     const isValidReturnPath = typeof returnPath === "string"
       && returnPath.startsWith("/user/")
       && !["/user/login", "/user/pending", "/user/reset-password"].includes(returnPath);
-    const destination = user?.setup_completed
+    const destination = !user?.membership_months
+      ? "/user/membership"
+      : user?.setup_completed
       ? isValidReturnPath
         ? `${returnPath}${returnLocation.search || ""}${returnLocation.hash || ""}`
         : "/user/workout"

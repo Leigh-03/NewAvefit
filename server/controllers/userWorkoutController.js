@@ -1,5 +1,7 @@
 const pool = require("../db");
 const { createNotification } = require("../utils/notifications");
+const { isMailConfigured, sendWorkoutPlanApprovalRequestEmail } = require("../utils/mailer");
+const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutGoalRules");
 
 const SCHEDULED_FOR_TODAY_SQL = `(
   (
@@ -17,6 +19,7 @@ const getOwnedSessionSchedule = async (sessionId, userId) => pool.query(`
   FROM workout_sessions ws
   JOIN workout_plans wp ON ws.workout_plan_id = wp.workout_plan_id
   WHERE ws.session_id = $1 AND wp.user_id = $2
+    AND wp.approval_status = 'Approved'
 `, [sessionId, userId]);
 
 // GET user's workout plan
@@ -29,6 +32,7 @@ const getUserWorkoutPlan = async (req, res) => {
       JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
       LEFT JOIN exercises e ON ws.exercise_id = e.exercise_id
       WHERE wp.user_id = $1
+        AND wp.approval_status = 'Approved'
       ORDER BY ws.session_date ASC
     `, [req.user.user_id]);
     res.json({ success: true, data: result.rows });
@@ -52,31 +56,234 @@ const getUserPlans = async (req, res) => {
   }
 };
 
-// POST create workout session (add workout to plan)
-const addWorkoutSession = async (req, res) => {
-  try {
-    const { workout_plan_id, exercise_id, sets, reps, duration_minutes, session_date } = req.body;
+const requestWorkoutPlan = async (req, res) => {
+  const planName = typeof req.body.plan_name === "string" ? req.body.plan_name.trim() : "";
+  const goal = typeof req.body.goal === "string" ? req.body.goal.trim() : "";
+  const sessionDate = req.body.session_date;
+  const sessions = req.body.sessions;
+  if (!planName || planName.length > 100) {
+    return res.status(400).json({ success: false, message: "Enter a workout plan name (up to 100 characters)." });
+  }
+  if (!goal || goal.length > 200) {
+    return res.status(400).json({ success: false, message: "Enter a workout goal (up to 200 characters)." });
+  }
+  const parsedDate = typeof sessionDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sessionDate)
+    ? new Date(`${sessionDate}T00:00:00.000Z`)
+    : null;
+  if (!parsedDate || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== sessionDate) {
+    return res.status(400).json({ success: false, message: "Choose a valid workout date." });
+  }
+  if (!Array.isArray(sessions) || sessions.length < 3 || sessions.length > 30) {
+    return res.status(400).json({ success: false, message: "A workout plan must contain between 3 and 30 exercises." });
+  }
+  if (sessions.some((session) =>
+    !session ||
+    !Number.isInteger(Number(session.exercise_id)) ||
+    Number(session.exercise_id) < 1 ||
+    !Number.isInteger(Number(session.sets)) ||
+    Number(session.sets) < 1 ||
+    Number(session.sets) > 6 ||
+    !Number.isInteger(Number(session.reps)) ||
+    Number(session.reps) < 3 ||
+    Number(session.reps) > 16
+  )) {
+    return res.status(400).json({ success: false, message: "Every exercise needs sets from 1 to 6 and reps from 3 to 16." });
+  }
+  const exerciseIds = sessions.map((session) => Number(session.exercise_id));
+  if (new Set(exerciseIds).size !== exerciseIds.length) {
+    return res.status(400).json({ success: false, message: "An exercise can only appear once in a workout plan." });
+  }
 
-    // Create a plan if none provided
-    let planId = workout_plan_id;
-    if (!planId) {
-      const planRes = await pool.query(
-        "INSERT INTO workout_plans (user_id, plan_name, goal) VALUES ($1, $2, $3) RETURNING workout_plan_id",
-        [req.user.user_id, "My Workout Plan", "General Fitness"]
-      );
-      planId = planRes.rows[0].workout_plan_id;
+  let client;
+  let transactionStarted = false;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    transactionStarted = true;
+
+    const memberResult = await client.query(
+      `SELECT u.user_id, u.first_name, u.last_name, u.email, u.trainer_id,
+              u.fitness_goal, u.workout_duration, u.workout_days_per_week,
+              t.full_name AS trainer_name,
+              t.email AS trainer_email
+       FROM users u
+       LEFT JOIN trainers t ON t.trainer_id = u.trainer_id AND t.status = 'Active'
+       WHERE u.user_id = $1
+         AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+       FOR UPDATE OF u`,
+      [req.user.user_id]
+    );
+    if (!memberResult.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(403).json({ success: false, message: "An active member account is required to request a workout plan." });
+    }
+    const member = memberResult.rows[0];
+    if (sessions.some((session) => !isWorkoutDoseAllowed(member.fitness_goal, session.sets, session.reps))) {
+      const rules = getWorkoutGoalRules(member.fitness_goal);
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `For this fitness goal, each exercise must use ${rules.sets[0]}–${rules.sets[1]} sets and ${rules.reps[0]}–${rules.reps[1]} reps.`,
+      });
+    }
+    if (!member.trainer_id || !member.trainer_email) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: "Choose an active coach before submitting a workout plan." });
     }
 
-    const result = await pool.query(`
-      INSERT INTO workout_sessions (workout_plan_id, exercise_id, sets, reps, duration_minutes, session_date)
-      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
-    `, [planId, exercise_id || null, sets || null, reps || null, duration_minutes || null, session_date || new Date()]);
+    const todayResult = await client.query(
+      "SELECT TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today"
+    );
+    if (sessionDate < todayResult.rows[0].today) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: "Workout date can't be in the past." });
+    }
 
-    res.status(201).json({ success: true, data: result.rows[0] });
+    const scheduledDay = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" }).format(parsedDate);
+    const availability = await client.query(
+      `SELECT day_of_week FROM user_workout_availability
+       WHERE user_id = $1 AND LOWER(day_of_week) = LOWER($2)`,
+      [member.user_id, scheduledDay]
+    );
+    if (!availability.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: `Choose one of your available workout days. ${scheduledDay} is not selected in your schedule.` });
+    }
+
+    const workoutFrequency = Number(member.workout_days_per_week);
+    if (!Number.isInteger(workoutFrequency) || workoutFrequency < 1 || workoutFrequency > 7) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: "Set your weekly workout frequency before submitting a plan." });
+    }
+
+    const sessionDuration = Number(member.workout_duration);
+    if (!Number.isInteger(sessionDuration) || sessionDuration < 30 || sessionDuration > 90) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: "Set a valid workout session duration in your profile before submitting a plan." });
+    }
+
+    const exercisesResult = await client.query(
+      "SELECT exercise_id FROM exercises WHERE exercise_id = ANY($1::int[])",
+      [exerciseIds]
+    );
+    if (exercisesResult.rowCount !== exerciseIds.length) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: "One or more selected exercises are unavailable." });
+    }
+
+    const duplicateDate = await client.query(
+      `SELECT 1
+       FROM workout_plans wp
+       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+       WHERE wp.user_id = $1
+         AND ws.session_date = $2
+         AND wp.approval_status IN ('Approved', 'Pending')
+       LIMIT 1`,
+      [member.user_id, sessionDate]
+    );
+    if (duplicateDate.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({ success: false, message: "A workout plan already exists or is awaiting approval for this date." });
+    }
+
+    const weeklyPlanCount = await client.query(
+      `SELECT COUNT(DISTINCT wp.workout_plan_id)::int AS count
+       FROM workout_plans wp
+       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+       WHERE wp.user_id = $1
+         AND wp.approval_status IN ('Approved', 'Pending')
+         AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
+         AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')`,
+      [member.user_id, sessionDate]
+    );
+    if (Number(weeklyPlanCount.rows[0].count) >= workoutFrequency) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: `Your ${workoutFrequency}-day weekly workout frequency is already scheduled or awaiting approval.`,
+      });
+    }
+
+    const planResult = await client.query(
+      `INSERT INTO workout_plans
+         (user_id, trainer_id, plan_name, goal, scheduled_duration_minutes, approval_status)
+       VALUES ($1, $2, $3, $4, $5, 'Pending')
+       RETURNING workout_plan_id, plan_name, goal, approval_status`,
+      [member.user_id, member.trainer_id, planName, goal, sessionDuration]
+    );
+    const planId = planResult.rows[0].workout_plan_id;
+    for (const session of sessions) {
+      await client.query(
+        `INSERT INTO workout_sessions
+           (workout_plan_id, exercise_id, sets, reps, duration_minutes, session_date)
+         VALUES ($1, $2, $3, $4, NULL, $5)`,
+        [planId, Number(session.exercise_id), Number(session.sets), Number(session.reps), sessionDate]
+      );
+    }
+
+    await client.query("COMMIT");
+    transactionStarted = false;
+
+    const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || "A member";
+    await createNotification({
+      audience: "trainer",
+      recipientId: member.trainer_id,
+      message: `${memberName} submitted "${planName}" for your approval.`,
+      notificationType: "workout",
+      userName: memberName,
+      targetUrl: "/trainer/workouts",
+    }).catch((notificationError) => {
+      console.error("Workout plan request notification failed:", notificationError.message);
+    });
+
+    let emailSent = false;
+    if (isMailConfigured()) {
+      try {
+        const delivery = await sendWorkoutPlanApprovalRequestEmail({
+          to: member.trainer_email,
+          trainerName: member.trainer_name,
+          memberName,
+          planName,
+        });
+        emailSent = delivery.delivered;
+      } catch (emailError) {
+        console.error("Workout plan approval email failed:", emailError.message);
+      }
+    }
+
+    return res.status(201).json({
+      success: true,
+      data: { ...planResult.rows[0], workout_plan_id: planId, session_date: sessionDate, exercise_count: sessions.length },
+      email_sent: emailSent,
+      message: emailSent
+        ? "Workout plan submitted. Your coach has been notified by email."
+        : "Workout plan submitted, but the coach email could not be delivered. Please contact your coach.",
+    });
   } catch (err) {
-    console.error("addWorkoutSession error:", err.message);
-    res.status(500).json({ success: false, message: err.message });
+    if (transactionStarted) await client.query("ROLLBACK");
+    console.error("requestWorkoutPlan error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to submit your workout plan." });
+  } finally {
+    client?.release();
   }
+};
+
+// Members must submit complete plans for coach approval instead of adding sessions directly.
+const addWorkoutSession = async (req, res) => {
+  return res.status(403).json({
+    success: false,
+    message: "Submit a complete workout plan for coach approval before it can be added to your schedule.",
+  });
 };
 
 // PUT update workout session
@@ -84,6 +291,17 @@ const updateWorkoutSession = async (req, res) => {
   try {
     const { id } = req.params;
     const { sets, reps, duration_minutes, completed } = req.body;
+    const memberResult = await pool.query(
+      "SELECT fitness_goal FROM users WHERE user_id = $1",
+      [req.user.user_id]
+    );
+    if (memberResult.rowCount && !isWorkoutDoseAllowed(memberResult.rows[0].fitness_goal, sets, reps)) {
+      const rules = getWorkoutGoalRules(memberResult.rows[0].fitness_goal);
+      return res.status(400).json({
+        success: false,
+        message: `For your fitness goal, use ${rules.sets[0]}–${rules.sets[1]} sets and ${rules.reps[0]}–${rules.reps[1]} reps.`,
+      });
+    }
     if (completed === true) {
       const scheduledSession = await getOwnedSessionSchedule(id, req.user.user_id);
       if (!scheduledSession.rowCount) {
@@ -104,6 +322,7 @@ const updateWorkoutSession = async (req, res) => {
       WHERE ws.session_id=$5
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $6
+        AND wp.approval_status = 'Approved'
         AND ($4 IS NOT TRUE OR (ws.started_at IS NOT NULL AND ${SCHEDULED_FOR_TODAY_SQL}))
       RETURNING ws.session_id
     `, [sets, reps, duration_minutes, completed || false, id, req.user.user_id]);
@@ -140,6 +359,7 @@ const startWorkoutSession = async (req, res) => {
       WHERE ws.session_id = $1
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
+        AND wp.approval_status = 'Approved'
         AND ws.completed = false
         AND ${SCHEDULED_FOR_TODAY_SQL}
       RETURNING ws.session_id, ws.started_at
@@ -177,6 +397,7 @@ const completeSession = async (req, res) => {
       WHERE ws.session_id = $1
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
+        AND wp.approval_status = 'Approved'
         AND ws.started_at IS NOT NULL
         AND ws.completed = false
         AND ${SCHEDULED_FOR_TODAY_SQL}
@@ -235,6 +456,7 @@ const deleteWorkoutSession = async (req, res) => {
       WHERE ws.session_id = $1
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
+        AND wp.approval_status = 'Approved'
         AND ws.completed = false
       RETURNING ws.session_id
     `, [id, req.user.user_id]);
@@ -265,7 +487,7 @@ const resetWeek = async (req, res) => {
     await pool.query(`
       DELETE FROM workout_sessions
       WHERE workout_plan_id IN (
-        SELECT workout_plan_id FROM workout_plans WHERE user_id=$1
+        SELECT workout_plan_id FROM workout_plans WHERE user_id=$1 AND approval_status = 'Approved'
       )
       AND completed = false
       AND (
@@ -284,4 +506,4 @@ const resetWeek = async (req, res) => {
   }
 };
 
-module.exports = { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek };
+module.exports = { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek };

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Dumbbell, Search, Plus, Edit2, Trash2, X, ListOrdered } from "lucide-react";
+import { Dumbbell, Search, Edit2, Trash2, X, ListOrdered } from "lucide-react";
 import { getWorkoutGuideExercise } from "../utils/workoutGuide";
 import api from "../services/api";
 
@@ -107,11 +107,7 @@ function ExerciseModal({ exercise, onClose, onSave }) {
           description: step.description.trim(),
         })),
       };
-      if (exercise) {
-        await api.put(`/workouts/${exercise.exercise_id}`, payload);
-      } else {
-        await api.post("/workouts", payload);
-      }
+      await api.put(`/workouts/${exercise.exercise_id}`, payload);
       onSave();
       onClose();
     } catch (err) {
@@ -224,7 +220,7 @@ function ExerciseModal({ exercise, onClose, onSave }) {
           </button>
           <button onClick={handleSubmit} disabled={saving}
             className="px-5 py-2.5 rounded-xl text-sm font-medium bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white transition">
-            {saving ? "Saving..." : exercise ? "Save Changes" : "Add Exercise"}
+            {saving ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </div>
@@ -257,7 +253,6 @@ export default function Workouts() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const handleAdd = () => { setEditExercise(null); setShowModal(true); };
   const handleEdit = (ex) => { setEditExercise(ex); setShowModal(true); };
   const handleDelete = async (ex) => {
     if (!confirm(`Delete "${ex.exercise_name}"? This can't be undone.`)) return;
@@ -293,12 +288,6 @@ export default function Workouts() {
           <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Exercise Library</h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Maintain exercises, member-facing instructions, and coaching notes.</p>
         </div>
-        <button
-          onClick={handleAdd}
-          className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
-        >
-          <Plus size={18} /> Add Exercise
-        </button>
       </header>
 
       {fetchError && (

@@ -720,7 +720,6 @@ export default function ProgressPage() {
                     {log.weight != null && <span className="text-slate-900 dark:text-white font-medium">{log.weight} kg</span>}
                     {log.bmi != null && <span className="text-orange-600 dark:text-orange-400">BMI {log.bmi}</span>}
                     {log.body_fat != null && <span className="text-slate-500">{log.body_fat}% fat</span>}
-                    {log.waist != null && <span className="text-slate-500">{log.waist} cm waist</span>}
                   </div>
                 </div>
               ))}

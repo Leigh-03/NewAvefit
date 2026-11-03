@@ -1,6 +1,8 @@
 const pool = require("../db");
 const getExerciseCatalog = require("../utils/exerciseCatalog");
 const { createNotification } = require("../utils/notifications");
+const equipmentOptions = require("../utils/equipmentOptions");
+const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutGoalRules");
 
 const getWorkouts = async (req, res) => {
   try {
@@ -12,23 +14,49 @@ const getWorkouts = async (req, res) => {
   }
 };
 
+const getEquipmentInventory = async (_req, res) => {
+  try {
+    const result = await pool.query(`
+      WITH equipment_catalog AS (
+        SELECT BTRIM(equipment) AS equipment,
+               COUNT(*)::int AS exercise_count
+        FROM exercises
+        WHERE NULLIF(BTRIM(equipment), '') IS NOT NULL
+        GROUP BY BTRIM(equipment)
+      ),
+      completed_usage AS (
+        SELECT BTRIM(e.equipment) AS equipment, COUNT(*)::int AS usage_count
+        FROM workout_sessions ws
+        JOIN exercises e ON e.exercise_id = ws.exercise_id
+        WHERE ws.completed = TRUE
+          AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+        GROUP BY BTRIM(e.equipment)
+      )
+      SELECT catalog.equipment, catalog.exercise_count,
+             COALESCE(usage_stats.usage_count, 0)::int AS usage_count
+      FROM equipment_catalog catalog
+      LEFT JOIN completed_usage usage_stats ON usage_stats.equipment = catalog.equipment
+      ORDER BY catalog.equipment ASC
+    `);
+    const inventory = new Map(result.rows.map((item) => [item.equipment, item]));
+    const data = [...new Set([...equipmentOptions, ...inventory.keys()])]
+      .sort((left, right) => left.localeCompare(right))
+      .map((equipment) => inventory.get(equipment) || {
+        equipment,
+        exercise_count: 0,
+        usage_count: 0,
+      });
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error("getEquipmentInventory error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load equipment inventory." });
+  }
+};
+
 const getCategories = async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM exercise_categories ORDER BY category_name ASC");
     res.json({ success: true, data: result.rows });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-const createWorkout = async (req, res) => {
-  try {
-    const { exercise_name, category_id, muscle_group, difficulty, calories_per_minute, description, equipment, movement_steps } = req.body;
-    const result = await pool.query(`
-      INSERT INTO exercises (exercise_name, category_id, muscle_group, difficulty, calories_per_minute, description, equipment, movement_steps)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *
-    `, [exercise_name, category_id || null, muscle_group, difficulty, calories_per_minute || null, description, equipment, movement_steps ? JSON.stringify(movement_steps) : null]);
-    res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -135,6 +163,14 @@ const assignSessionToMember = async (req, res) => {
     if (!user_id || !exercise_id || !session_date) {
       return res.status(400).json({ success: false, message: "user_id, exercise_id, and session_date are required." });
     }
+    const member = await pool.query("SELECT fitness_goal FROM users WHERE user_id = $1", [user_id]);
+    if (member.rowCount && !isWorkoutDoseAllowed(member.rows[0].fitness_goal, sets, reps)) {
+      const rules = getWorkoutGoalRules(member.rows[0].fitness_goal);
+      return res.status(400).json({
+        success: false,
+        message: `For this member's fitness goal, use ${rules.sets[0]}–${rules.sets[1]} sets and ${rules.reps[0]}–${rules.reps[1]} reps.`,
+      });
+    }
 
     let planRes = await pool.query(
       "SELECT workout_plan_id FROM workout_plans WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
@@ -191,7 +227,8 @@ const deleteAssignedSession = async (req, res) => {
 };
 
 module.exports = {
-  getWorkouts, getCategories, createWorkout, updateWorkout, deleteWorkout,
+  getWorkouts, getCategories, updateWorkout, deleteWorkout,
+  getEquipmentInventory,
   getWorkoutPlans, createWorkoutPlan, deleteWorkoutPlan,
   getMemberSessions, assignSessionToMember, deleteAssignedSession,
 };

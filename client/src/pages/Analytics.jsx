@@ -214,7 +214,7 @@ export default function Analytics() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]" aria-labelledby="equipment-heading">
         <div className="mb-4">
           <h2 id="equipment-heading" className="text-base font-bold text-slate-900 dark:text-white">Most used equipment</h2>
-          <p className="mt-1 text-xs text-slate-500">Equipment from completed member workouts, ranked by use. Refreshes automatically every hour.</p>
+          <p className="mt-1 text-xs text-slate-500">All equipment listed on exercises, ranked by completed workout usage. Items with no recorded use are included.</p>
         </div>
         <form
           className="mb-5 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/[0.03]"
@@ -286,7 +286,7 @@ export default function Analytics() {
             })}
           </div>
         ) : (
-          <p className="py-8 text-center text-sm text-slate-500">No equipment usage is recorded in assigned workout sessions yet.</p>
+          <p className="py-8 text-center text-sm text-slate-500">No equipment has been added to the exercise catalog yet.</p>
         )}
       </section>
 

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle, Dumbbell, Moon, Play, RotateCcw, Target } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle, Dumbbell, Moon, Play, Plus, RotateCcw, Target } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
+import MemberWorkoutPlanRequestModal from "../components/workout/MemberWorkoutPlanRequestModal";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
 import { getWorkoutDayGroups } from "../utils/workoutSessions";
 
@@ -62,22 +63,29 @@ export default function WorkoutPage() {
   const [weekStart, setWeekStart] = useState(() => philippinesMondayString());
   const [activeDay, setActiveDay] = useState(() => philippinesDateString());
   const [startingSessionId, setStartingSessionId] = useState(null);
+  const [userPlans, setUserPlans] = useState([]);
+  const [hasAssignedCoach, setHasAssignedCoach] = useState(false);
+  const [showPlanRequest, setShowPlanRequest] = useState(false);
+  const [planRequestNotice, setPlanRequestNotice] = useState("");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [sessionsRes, profileRes] = await Promise.all([
+      const [sessionsRes, profileRes, plansRes] = await Promise.all([
         userApi.get("/workouts"),
         userApi.get("/profile"),
+        userApi.get("/plans"),
       ]);
       const loadedSessions = sessionsRes.data.data || [];
       setSessions(loadedSessions);
+      setUserPlans(plansRes.data.data || []);
       const profile = profileRes.data.data || {};
       const days = profile.preferred_days || [];
       setWorkoutDays(days);
       setWorkoutFrequency(Number(profile.workout_days_per_week) || 0);
       setFitnessGoal(profile.fitness_goal || "");
+      setHasAssignedCoach(Boolean(profile.trainer_id));
       const today = philippinesDateString();
       if (!initializedSchedule.current) {
         const nextScheduledDate = [...new Set(
@@ -145,6 +153,12 @@ export default function WorkoutPage() {
     }
   };
 
+  const handlePlanRequestSubmitted = async (message) => {
+    setShowPlanRequest(false);
+    setPlanRequestNotice(message);
+    await fetchData();
+  };
+
   const today = philippinesDateString();
   const daySessions = sessions.filter((session) => (
     philippinesDateKey(session.session_date) === activeDay ||
@@ -184,6 +198,15 @@ export default function WorkoutPage() {
 
   return (
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
+      {showPlanRequest && (
+        <MemberWorkoutPlanRequestModal
+          initialDate={activeDay}
+          initialGoal={fitnessGoal}
+          workoutDays={Array.isArray(workoutDays) ? workoutDays : []}
+          onClose={() => setShowPlanRequest(false)}
+          onSubmitted={handlePlanRequestSubmitted}
+        />
+      )}
       {/* Header */}
       <div className="ave-page-hero border-b border-orange-100 px-5 pb-6 pt-8 dark:border-white/5 sm:px-8 sm:pb-8">
         <div className="mx-auto max-w-5xl">
@@ -241,6 +264,20 @@ export default function WorkoutPage() {
         <div role="alert" className="mx-5 mt-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300 sm:mx-8">
           {error}
         </div>
+      )}
+      {planRequestNotice && (
+        <div role="status" className="mx-5 mt-5 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200 sm:mx-8">
+          {planRequestNotice}
+        </div>
+      )}
+      {userPlans.filter((plan) => ["Pending", "Rejected"].includes(plan.approval_status)).length > 0 && (
+        <section aria-label="Workout plan requests" className="mx-5 mt-5 space-y-2 sm:mx-8">
+          {userPlans.filter((plan) => ["Pending", "Rejected"].includes(plan.approval_status)).map((plan) => (
+            <p key={plan.workout_plan_id} role="status" className={`rounded-xl border px-4 py-3 text-sm ${plan.approval_status === "Pending" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200" : "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200"}`}>
+              <strong>{plan.plan_name}:</strong> {plan.approval_status === "Pending" ? "Waiting for your coach's approval." : "Your coach declined this plan. You can submit an updated request."}
+            </p>
+          ))}
+        </section>
       )}
 
       {/* Day Selector */}
@@ -317,6 +354,12 @@ export default function WorkoutPage() {
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Training plan</p>
             <h2 className="mt-0.5 font-bold text-slate-900 dark:text-white">{activeDayLabel}&apos;s workouts</h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {!hasAssignedCoach && <span className="text-xs text-slate-500">Select a coach before requesting a plan.</span>}
+            <button type="button" onClick={() => { setPlanRequestNotice(""); setShowPlanRequest(true); }} disabled={!hasAssignedCoach} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
+              <Plus size={16} /> Create workout plan
+            </button>
           </div>
           {dayWorkoutStatus && (
             <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${WORKOUT_STATUS_STYLES[dayWorkoutStatus]}`}>
