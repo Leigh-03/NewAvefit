@@ -261,10 +261,10 @@ export default function WorkoutPage() {
   const hasRequestedPlanChange = changedPlansForActiveDay.some(
     (plan) => Number(plan.workout_plan_id) === requestedPlanId
   );
-  const manageablePlans = userPlans.filter((plan) => {
+  const manageablePlansForActiveDay = userPlans.filter((plan) => {
     const scheduledDate = philippinesDateKey(plan.session_date);
     const dateHasPassed = /^\d{4}-\d{2}-\d{2}$/.test(scheduledDate) && scheduledDate < today;
-    return !plan.has_started && !dateHasPassed;
+    return scheduledDate === activeDay && !plan.has_started && !dateHasPassed;
   });
 
   useEffect(() => {
@@ -386,37 +386,6 @@ export default function WorkoutPage() {
           ))}
         </section>
       )}
-      {manageablePlans.length > 0 && (
-        <section aria-label="Manage workout plans" className="mx-5 mt-5 space-y-2 sm:mx-8">
-          {manageablePlans.map((plan) => (
-            <div key={plan.workout_plan_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-white/10 dark:bg-[#111]">
-              <div className="min-w-0">
-                <p className="font-semibold text-slate-900 dark:text-white">{plan.plan_name}</p>
-                <p className="text-xs text-slate-500">
-                  {plan.deletion_request_status === "Rejected"
-                    ? `Deletion request declined${plan.deletion_review_reason ? `: ${plan.deletion_review_reason}` : ""}`
-                    : plan.approval_status === "Pending"
-                      ? "Waiting for your coach's workout plan approval"
-                      : plan.approval_status === "Rejected"
-                        ? "Workout plan declined by your coach"
-                        : "Workout plan"}
-                  {plan.deletion_request_status === "Pending" && " · Deletion request waiting for coach approval"}
-                  {plan.session_date && <> · {formatWorkoutDate(plan.session_date)}</>}
-                </p>
-                {plan.deletion_request_status === "Pending" && plan.deletion_request_reason && (
-                  <p className="mt-1 text-xs text-slate-500">Your reason: {plan.deletion_request_reason}</p>
-                )}
-              </div>
-              {plan.deletion_request_status !== "Pending" && (
-                <button type="button" onClick={() => { setDeletingPlan(plan); setDeletionReason(""); setDeletionError(""); }} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-red-300 px-3 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10">
-                  <Trash2 size={15} /> Request deletion
-                </button>
-              )}
-            </div>
-          ))}
-        </section>
-      )}
-
       {/* Day Selector */}
       <div className="overflow-x-auto px-5 py-4 sm:px-8">
         <div className="mx-auto max-w-5xl">
@@ -514,17 +483,29 @@ export default function WorkoutPage() {
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Training plan</p>
             <h2 className="mt-0.5 font-bold text-slate-900 dark:text-white">{activeDayLabel}&apos;s workouts</h2>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {!hasAssignedCoach && <span className="text-xs text-slate-500">Select a coach before requesting a plan.</span>}
             <button type="button" onClick={() => { setPlanRequestNotice(""); setShowPlanRequest(true); }} disabled={!hasAssignedCoach} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
               <Plus size={16} /> Create workout plan
             </button>
+            {dayWorkoutStatus && (
+              <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${WORKOUT_STATUS_STYLES[dayWorkoutStatus]}`}>
+                {dayWorkoutStatus}
+              </span>
+            )}
+            {manageablePlansForActiveDay.map((plan) => (
+              <div key={plan.workout_plan_id} className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-[#111]">
+                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{plan.plan_name}</span>
+                {plan.deletion_request_status === "Pending" ? (
+                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">Deletion pending approval</span>
+                ) : (
+                  <button type="button" onClick={() => { setDeletingPlan(plan); setDeletionReason(""); setDeletionError(""); }} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-red-300 px-3 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10">
+                    <Trash2 size={15} /> Request deletion
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
-          {dayWorkoutStatus && (
-            <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${WORKOUT_STATUS_STYLES[dayWorkoutStatus]}`}>
-              {dayWorkoutStatus}
-            </span>
-          )}
           {!daySessions.some((session) => /^\d{4}-\d{2}-\d{2}$/.test(philippinesDateKey(session.session_date))) && isWorkoutDay(activeDay) && daySessions.length > 0 && (
             <button onClick={handleReset} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-400 transition">
               <RotateCcw size={14} /> Reset

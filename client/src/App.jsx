@@ -89,9 +89,6 @@ function UserProtectedRoute({ children }) {
   if (savedUser?.account_status && savedUser.account_status !== "Active") {
     return <Navigate to="/user/pending" replace />;
   }
-  if (!savedUser?.membership_months && location.pathname !== "/user/membership") {
-    return <Navigate to="/user/membership" state={{ from: location }} replace />;
-  }
   if (savedUser?.setup_completed) return <Navigate to="/user/profile" replace />;
   return children;
 }
@@ -104,10 +101,7 @@ function DashboardProtectedRoute({ children }) {
   if (!token) return <Navigate to="/user/login" state={{ from: location }} replace />;
   const savedUser = JSON.parse(localStorage.getItem("avefit_user") || "null");
   if (savedUser?.account_status && savedUser.account_status !== "Active") return <Navigate to="/user/pending" replace />;
-  if (!savedUser?.membership_months && location.pathname !== "/user/membership") {
-    return <Navigate to="/user/membership" state={{ from: location }} replace />;
-  }
-  if (savedUser && !savedUser.setup_completed && location.pathname !== "/user/membership") {
+  if (savedUser && !savedUser.setup_completed) {
     return <Navigate to="/user/assessment" replace />;
   }
   return children;

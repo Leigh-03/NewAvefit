@@ -120,9 +120,7 @@ export default function UserLogin() {
     const isValidReturnPath = typeof returnPath === "string"
       && returnPath.startsWith("/user/")
       && !["/user/login", "/user/pending", "/user/reset-password"].includes(returnPath);
-    const destination = !user?.membership_months
-      ? "/user/membership"
-      : user?.setup_completed
+    const destination = user?.setup_completed
       ? isValidReturnPath
         ? `${returnPath}${returnLocation.search || ""}${returnLocation.hash || ""}`
         : "/user/workout"
