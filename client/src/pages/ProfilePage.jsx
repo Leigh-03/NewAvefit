@@ -7,6 +7,15 @@ import userApi from "../userApi";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 import WeeklyWorkoutAvailability from "../components/WeeklyWorkoutAvailability";
 
+const getBmiCategory = (value) => {
+  const bmiValue = Number(value);
+  if (!Number.isFinite(bmiValue) || bmiValue <= 0) return null;
+  if (bmiValue < 18.5) return { label: "Underweight", style: "bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-300" };
+  if (bmiValue < 25) return { label: "Normal", style: "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" };
+  if (bmiValue < 30) return { label: "Overweight", style: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" };
+  return { label: "Obese", style: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" };
+};
+
 export default function ProfilePage() {
   const navigate = useNavigate();
   const { user, updateUser, logoutUser } = useUserAuth();
@@ -30,6 +39,7 @@ export default function ProfilePage() {
   const [passwordNotice, setPasswordNotice] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [changeRequests, setChangeRequests] = useState([]);
+  const bmiCategory = getBmiCategory(bmi);
 
   useEffect(() => {
     Promise.all([
@@ -250,9 +260,14 @@ export default function ProfilePage() {
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">{form.first_name} {form.last_name}</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{form.email}</p>
         {bmi && (
-          <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-1.5">
+          <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-2 rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-1.5">
             <Activity size={15} className="text-orange-500" />
             <span className="text-sm font-semibold text-orange-700 dark:text-orange-300">BMI {bmi}</span>
+            {bmiCategory && (
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${bmiCategory.style}`}>
+                {bmiCategory.label}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -382,6 +397,11 @@ export default function ProfilePage() {
             <div className="rounded-xl border border-orange-100 bg-orange-50/70 p-3 text-center dark:border-orange-500/20 dark:bg-orange-500/[0.06]">
               <p className="text-xs text-slate-500">Calculated BMI</p>
               <p className="mt-1 text-2xl font-bold text-orange-600 dark:text-orange-400">{bmi}</p>
+              {bmiCategory && (
+                <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${bmiCategory.style}`}>
+                  {bmiCategory.label}
+                </span>
+              )}
             </div>
           )}
         </section>

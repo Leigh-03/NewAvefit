@@ -2069,18 +2069,28 @@ const reviewMemberWorkoutPlanDeletion = async (req, res) => {
     }
 
     if (decision === "approve") {
-      const state = await client.query(
-        `SELECT COALESCE(BOOL_OR(started_at IS NOT NULL OR completed = TRUE), FALSE) AS has_started
-         FROM workout_sessions WHERE workout_plan_id = $1`,
+      const sessions = await client.query(
+        `SELECT session_id, started_at, completed
+         FROM workout_sessions
+         WHERE workout_plan_id = $1
+         FOR UPDATE`,
         [planId]
       );
-      if (state.rows[0].has_started) {
+      if (sessions.rows.some((session) => session.started_at || session.completed)) {
         await client.query("ROLLBACK");
         transactionStarted = false;
         return res.status(409).json({ success: false, message: "This workout has started or been completed and cannot be deleted." });
       }
       await client.query("DELETE FROM workout_sessions WHERE workout_plan_id = $1", [planId]);
-      await client.query("DELETE FROM workout_plans WHERE workout_plan_id = $1", [planId]);
+      const deletedPlan = await client.query(
+        "DELETE FROM workout_plans WHERE workout_plan_id = $1 AND deletion_request_status = 'Pending' RETURNING workout_plan_id",
+        [planId]
+      );
+      if (!deletedPlan.rowCount) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(409).json({ success: false, message: "The deletion request changed while being reviewed. Refresh and try again." });
+      }
     } else {
       const updated = await client.query(
         `UPDATE workout_plans

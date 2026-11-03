@@ -806,6 +806,11 @@ export default function TrainerWorkoutPlans() {
     }
   };
 
+  const approveDeletionRequest = async (plan) => {
+    if (!window.confirm(`Approve deletion of "${plan.plan_name}"? The plan and its workouts will be permanently removed.`)) return false;
+    return handleDeletionReview(plan, "approve");
+  };
+
   const submitRejection = async () => {
     const reason = rejectionReason.trim();
     if (reason.length < 5 || reason.length > 1000) {
@@ -862,8 +867,7 @@ export default function TrainerWorkoutPlans() {
             setViewingPlan(null);
           }}
           onApproveDeletion={async () => {
-            if (!window.confirm(`Approve deletion of "${viewingPlan.plan_name}"? The plan and its workouts will be permanently removed.`)) return;
-            if (await handleDeletionReview(viewingPlan, "approve")) setViewingPlan(null);
+            if (await approveDeletionRequest(viewingPlan)) setViewingPlan(null);
           }}
           onRejectDeletion={() => {
             setRejectingPlan(viewingPlan);
@@ -1046,6 +1050,19 @@ export default function TrainerWorkoutPlans() {
                         >
                           <Eye size={16} />
                         </button>
+                        {plan.deletion_request_status === "Pending" && (
+                          <button
+                            type="button"
+                            onClick={() => approveDeletionRequest(plan)}
+                            disabled={reviewingPlanId === plan.workout_plan_id}
+                            aria-label={`Approve deletion of ${plan.plan_name}`}
+                            title={`Approve deletion of ${plan.plan_name}`}
+                            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-red-600 px-3 text-xs font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Trash2 size={14} />
+                            {reviewingPlanId === plan.workout_plan_id ? "Deleting..." : "Approve deletion"}
+                          </button>
+                        )}
                         {pendingApproval && (
                           <>
                             <button type="button" onClick={() => handleReviewRequest(plan, "approve")} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Approve ${plan.plan_name}`} title="Approve member workout plan" className="rounded-lg p-2 text-green-600 transition hover:bg-green-500/10 disabled:opacity-50">
