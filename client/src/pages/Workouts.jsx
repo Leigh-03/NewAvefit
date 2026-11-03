@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Dumbbell, Search, Edit2, Trash2, X, ListOrdered } from "lucide-react";
+import { Dumbbell, Search, Edit2, X, ListOrdered } from "lucide-react";
 import { getWorkoutGuideExercise } from "../utils/workoutGuide";
 import api from "../services/api";
 
@@ -254,15 +254,6 @@ export default function Workouts() {
   useEffect(() => { fetchData(); }, []);
 
   const handleEdit = (ex) => { setEditExercise(ex); setShowModal(true); };
-  const handleDelete = async (ex) => {
-    if (!confirm(`Delete "${ex.exercise_name}"? This can't be undone.`)) return;
-    try {
-      await api.delete(`/workouts/${ex.exercise_id}`);
-      fetchData();
-    } catch (err) {
-      alert(err.response?.data?.message || "Failed to delete exercise.");
-    }
-  };
 
   const filtered = exercises.filter((e) => {
     const matchSearch =
@@ -397,12 +388,6 @@ export default function Workouts() {
                   className="flex items-center justify-center gap-1 rounded-lg bg-[#c2410c] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#9a3412]"
                 >
                   <Edit2 size={13} /> Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(exercise)}
-                  className="flex items-center justify-center gap-1 rounded-lg bg-[#b42318] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#912018]"
-                >
-                  <Trash2 size={13} /> Delete
                 </button>
               </div>
             </div>

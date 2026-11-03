@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, ChevronDown, Pencil, Plus, Search } from "lucide-react";
+import { Boxes, ChevronDown, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import api from "../services/api";
 
 const CONDITIONS = ["Not assessed", "Good", "Rusty", "Worn", "Damaged", "Poor", "Other"];
@@ -13,7 +13,7 @@ const emptyForm = {
   status: "Needs inspection",
 };
 
-function EquipmentFormModal({ equipment, onClose, onSaved }) {
+function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, deleteError }) {
   const [form, setForm] = useState(() => equipment ? {
     equipment_name: equipment.equipment_name,
     quantity: String(equipment.quantity),
@@ -42,6 +42,10 @@ function EquipmentFormModal({ equipment, onClose, onSaved }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const removeEquipment = async () => {
+    if (await onDelete(equipment)) onClose();
   };
 
   const fieldClass = "mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-white";
@@ -104,11 +108,24 @@ function EquipmentFormModal({ equipment, onClose, onSaved }) {
             />
           </label>
           {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
-          <footer className="flex justify-end gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
+          {deleteError && <p role="alert" className="text-sm text-red-500">{deleteError}</p>}
+          <footer className="flex flex-wrap justify-between gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
+            {equipment && (
+              <button
+                type="button"
+                onClick={removeEquipment}
+                disabled={saving || deleting}
+                className="inline-flex items-center gap-2 rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10"
+              >
+                <Trash2 size={15} /> {deleting ? "Removing..." : "Delete Equipment"}
+              </button>
+            )}
+            <div className="ml-auto flex gap-3">
             <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">Cancel</button>
             <button type="submit" disabled={saving} className="rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50">
               {saving ? "Saving..." : equipment ? "Save Details" : "Add Equipment"}
             </button>
+            </div>
           </footer>
         </form>
       </section>
@@ -131,6 +148,8 @@ export default function EquipmentInventory() {
   const [expandedEquipment, setExpandedEquipment] = useState(null);
   const [editingEquipment, setEditingEquipment] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [deletingEquipmentId, setDeletingEquipmentId] = useState(null);
+  const [deleteError, setDeleteError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -156,6 +175,26 @@ export default function EquipmentInventory() {
   }, [equipment, search]);
   const totalQuantity = equipment.reduce((total, item) => total + Number(item.quantity || 0), 0);
 
+  const handleDelete = async (item) => {
+    if (!window.confirm(`Remove "${item.equipment_name}" from the inventory? The record will be hidden but preserved for existing workout references.`)) return;
+    setDeletingEquipmentId(item.equipment_id);
+    setDeleteError("");
+    setError("");
+    try {
+      await api.delete(`/workouts/equipment/${item.equipment_id}`);
+      setEquipment((current) => current.filter((entry) => entry.equipment_id !== item.equipment_id));
+      setExpandedEquipment((current) => current === item.equipment_id ? null : current);
+      return true;
+    } catch (requestError) {
+      const message = requestError.response?.data?.message || "Unable to remove equipment.";
+      setDeleteError(message);
+      setError(message);
+      return false;
+    } finally {
+      setDeletingEquipmentId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {(showAddModal || editingEquipment) && (
@@ -163,6 +202,9 @@ export default function EquipmentInventory() {
           equipment={editingEquipment}
           onClose={() => { setShowAddModal(false); setEditingEquipment(null); }}
           onSaved={fetchEquipment}
+          onDelete={handleDelete}
+          deleting={deletingEquipmentId === editingEquipment?.equipment_id}
+          deleteError={deleteError}
         />
       )}
       <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
