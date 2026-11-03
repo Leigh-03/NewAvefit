@@ -6,6 +6,7 @@ import {
 import { Line, Bar, Doughnut } from "react-chartjs-2";
 import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter } from "lucide-react";
 import api from "../services/api";
+import TrainingPulse from "../components/TrainingPulse";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
 
@@ -55,7 +56,8 @@ export default function Analytics() {
   const [fetchError, setFetchError] = useState("");
   const [equipmentDay, setEquipmentDay] = useState("");
   const [equipmentTimePeriod, setEquipmentTimePeriod] = useState("");
-  const [appliedEquipmentFilters, setAppliedEquipmentFilters] = useState({ day: "", timePeriod: "" });
+  const [equipmentPeriod, setEquipmentPeriod] = useState("today");
+  const [appliedEquipmentFilters, setAppliedEquipmentFilters] = useState({ day: "", timePeriod: "", period: "today" });
 
   useEffect(() => {
     let active = true;
@@ -63,6 +65,7 @@ export default function Analytics() {
       const params = {};
       if (appliedEquipmentFilters.day) params.equipment_day = appliedEquipmentFilters.day;
       if (appliedEquipmentFilters.timePeriod) params.equipment_time_period = appliedEquipmentFilters.timePeriod;
+      params.equipment_period = appliedEquipmentFilters.period;
       api.get("/analytics", { params })
         .then((res) => {
           if (!active) return;
@@ -193,6 +196,7 @@ export default function Analytics() {
         <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Analytics</h1>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">A clear view of member growth, training activity, and fitness trends.</p>
       </header>
+      <TrainingPulse audience="admin" />
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -214,15 +218,27 @@ export default function Analytics() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]" aria-labelledby="equipment-heading">
         <div className="mb-4">
           <h2 id="equipment-heading" className="text-base font-bold text-slate-900 dark:text-white">Most used equipment</h2>
-          <p className="mt-1 text-xs text-slate-500">All equipment listed on exercises, ranked by completed workout usage. Items with no recorded use are included.</p>
+          <p className="mt-1 text-xs text-slate-500">Equipment listed on exercises is ranked by its appearances in approved workout plans for the selected period.</p>
         </div>
         <form
           className="mb-5 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/[0.03]"
           onSubmit={(event) => {
             event.preventDefault();
-            setAppliedEquipmentFilters({ day: equipmentDay, timePeriod: equipmentTimePeriod });
+            setAppliedEquipmentFilters({ day: equipmentDay, timePeriod: equipmentTimePeriod, period: equipmentPeriod });
           }}
         >
+          <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            Usage period
+            <select
+              value={equipmentPeriod}
+              onChange={(event) => setEquipmentPeriod(event.target.value)}
+              className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+            >
+              <option value="today">Today</option>
+              <option value="week">This week</option>
+              <option value="month">This month</option>
+            </select>
+          </label>
           <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
             Day
             <input
@@ -250,13 +266,14 @@ export default function Analytics() {
           <button type="submit" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-bold text-white transition hover:bg-orange-600">
             <Filter size={15} /> Apply filters
           </button>
-          {(equipmentDay || equipmentTimePeriod) && (
+          {(equipmentDay || equipmentTimePeriod || equipmentPeriod !== "today") && (
             <button
               type="button"
               onClick={() => {
                 setEquipmentDay("");
                 setEquipmentTimePeriod("");
-                setAppliedEquipmentFilters({ day: "", timePeriod: "" });
+                setEquipmentPeriod("today");
+                setAppliedEquipmentFilters({ day: "", timePeriod: "", period: "today" });
               }}
               className="min-h-10 rounded-lg px-3 text-sm font-semibold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-white/10"
             >

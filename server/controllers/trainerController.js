@@ -15,6 +15,12 @@ const {
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const { getCapacityStatus } = require("../utils/coachAssignment");
 const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutGoalRules");
+const {
+  TRAINING_PROGRAMS,
+  exerciseMatchesProgram,
+  getProgramForDate,
+  requiresConservativeWorkout,
+} = require("../utils/trainingPrograms");
 
 const deliverWorkoutPlanEmail = async (details, context) => {
   try {
@@ -1432,6 +1438,9 @@ const getMyWorkoutPlans = async (req, res) => {
         wp.workout_plan_id,
         wp.plan_name,
         wp.goal,
+        wp.training_program,
+        wp.previous_training_program,
+        wp.is_program_switch,
         wp.status,
         wp.approval_status,
         wp.deletion_request_status,
@@ -1440,6 +1449,8 @@ const getMyWorkoutPlans = async (req, res) => {
         wp.deletion_review_reason,
         wp.created_at,
         u.user_id,
+        u.injuries,
+        u.health_conditions,
         plan_sessions.scheduled_date,
         wp.scheduled_start_time,
         wp.scheduled_duration_minutes,
@@ -1587,7 +1598,7 @@ const createMyWorkoutPlan = async (req, res) => {
     const member = await client.query(
       `
       SELECT user_id, first_name, email, activity_level, fitness_goal,
-             workout_days_per_week, workout_duration
+             workout_days_per_week, workout_duration, preferred_days, injuries, health_conditions
       FROM users
       WHERE user_id = $1
         AND trainer_id = $2
@@ -1603,13 +1614,14 @@ const createMyWorkoutPlan = async (req, res) => {
     }
 
     const memberPreferences = member.rows[0];
-    if (sessions.some((session) => !isWorkoutDoseAllowed(memberPreferences.fitness_goal, session.sets, session.reps))) {
-      const rules = getWorkoutGoalRules(memberPreferences.fitness_goal);
+    const trainingProgram = getProgramForDate(sessionDate, memberPreferences.preferred_days || []);
+    if (!trainingProgram || !TRAINING_PROGRAMS.includes(trainingProgram)
+      || (req.body.training_program && req.body.training_program !== trainingProgram)) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: `For this member's fitness goal, each exercise must use ${rules.sets[0]}–${rules.sets[1]} sets and ${rules.reps[0]}–${rules.reps[1]} reps.`,
+        message: "Choose exercises for the program automatically assigned to this member's preferred workout day.",
       });
     }
     const memberAvailability = await client.query(
@@ -1717,13 +1729,44 @@ const createMyWorkoutPlan = async (req, res) => {
 
     const exerciseIds = [...new Set(sessions.map((session) => Number(session.exercise_id)))];
     const exercises = await client.query(
-      "SELECT exercise_id, muscle_group FROM exercises WHERE exercise_id = ANY($1::int[])",
+      `SELECT e.exercise_id, e.muscle_group, e.difficulty, c.category_name
+       FROM exercises e
+       LEFT JOIN exercise_categories c ON c.category_id = e.category_id
+       WHERE e.exercise_id = ANY($1::int[])`,
       [exerciseIds]
     );
     if (exercises.rowCount !== exerciseIds.length) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({ success: false, message: "One or more selected exercises are unavailable." });
+    }
+    const exerciseById = new Map(exercises.rows.map((exercise) => [Number(exercise.exercise_id), exercise]));
+    for (const session of sessions) {
+      const exercise = exerciseById.get(Number(session.exercise_id));
+      if (!exerciseMatchesProgram(exercise, trainingProgram)) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({ success: false, message: `Choose only exercises that belong to the ${trainingProgram} program.` });
+      }
+      if (requiresConservativeWorkout(exercise, memberPreferences.injuries || [], memberPreferences.health_conditions || [])) {
+        if (String(exercise.difficulty || "").toLowerCase() !== "beginner"
+          || Number(session.sets) < 1 || Number(session.sets) > 2
+          || Number(session.reps) < 6 || Number(session.reps) > 10) {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(400).json({ success: false, message: "Injury-affected exercises or plans for members with recorded health conditions must use beginner options with 1–2 sets and 6–10 reps." });
+        }
+      } else if (!isWorkoutDoseAllowed(memberPreferences.fitness_goal, session.sets, session.reps)) {
+        const rules = getWorkoutGoalRules(memberPreferences.fitness_goal);
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: rules
+            ? `For this member's fitness goal, unaffected exercises must use ${rules.sets[0]}–${rules.sets[1]} sets and ${rules.reps[0]}–${rules.reps[1]} reps.`
+            : "Enter valid sets and reps for each exercise.",
+        });
+      }
     }
 
     const neighborDates = [
@@ -1770,12 +1813,12 @@ const createMyWorkoutPlan = async (req, res) => {
     const plan = await client.query(
       `
       INSERT INTO workout_plans
-        (user_id, trainer_id, plan_name, goal, scheduled_start_time, scheduled_duration_minutes)
-      VALUES ($1, $2, $3, $4, $5::time, $6)
+        (user_id, trainer_id, plan_name, goal, scheduled_start_time, scheduled_duration_minutes, training_program)
+      VALUES ($1, $2, $3, $4, $5::time, $6, $7)
       RETURNING workout_plan_id, plan_name, goal, status, created_at,
-                scheduled_start_time, scheduled_duration_minutes
+                scheduled_start_time, scheduled_duration_minutes, training_program
       `,
-      [userId, trainerId, planName, goal || null, scheduledStartTime, sessionDuration]
+      [userId, trainerId, planName, goal || null, scheduledStartTime, sessionDuration, trainingProgram]
     );
     const planId = plan.rows[0].workout_plan_id;
 
@@ -2209,7 +2252,8 @@ const updateMyWorkoutPlan = async (req, res) => {
     transactionStarted = true;
     const plan = await client.query(
       `
-      SELECT wp.workout_plan_id, wp.user_id, wp.approval_status, wp.deletion_request_status
+      SELECT wp.workout_plan_id, wp.user_id, wp.approval_status, wp.deletion_request_status,
+             wp.training_program
       FROM workout_plans wp
       JOIN users u ON u.user_id = wp.user_id
       WHERE wp.workout_plan_id = $1
@@ -2269,7 +2313,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     }
 
     const member = await client.query(
-      `SELECT user_id, first_name, email, activity_level, fitness_goal, workout_days_per_week, workout_duration
+      `SELECT user_id, first_name, email, activity_level, fitness_goal, workout_days_per_week, workout_duration, injuries, health_conditions
        FROM users
        WHERE user_id = $1 AND trainer_id = $2 AND LOWER(COALESCE(account_status, 'pending')) = 'active'`,
       [plan.rows[0].user_id, trainerId]
@@ -2278,16 +2322,6 @@ const updateMyWorkoutPlan = async (req, res) => {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(403).json({ success: false, message: "This member isn't on your roster." });
-    }
-
-    if (sessions.some((session) => !isWorkoutDoseAllowed(member.rows[0].fitness_goal, session.sets, session.reps))) {
-      const rules = getWorkoutGoalRules(member.rows[0].fitness_goal);
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(400).json({
-        success: false,
-        message: `For this member's fitness goal, each exercise must use ${rules.sets[0]}–${rules.sets[1]} sets and ${rules.reps[0]}–${rules.reps[1]} reps.`,
-      });
     }
 
     const memberAvailability = await client.query(
@@ -2397,13 +2431,37 @@ const updateMyWorkoutPlan = async (req, res) => {
 
     const exerciseIds = [...new Set(sessions.map((session) => Number(session.exercise_id)))];
     const exercises = await client.query(
-      "SELECT exercise_id, muscle_group FROM exercises WHERE exercise_id = ANY($1::int[])",
+      `SELECT e.exercise_id, e.muscle_group, e.difficulty, c.category_name
+       FROM exercises e
+       LEFT JOIN exercise_categories c ON c.category_id = e.category_id
+       WHERE e.exercise_id = ANY($1::int[])`,
       [exerciseIds]
     );
     if (exercises.rowCount !== exerciseIds.length) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({ success: false, message: "One or more selected exercises are unavailable." });
+    }
+    const exercisesById = new Map(exercises.rows.map((exercise) => [Number(exercise.exercise_id), exercise]));
+    for (const session of sessions) {
+      const exercise = exercisesById.get(Number(session.exercise_id));
+      if (plan.rows[0].training_program && !exerciseMatchesProgram(exercise, plan.rows[0].training_program)) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({ success: false, message: `This workout must stay within the ${plan.rows[0].training_program} program.` });
+      }
+      if (!requiresConservativeWorkout(exercise, member.rows[0].injuries || [], member.rows[0].health_conditions || [])
+        && !isWorkoutDoseAllowed(member.rows[0].fitness_goal, session.sets, session.reps)) {
+        const rules = getWorkoutGoalRules(member.rows[0].fitness_goal);
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: rules
+            ? `For this member's fitness goal, unaffected exercises must use ${rules.sets[0]}–${rules.sets[1]} sets and ${rules.reps[0]}–${rules.reps[1]} reps.`
+            : "Enter valid sets and reps for each exercise.",
+        });
+      }
     }
 
     const neighboringDates = [

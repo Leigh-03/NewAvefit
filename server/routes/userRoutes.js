@@ -10,6 +10,7 @@ const {
 const { submitMembershipTermRequest, getMembershipTermRequest } = require("../controllers/memberController");
 const { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
 const { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
+const { getTrainingPulse } = require("../controllers/analyticsController");
 const { getActiveTrainers } = require("../controllers/trainerController");
 const workoutAvailabilityController = require("../controllers/userWorkoutAvailabilityController");
 const { submitMemberFeedback } = require("../controllers/feedbackController");
@@ -42,6 +43,10 @@ router.put("/profile/photo", verifyUser, updatePhoto);
 router.get("/profile/availability", verifyUser, workoutAvailabilityController.getAvailability);
 router.put("/profile/availability", verifyUser, workoutAvailabilityController.saveAvailability);
 router.post("/feedback", verifyUser, feedbackLimiter, submitMemberFeedback);
+router.get("/training-pulse", verifyUser, (req, res, next) => {
+  req.trainingAudience = "user";
+  next();
+}, getTrainingPulse);
 
 // Workouts
 router.get("/workouts", verifyUser, getUserWorkoutPlan);
