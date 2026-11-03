@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from "chart.js";
 import { Line } from "react-chartjs-2";
 import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Scale, Target, TrendingUp } from "lucide-react";
+import { Link } from "react-router-dom";
 import userApi from "../userApi";
 import { useUserAuth } from "../context/UserAuthContext";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
@@ -193,12 +194,6 @@ export default function ProgressPage() {
   const [logMsg, setLogMsg] = useState("");
   const [logError, setLogError] = useState("");
 
-  // Prediction form
-  const [predForm, setPredForm] = useState({ current_weight: "", goal_weight: "" });
-  const [predResult, setPredResult] = useState(null);
-  const [predicting, setPredicting] = useState(false);
-  const [predError, setPredError] = useState("");
-
   const fetchProgress = useCallback(async () => {
     setLoading(true);
     setLoadError("");
@@ -273,49 +268,12 @@ export default function ProgressPage() {
     }
   };
 
-  const handlePredict = async () => {
-    if (!predForm.current_weight || !predForm.goal_weight) {
-      setPredError("Enter both current and goal weight.");
-      return;
-    }
-    const cw = Number(predForm.current_weight);
-    const gw = Number(predForm.goal_weight);
-    if (!Number.isFinite(cw) || cw < 20 || cw > 200) {
-      setPredError("Current weight must be between 20 kg and 200 kg.");
-      return;
-    }
-    if (!Number.isFinite(gw) || gw < 20 || gw > 200) {
-      setPredError("Goal weight must be between 20 kg and 200 kg.");
-      return;
-    }
-    setPredError("");
-    setPredicting(true);
-    try {
-      const res = await userApi.post("/progress/predict", predForm);
-      setPredResult(res.data.data);
-    } catch (err) {
-      console.error(err);
-      setPredError(err.response?.data?.message || "Unable to calculate prediction. Please try again.");
-    } finally {
-      setPredicting(false);
-    }
-  };
-
   const logWeightValue = logForm.weight;
   const logWeightError = logWeightValue !== "" && logWeightValue != null
     ? Number(logWeightValue) < 20 || Number(logWeightValue) > 200
       ? "Weight must be between 20 and 200 kg."
       : ""
     : "";
-
-  const predFieldError = (key) => {
-    const v = predForm[key];
-    if (v === "" || v == null) return "";
-    const n = Number(v);
-    return n < 20 || n > 200
-      ? `${key === "current_weight" ? "Current weight" : "Goal weight"} must be between 20 and 200 kg.`
-      : "";
-  };
 
   const chartOptions = {
     responsive: true,
@@ -650,61 +608,15 @@ export default function ProgressPage() {
           </button>
         </div>
 
-        {/* Weight Prediction */}
-        <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
-          <h2 className="font-bold text-slate-900 dark:text-white mb-1">Weight prediction</h2>
-          <p className="text-slate-500 text-xs mb-4">Predict when you'll reach your goal weight</p>
-
-          <div className="space-y-3 mb-4">
-            {[
-              { label: "Current Weight (kg)", key: "current_weight" },
-              { label: "Goal Weight (kg)", key: "goal_weight" },
-            ].map((f) => {
-              const fieldError = predFieldError(f.key);
-              return (
-                <div key={f.key}>
-                  <label className="block text-xs text-slate-500 mb-1">{f.label}</label>
-                  <input type="number" min="20" max="200" step="0.1" value={predForm[f.key]}
-                    onChange={(e) => setPredForm({ ...predForm, [f.key]: weightInput(e.target.value, predForm[f.key]) })}
-                    aria-invalid={!!fieldError}
-                    className={`w-full bg-slate-50 border rounded-xl px-3 py-2.5 text-slate-900 text-sm focus:outline-none focus:ring-2 ${fieldError ? "border-red-400 focus:ring-red-300" : "border-slate-200 focus:ring-orange-500"}`} />
-                  {fieldError
-                    ? <p className="mt-1 text-xs text-red-500">{fieldError}</p>
-                    : <p className="mt-1 text-[10px] text-slate-400">Numbers only · 20–200 kg</p>}
-                </div>
-              );
-            })}
+        <section className="flex flex-col justify-between gap-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:flex-row sm:items-center">
+          <div>
+            <h2 className="font-bold text-slate-900 dark:text-white">Weight prediction</h2>
+            <p className="mt-1 text-xs text-slate-500">Estimate the time and BMI associated with your goal weight.</p>
           </div>
-
-          {predError && <p role="alert" className="text-red-500 text-sm mb-2">{predError}</p>}
-
-          <button onClick={handlePredict} disabled={predicting}
-            className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition text-sm mb-4">
-            {predicting ? "Calculating..." : "Calculate Prediction"}
-          </button>
-
-          {predResult && (
-            <div className="bg-slate-50 rounded-2xl p-4 space-y-3">
-              <h4 className="font-semibold text-slate-900 text-sm">📊 Prediction Results</h4>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: "Weeks Needed", value: `${predResult.weeks_needed} weeks`, icon: <Calendar size={16} /> },
-                  { label: "Target Date", value: predResult.target_date, icon: "📅" },
-                  { label: "Goal Weight", value: `${predResult.goal_weight} kg`, icon: <Scale size={16} /> },
-                  { label: "Predicted BMI", value: predResult.predicted_bmi || "—", icon: <TrendingUp size={16} /> },
-                ].map((item) => (
-                  <div key={item.label} className="bg-white rounded-xl p-3 text-center">
-                    <div className="text-orange-500 flex justify-center mb-1">
-                      {typeof item.icon === "string" ? item.icon : item.icon}
-                    </div>
-                    <p className="font-bold text-slate-900 text-sm">{item.value}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">{item.label}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+          <Link to="/user/prediction" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-bold text-white transition hover:bg-orange-700">
+            <TrendingUp size={17} /> Open prediction
+          </Link>
+        </section>
 
         {/* History */}
         {logs.length > 0 && (

@@ -34,6 +34,7 @@ import SetupConfirmation from "./pages/SetupConfirmation";
 import UserLayout from "./pages/UserLayout";
 import WorkoutPage from "./pages/WorkoutPage";
 import ProgressPage from "./pages/ProgressPage";
+import WeightPredictionPage from "./pages/WeightPredictionPage";
 import ExerciseLibrary from "./pages/ExerciseLibrary";
 import AboutUs from "./pages/AboutUs";
 import ProfilePage from "./pages/ProfilePage";
@@ -192,6 +193,7 @@ export default function App() {
                 <Routes>
                   <Route path="/workout" element={<WorkoutPage />} />
                   <Route path="/progress" element={<ProgressPage />} />
+                  <Route path="/prediction" element={<WeightPredictionPage />} />
                   <Route path="/exercises" element={<ExerciseLibrary />} />
                   <Route path="/coaches" element={<Coaches />} />
                   <Route path="/about" element={<AboutUs />} />
