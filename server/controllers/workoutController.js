@@ -93,7 +93,6 @@ const getEquipmentInventory = async (_req, res) => {
           GROUP BY u.user_id, u.first_name, u.last_name, wp.workout_plan_id, wp.plan_name, ws.session_date
         ) session_usage
       ) plan_usage ON TRUE
-      WHERE inventory.is_deleted = FALSE
       ORDER BY inventory.equipment_name ASC
     `);
     return res.json({ success: true, data: result.rows });
@@ -113,16 +112,9 @@ const createEquipment = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO equipment_inventory
         (equipment_name, quantity, equipment_condition, condition_notes, status, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT (LOWER(BTRIM(equipment_name)))
-       DO UPDATE SET quantity = EXCLUDED.quantity,
-                     equipment_condition = EXCLUDED.equipment_condition,
-                     condition_notes = EXCLUDED.condition_notes,
-                     status = EXCLUDED.status,
-                     is_deleted = FALSE,
-                     updated_at = NOW()
-       WHERE equipment_inventory.is_deleted = TRUE
-       RETURNING equipment_id, equipment_name, quantity, equipment_condition AS condition, condition_notes, status, updated_at`,
+        VALUES ($1, $2, $3, $4, $5, NOW())
+        ON CONFLICT (LOWER(BTRIM(equipment_name))) DO NOTHING
+        RETURNING equipment_id, equipment_name, quantity, equipment_condition AS condition, condition_notes, status, updated_at`,
       [equipmentName, quantity, condition, conditionNotes, status]
     );
     if (!result.rowCount) {
@@ -155,7 +147,7 @@ const updateEquipment = async (req, res) => {
     await client.query("BEGIN");
     transactionStarted = true;
     const current = await client.query(
-      "SELECT equipment_name FROM equipment_inventory WHERE equipment_id = $1 AND is_deleted = FALSE FOR UPDATE",
+      "SELECT equipment_name FROM equipment_inventory WHERE equipment_id = $1 FOR UPDATE",
       [equipmentId]
     );
     if (!current.rowCount) {
@@ -199,9 +191,8 @@ const deleteEquipment = async (req, res) => {
   }
   try {
     const result = await pool.query(
-      `UPDATE equipment_inventory
-       SET is_deleted = TRUE, updated_at = NOW()
-       WHERE equipment_id = $1 AND is_deleted = FALSE
+      `DELETE FROM equipment_inventory
+       WHERE equipment_id = $1
        RETURNING equipment_id`,
       [equipmentId]
     );

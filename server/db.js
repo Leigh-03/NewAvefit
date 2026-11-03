@@ -1,6 +1,5 @@
 const { Pool } = require("pg");
 const path = require("path");
-const equipmentOptions = require("./utils/equipmentOptions");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const getDatabaseConfig = () => {
@@ -136,7 +135,6 @@ const initializeDatabase = async () => {
         equipment_condition VARCHAR(40) NOT NULL DEFAULT 'Not assessed',
         condition_notes VARCHAR(500) NOT NULL DEFAULT '',
         status VARCHAR(40) NOT NULL DEFAULT 'Needs inspection',
-        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
@@ -174,22 +172,12 @@ const initializeDatabase = async () => {
       END
       $$
     `);
+    await client.query("DELETE FROM equipment_inventory WHERE is_deleted = TRUE");
+    await client.query("ALTER TABLE equipment_inventory DROP COLUMN is_deleted");
     await client.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS equipment_inventory_name_unique
       ON equipment_inventory (LOWER(BTRIM(equipment_name)))
     `);
-    await client.query(
-      `INSERT INTO equipment_inventory (equipment_name)
-       SELECT DISTINCT BTRIM(name)
-       FROM (
-         SELECT UNNEST($1::text[]) AS name
-         UNION ALL
-         SELECT equipment FROM exercises WHERE NULLIF(BTRIM(equipment), '') IS NOT NULL
-       ) equipment_names
-       WHERE NULLIF(BTRIM(name), '') IS NOT NULL
-       ON CONFLICT DO NOTHING`,
-      [equipmentOptions]
-    );
     await client.query(`
       DO $$
       BEGIN
