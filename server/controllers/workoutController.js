@@ -18,35 +18,62 @@ const getEquipmentInventory = async (_req, res) => {
   try {
     const result = await pool.query(`
       WITH equipment_catalog AS (
-        SELECT BTRIM(equipment) AS equipment,
-               COUNT(*)::int AS exercise_count
+        SELECT BTRIM(equipment) AS equipment
+        FROM UNNEST($1::text[]) AS equipment_option(equipment)
+        UNION
+        SELECT DISTINCT BTRIM(equipment) AS equipment
         FROM exercises
         WHERE NULLIF(BTRIM(equipment), '') IS NOT NULL
-        GROUP BY BTRIM(equipment)
-      ),
-      completed_usage AS (
-        SELECT BTRIM(e.equipment) AS equipment, COUNT(*)::int AS usage_count
-        FROM workout_sessions ws
-        JOIN exercises e ON e.exercise_id = ws.exercise_id
-        WHERE ws.completed = TRUE
-          AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
-        GROUP BY BTRIM(e.equipment)
       )
-      SELECT catalog.equipment, catalog.exercise_count,
-             COALESCE(usage_stats.usage_count, 0)::int AS usage_count
+      SELECT catalog.equipment,
+             COALESCE(exercise_details.exercises, '[]'::json) AS exercises,
+             COALESCE(exercise_details.exercise_count, 0)::int AS exercise_count,
+             COALESCE(plan_usage.planned_session_count, 0)::int AS planned_session_count,
+             COALESCE(plan_usage.usage_count, 0)::int AS usage_count,
+             COALESCE(plan_usage.users, '[]'::json) AS users
       FROM equipment_catalog catalog
-      LEFT JOIN completed_usage usage_stats ON usage_stats.equipment = catalog.equipment
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS exercise_count,
+               JSON_AGG(
+                 JSON_BUILD_OBJECT(
+                   'exercise_id', e.exercise_id,
+                   'exercise_name', e.exercise_name,
+                   'muscle_group', e.muscle_group,
+                   'difficulty', e.difficulty,
+                   'description', e.description
+                 )
+                 ORDER BY e.exercise_name
+               ) AS exercises
+        FROM exercises e
+        WHERE BTRIM(e.equipment) = catalog.equipment
+      ) exercise_details ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS planned_session_count,
+               COUNT(*) FILTER (WHERE ws.completed = TRUE)::int AS usage_count,
+               JSON_AGG(
+                 JSON_BUILD_OBJECT(
+                   'user_id', u.user_id,
+                   'member_name', CONCAT_WS(' ', u.first_name, u.last_name),
+                   'plan_name', wp.plan_name,
+                   'exercise_id', e.exercise_id,
+                   'exercise_name', e.exercise_name,
+                   'session_date', ws.session_date,
+                   'sets', ws.sets,
+                   'reps', ws.reps,
+                   'completed', ws.completed
+                 )
+                 ORDER BY ws.session_date DESC, u.last_name, u.first_name
+               ) AS users
+        FROM workout_sessions ws
+        JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+        JOIN exercises e ON e.exercise_id = ws.exercise_id
+        JOIN users u ON u.user_id = wp.user_id
+        WHERE BTRIM(e.equipment) = catalog.equipment
+          AND wp.approval_status = 'Approved'
+      ) plan_usage ON TRUE
       ORDER BY catalog.equipment ASC
-    `);
-    const inventory = new Map(result.rows.map((item) => [item.equipment, item]));
-    const data = [...new Set([...equipmentOptions, ...inventory.keys()])]
-      .sort((left, right) => left.localeCompare(right))
-      .map((equipment) => inventory.get(equipment) || {
-        equipment,
-        exercise_count: 0,
-        usage_count: 0,
-      });
-    return res.json({ success: true, data });
+    `, [equipmentOptions]);
+    return res.json({ success: true, data: result.rows });
   } catch (error) {
     console.error("getEquipmentInventory error:", error.message);
     return res.status(500).json({ success: false, message: "Unable to load equipment inventory." });
