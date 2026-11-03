@@ -1,10 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const verifyToken = require("../middleware/authMiddleware");
-const { getWorkouts, getCategories, updateWorkout, deleteWorkout, getEquipmentInventory, getWorkoutPlans, createWorkoutPlan, deleteWorkoutPlan, getMemberSessions, assignSessionToMember, deleteAssignedSession } = require("../controllers/workoutController");
+const { getWorkouts, getCategories, updateWorkout, deleteWorkout, getEquipmentInventory, createEquipment, updateEquipment, getWorkoutPlans, createWorkoutPlan, deleteWorkoutPlan, getMemberSessions, assignSessionToMember, deleteAssignedSession } = require("../controllers/workoutController");
 
 router.get("/categories", verifyToken, getCategories);
 router.get("/equipment", verifyToken, getEquipmentInventory);
+router.post("/equipment", verifyToken, createEquipment);
+router.put("/equipment/:equipmentId", verifyToken, updateEquipment);
 router.get("/plans", verifyToken, getWorkoutPlans);
 router.post("/plans", verifyToken, createWorkoutPlan);
 router.delete("/plans/:id", verifyToken, deleteWorkoutPlan);
