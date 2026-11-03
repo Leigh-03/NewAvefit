@@ -469,6 +469,60 @@ async function sendWorkoutPlanApprovalRequestEmail({ to, trainerName, memberName
   return sendMail({ to, subject: "Workout plan approval requested", text, html });
 }
 
+async function sendWorkoutPlanDeletionRequestEmail({ to, trainerName, memberName, planName, sessionDate, reason, planId }) {
+  const safeTrainerName = escapeHtml(trainerName || "Coach");
+  const safeMemberName = escapeHtml(memberName || "A member");
+  const safePlanName = escapeHtml(planName || "Workout plan");
+  const safeDate = escapeHtml(sessionDate || "Not specified");
+  const safeReason = escapeHtml(reason);
+  const plansUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/trainer/workout-plans?planId=${encodeURIComponent(planId)}`;
+  const safePlansUrl = escapeHtml(plansUrl);
+  const text = [
+    `Hi ${trainerName || "Coach"},`,
+    "",
+    `${memberName || "A member"} requested to delete the workout plan "${planName || "Workout plan"}".`,
+    `Scheduled date: ${sessionDate || "Not specified"}`,
+    `Reason: ${reason}`,
+    "",
+    `Review the request: ${plansUrl}`,
+    "",
+    "The plan will remain active until you approve the deletion.",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><tr><td style="padding:22px 28px;background:${BRAND_COLOR};color:#fff;font-size:20px;font-weight:800;">Workout plan deletion request</td></tr><tr><td style="padding:28px;"><p>Hi ${safeTrainerName},</p><p><strong>${safeMemberName}</strong> requested to delete <strong>${safePlanName}</strong>.</p><p><strong>Scheduled date:</strong> ${safeDate}</p><p><strong>Member's reason:</strong><br>${safeReason.replace(/\r?\n/g, "<br>")}</p><p>The plan will remain in place until you approve the deletion.</p><a href="${safePlansUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Review request</a></td></tr></table></body></html>`;
+  return sendMail({ to, subject: `${memberName || "A member"} requested workout plan deletion`, text, html });
+}
+
+async function sendWorkoutPlanDeletionDecisionEmail({ to, firstName, planName, approved, reason }) {
+  const safeName = escapeHtml(firstName || "there");
+  const safePlanName = escapeHtml(planName || "Workout plan");
+  const safeReason = escapeHtml(reason || "");
+  const subject = approved
+    ? "Your AveFit workout plan deletion was approved"
+    : "Your AveFit workout plan deletion was declined";
+  const message = approved
+    ? "Your coach approved your request. The workout plan has been deleted."
+    : "Your coach declined your request. The workout plan remains on your schedule.";
+  const workoutUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/workout`;
+  const reasonHtml = reason
+    ? `<p><strong>Coach's response:</strong><br>${safeReason.replace(/\r?\n/g, "<br>")}</p>`
+    : "";
+  const text = [
+    `Hi ${firstName || "there"},`,
+    "",
+    message,
+    "",
+    `Plan: ${planName || "Workout plan"}`,
+    ...(reason ? [`Coach's response: ${reason}`] : []),
+    "",
+    `View your workouts: ${workoutUrl}`,
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><tr><td style="padding:22px 28px;background:${BRAND_COLOR};color:#fff;font-size:20px;font-weight:800;">Workout plan request update</td></tr><tr><td style="padding:28px;"><p>Hi ${safeName},</p><p>${message}</p><p><strong>Plan:</strong> ${safePlanName}</p>${reasonHtml}<a href="${escapeHtml(workoutUrl)}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">View workouts</a></td></tr></table></body></html>`;
+  return sendMail({ to, subject, text, html });
+}
+
 async function sendWeeklyBmiReminderEmail({ to, firstName }) {
   const name = escapeHtml(firstName || "there");
   const progressUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/progress`;
@@ -1023,6 +1077,8 @@ module.exports = {
   sendUserCoachAssignedEmail,
   sendNoWorkoutReminderEmail,
   sendWorkoutPlanApprovalRequestEmail,
+  sendWorkoutPlanDeletionRequestEmail,
+  sendWorkoutPlanDeletionDecisionEmail,
   sendWeeklyBmiReminderEmail,
   sendPasswordChangeVerificationEmail,
   sendAdminPasswordResetEmail,

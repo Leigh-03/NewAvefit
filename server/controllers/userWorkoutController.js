@@ -1,6 +1,10 @@
 const pool = require("../db");
 const { createNotification } = require("../utils/notifications");
-const { isMailConfigured, sendWorkoutPlanApprovalRequestEmail } = require("../utils/mailer");
+const {
+  isMailConfigured,
+  sendWorkoutPlanApprovalRequestEmail,
+  sendWorkoutPlanDeletionRequestEmail,
+} = require("../utils/mailer");
 const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutGoalRules");
 
 const SCHEDULED_FOR_TODAY_SQL = `(
@@ -15,7 +19,8 @@ const SCHEDULED_FOR_TODAY_SQL = `(
 )`;
 
 const getOwnedSessionSchedule = async (sessionId, userId) => pool.query(`
-  SELECT ws.session_id, ws.session_date, ${SCHEDULED_FOR_TODAY_SQL} AS scheduled_today
+  SELECT ws.session_id, ws.session_date, wp.deletion_request_status,
+         ${SCHEDULED_FOR_TODAY_SQL} AS scheduled_today
   FROM workout_sessions ws
   JOIN workout_plans wp ON ws.workout_plan_id = wp.workout_plan_id
   WHERE ws.session_id = $1 AND wp.user_id = $2
@@ -28,6 +33,7 @@ const getUserWorkoutPlan = async (req, res) => {
     const result = await pool.query(`
       SELECT ws.*, e.exercise_name, e.muscle_group, e.difficulty, e.equipment, e.description,
              wp.workout_plan_id, wp.plan_name, wp.trainer_change_reason,
+             wp.deletion_request_status,
              wp.scheduled_start_time, wp.scheduled_duration_minutes
       FROM workout_sessions ws
       JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
@@ -50,7 +56,10 @@ const getUserPlans = async (req, res) => {
       `SELECT wp.*,
               (SELECT MIN(ws.session_date)
                FROM workout_sessions ws
-               WHERE ws.workout_plan_id = wp.workout_plan_id) AS session_date
+               WHERE ws.workout_plan_id = wp.workout_plan_id) AS session_date,
+              (SELECT COALESCE(BOOL_OR(ws.started_at IS NOT NULL OR ws.completed = TRUE), FALSE)
+               FROM workout_sessions ws
+               WHERE ws.workout_plan_id = wp.workout_plan_id) AS has_started
        FROM workout_plans wp
        WHERE wp.user_id = $1
        ORDER BY wp.created_at DESC`,
@@ -285,6 +294,130 @@ const requestWorkoutPlan = async (req, res) => {
   }
 };
 
+const requestWorkoutPlanDeletion = async (req, res) => {
+  const planId = Number(req.params.planId);
+  const reason = typeof req.body.reason === "string" ? req.body.reason.trim() : "";
+  if (!Number.isInteger(planId) || planId < 1) {
+    return res.status(400).json({ success: false, message: "Choose a valid workout plan." });
+  }
+  if (reason.length < 5 || reason.length > 1000) {
+    return res.status(400).json({ success: false, message: "Enter a deletion reason between 5 and 1,000 characters." });
+  }
+
+  let client;
+  let transactionStarted = false;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    transactionStarted = true;
+    const result = await client.query(
+      `SELECT wp.workout_plan_id, wp.plan_name, wp.deletion_request_status,
+              u.user_id, u.first_name, u.last_name, u.trainer_id,
+              t.full_name AS trainer_name, t.email AS trainer_email
+       FROM workout_plans wp
+       JOIN users u ON u.user_id = wp.user_id
+       LEFT JOIN trainers t ON t.trainer_id = u.trainer_id AND t.status = 'Active'
+       WHERE wp.workout_plan_id = $1 AND wp.user_id = $2
+       FOR UPDATE OF wp`,
+      [planId, req.user.user_id]
+    );
+    if (!result.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(404).json({ success: false, message: "Workout plan not found." });
+    }
+
+    const plan = result.rows[0];
+    if (!plan.trainer_id || !plan.trainer_email) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({ success: false, message: "Your assigned coach cannot be reached. Please contact the gym." });
+    }
+    if (plan.deletion_request_status === "Pending") {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({ success: false, message: "A deletion request is already waiting for your coach." });
+    }
+
+    const planState = await client.query(
+      `SELECT MIN(session_date) FILTER (
+                WHERE session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+              ) AS scheduled_date,
+              COALESCE(BOOL_OR(started_at IS NOT NULL OR completed = TRUE), FALSE) AS has_started,
+              TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today
+       FROM workout_sessions
+       WHERE workout_plan_id = $1`,
+      [planId]
+    );
+    if (planState.rows[0].has_started) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({ success: false, message: "A workout that has started or been completed cannot be deleted." });
+    }
+    if (planState.rows[0].scheduled_date && planState.rows[0].scheduled_date < planState.rows[0].today) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({ success: false, message: "A past workout plan cannot be deleted." });
+    }
+
+    await client.query(
+      `UPDATE workout_plans
+       SET deletion_request_status = 'Pending',
+           deletion_request_reason = $1,
+           deletion_requested_at = NOW(),
+           deletion_review_reason = NULL
+       WHERE workout_plan_id = $2`,
+      [reason, planId]
+    );
+    await client.query("COMMIT");
+    transactionStarted = false;
+
+    const memberName = `${plan.first_name || ""} ${plan.last_name || ""}`.trim() || "A member";
+    await createNotification({
+      audience: "trainer",
+      recipientId: Number(plan.trainer_id),
+      message: `${memberName} requested deletion of "${plan.plan_name}". Reason: ${reason}`,
+      notificationType: "workout",
+      userName: memberName,
+      targetUrl: `/trainer/workout-plans?planId=${planId}`,
+    }).catch((notificationError) => {
+      console.error("Workout plan deletion notification failed:", notificationError.message);
+    });
+
+    let emailSent = false;
+    if (isMailConfigured()) {
+      try {
+        const delivery = await sendWorkoutPlanDeletionRequestEmail({
+          to: plan.trainer_email,
+          trainerName: plan.trainer_name,
+          memberName,
+          planName: plan.plan_name,
+          sessionDate: planState.rows[0].scheduled_date,
+          reason,
+          planId,
+        });
+        emailSent = delivery.delivered;
+      } catch (emailError) {
+        console.error("Workout plan deletion request email failed:", emailError.message);
+      }
+    }
+
+    return res.status(202).json({
+      success: true,
+      email_sent: emailSent,
+      message: emailSent
+        ? "Deletion request sent. Your coach has been notified by email."
+        : "Deletion request sent, but your coach's email could not be delivered.",
+    });
+  } catch (err) {
+    if (transactionStarted) await client.query("ROLLBACK");
+    console.error("requestWorkoutPlanDeletion error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to submit the workout plan deletion request." });
+  } finally {
+    client?.release();
+  }
+};
+
 // Members must submit complete plans for coach approval instead of adding sessions directly.
 const addWorkoutSession = async (req, res) => {
   return res.status(403).json({
@@ -314,6 +447,9 @@ const updateWorkoutSession = async (req, res) => {
       if (!scheduledSession.rowCount) {
         return res.status(404).json({ success: false, message: "Workout not found." });
       }
+      if (scheduledSession.rows[0].deletion_request_status === "Pending") {
+        return res.status(409).json({ success: false, message: "This workout is paused while your coach reviews its deletion request." });
+      }
       if (!scheduledSession.rows[0].scheduled_today) {
         return res.status(400).json({
           success: false,
@@ -330,6 +466,7 @@ const updateWorkoutSession = async (req, res) => {
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $6
         AND wp.approval_status = 'Approved'
+        AND COALESCE(wp.deletion_request_status, '') <> 'Pending'
         AND ($4 IS NOT TRUE OR (ws.started_at IS NOT NULL AND ${SCHEDULED_FOR_TODAY_SQL}))
       RETURNING ws.session_id
     `, [sets, reps, duration_minutes, completed || false, id, req.user.user_id]);
@@ -352,6 +489,9 @@ const startWorkoutSession = async (req, res) => {
     if (!scheduledSession.rowCount) {
       return res.status(404).json({ success: false, message: "Workout not found." });
     }
+    if (scheduledSession.rows[0].deletion_request_status === "Pending") {
+      return res.status(409).json({ success: false, message: "This workout is paused while your coach reviews its deletion request." });
+    }
     if (!scheduledSession.rows[0].scheduled_today) {
       return res.status(400).json({
         success: false,
@@ -367,6 +507,7 @@ const startWorkoutSession = async (req, res) => {
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
         AND wp.approval_status = 'Approved'
+        AND COALESCE(wp.deletion_request_status, '') <> 'Pending'
         AND ws.completed = false
         AND ${SCHEDULED_FOR_TODAY_SQL}
       RETURNING ws.session_id, ws.started_at
@@ -390,6 +531,9 @@ const completeSession = async (req, res) => {
     if (!scheduledSession.rowCount) {
       return res.status(404).json({ success: false, message: "Workout not found." });
     }
+    if (scheduledSession.rows[0].deletion_request_status === "Pending") {
+      return res.status(409).json({ success: false, message: "This workout is paused while your coach reviews its deletion request." });
+    }
     if (!scheduledSession.rows[0].scheduled_today) {
       return res.status(400).json({
         success: false,
@@ -405,6 +549,7 @@ const completeSession = async (req, res) => {
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
         AND wp.approval_status = 'Approved'
+        AND COALESCE(wp.deletion_request_status, '') <> 'Pending'
         AND ws.started_at IS NOT NULL
         AND ws.completed = false
         AND ${SCHEDULED_FOR_TODAY_SQL}
@@ -513,4 +658,4 @@ const resetWeek = async (req, res) => {
   }
 };
 
-module.exports = { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek };
+module.exports = { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, requestWorkoutPlanDeletion, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek };

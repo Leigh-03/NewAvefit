@@ -4,7 +4,7 @@ import { Check, ChevronDown, ClipboardList, Eye, LockKeyhole, Pencil, Plus, Sear
 import trainerApi from "../trainerApi";
 import { getWorkoutGoalRules } from "../utils/workoutGoalRules";
 
-function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject }) {
+function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApproveDeletion, onRejectDeletion }) {
   const sessions = Array.isArray(plan.sessions) ? plan.sessions : [];
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -16,12 +16,23 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject }) {
             <p className="mt-1 text-sm text-slate-500">{plan.member_name || "Member"} · {plan.goal || "Goal not set"}</p>
             <p className="mt-1 text-xs text-slate-500">
               {plan.scheduled_date ? new Date(`${String(plan.scheduled_date).slice(0, 10)}T00:00:00`).toLocaleDateString() : "Workout date not set"}
-              {plan.approval_status === "Pending" ? " · Awaiting your approval" : ""}
+              {plan.deletion_request_status === "Pending"
+                ? " · Deletion request awaiting your review"
+                : plan.approval_status === "Pending" ? " · Awaiting your approval" : ""}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close plan details" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10"><X size={20} /></button>
         </header>
         <div className="space-y-3 p-5 sm:p-6">
+          {plan.deletion_request_status === "Pending" && (
+            <section className="rounded-xl border border-red-300 bg-red-50 p-4 dark:border-red-500/30 dark:bg-red-500/10">
+              <p className="text-sm font-bold text-red-700 dark:text-red-300">Member requested plan deletion</p>
+              <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">{plan.deletion_request_reason}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Requested {plan.deletion_requested_at ? new Date(plan.deletion_requested_at).toLocaleString() : ""}
+              </p>
+            </section>
+          )}
           {sessions.length ? sessions.map((session, index) => (
             <article key={`${session.exercise_id}-${index}`} className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -43,13 +54,21 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject }) {
           )}
         </div>
         <footer className="flex flex-wrap justify-between gap-3 border-t border-slate-200 p-4 dark:border-slate-800">
-          {plan.approval_status === "Pending" ? (
-            <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {plan.approval_status === "Pending" && plan.deletion_request_status !== "Pending" && (
+              <>
               <button type="button" onClick={onEdit} className="rounded-lg border border-orange-500/30 px-3 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-500/10 dark:text-orange-400">Edit request</button>
               <button type="button" onClick={onReject} className="rounded-lg border border-red-500/30 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Reject</button>
               <button type="button" onClick={onApprove} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700">Approve</button>
-            </div>
-          ) : <span />}
+              </>
+            )}
+            {plan.deletion_request_status === "Pending" && (
+              <>
+                <button type="button" onClick={onRejectDeletion} className="rounded-lg border border-slate-400 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-white/10">Decline deletion</button>
+                <button type="button" onClick={onApproveDeletion} className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700">Approve deletion</button>
+              </>
+            )}
+          </div>
           <button type="button" onClick={onClose} className="min-h-10 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">Close</button>
         </footer>
       </section>
@@ -695,6 +714,7 @@ export default function TrainerWorkoutPlans() {
   const [editingPlan, setEditingPlan] = useState(null);
   const [viewingPlan, setViewingPlan] = useState(null);
   const [rejectingPlan, setRejectingPlan] = useState(null);
+  const [rejectionType, setRejectionType] = useState("plan");
   const [rejectionReason, setRejectionReason] = useState("");
   const [rejectionError, setRejectionError] = useState("");
   const [fetchError, setFetchError] = useState("");
@@ -769,13 +789,33 @@ export default function TrainerWorkoutPlans() {
     }
   };
 
+  const handleDeletionReview = async (plan, decision, reason = "") => {
+    setReviewingPlanId(plan.workout_plan_id);
+    setFetchError("");
+    try {
+      await trainerApi.put(`/me/workout-plans/${plan.workout_plan_id}/deletion-review`, { decision, reason });
+      await fetchData();
+      return true;
+    } catch (err) {
+      const message = err.response?.data?.message || "Unable to review this deletion request.";
+      setFetchError(message);
+      if (decision === "reject") setRejectionError(message);
+      return false;
+    } finally {
+      setReviewingPlanId(null);
+    }
+  };
+
   const submitRejection = async () => {
     const reason = rejectionReason.trim();
     if (reason.length < 5 || reason.length > 1000) {
       setRejectionError("Enter a reason between 5 and 1000 characters.");
       return;
     }
-    if (await handleReviewRequest(rejectingPlan, "reject", reason)) {
+    const submitted = rejectionType === "deletion"
+      ? await handleDeletionReview(rejectingPlan, "reject", reason)
+      : await handleReviewRequest(rejectingPlan, "reject", reason);
+    if (submitted) {
       setRejectingPlan(null);
       setRejectionReason("");
       setRejectionError("");
@@ -816,6 +856,18 @@ export default function TrainerWorkoutPlans() {
           }}
           onReject={() => {
             setRejectingPlan(viewingPlan);
+            setRejectionType("plan");
+            setRejectionReason("");
+            setRejectionError("");
+            setViewingPlan(null);
+          }}
+          onApproveDeletion={async () => {
+            if (!window.confirm(`Approve deletion of "${viewingPlan.plan_name}"? The plan and its workouts will be permanently removed.`)) return;
+            if (await handleDeletionReview(viewingPlan, "approve")) setViewingPlan(null);
+          }}
+          onRejectDeletion={() => {
+            setRejectingPlan(viewingPlan);
+            setRejectionType("deletion");
             setRejectionReason("");
             setRejectionError("");
             setViewingPlan(null);
@@ -826,11 +878,11 @@ export default function TrainerWorkoutPlans() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
           <section role="dialog" aria-modal="true" aria-labelledby="workout-rejection-title" className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]">
             <header className="border-b border-slate-200 p-5 dark:border-slate-800">
-              <h2 id="workout-rejection-title" className="text-lg font-bold text-slate-900 dark:text-white">Reject workout plan</h2>
+              <h2 id="workout-rejection-title" className="text-lg font-bold text-slate-900 dark:text-white">{rejectionType === "deletion" ? "Decline deletion request" : "Reject workout plan"}</h2>
               <p className="mt-1 text-sm text-slate-500">{rejectingPlan.plan_name} · {rejectingPlan.member_name}</p>
             </header>
             <div className="space-y-2 p-5">
-              <label htmlFor="workout-rejection-reason" className="block text-sm font-medium text-slate-700 dark:text-slate-200">Reason for rejection *</label>
+              <label htmlFor="workout-rejection-reason" className="block text-sm font-medium text-slate-700 dark:text-slate-200">{rejectionType === "deletion" ? "Response to member *" : "Reason for rejection *"}</label>
               <textarea
                 id="workout-rejection-reason"
                 rows={4}
@@ -844,14 +896,14 @@ export default function TrainerWorkoutPlans() {
                 }}
                 aria-invalid={Boolean(rejectionError)}
                 className="trainer-field w-full rounded-lg px-4 py-3 text-sm"
-                placeholder="Explain what needs to be corrected. This reason will be emailed to the member."
+                placeholder={rejectionType === "deletion" ? "Explain why the deletion request is declined. This will be emailed to the member." : "Explain what needs to be corrected. This reason will be emailed to the member."}
               />
-              <p className="text-xs text-slate-500">The member will receive this reason by email.</p>
+              <p className="text-xs text-slate-500">The member will receive this response by email.</p>
               {rejectionError && <p role="alert" className="text-sm text-red-500">{rejectionError}</p>}
             </div>
             <footer className="flex justify-end gap-3 border-t border-slate-200 p-5 dark:border-slate-800">
               <button type="button" onClick={() => { setRejectingPlan(null); setRejectionReason(""); setRejectionError(""); }} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">Cancel</button>
-              <button type="button" onClick={submitRejection} disabled={reviewingPlanId === rejectingPlan.workout_plan_id} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{reviewingPlanId === rejectingPlan.workout_plan_id ? "Rejecting..." : "Reject plan"}</button>
+              <button type="button" onClick={submitRejection} disabled={reviewingPlanId === rejectingPlan.workout_plan_id} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{reviewingPlanId === rejectingPlan.workout_plan_id ? "Submitting..." : rejectionType === "deletion" ? "Decline deletion" : "Reject plan"}</button>
             </footer>
           </section>
         </div>
@@ -949,11 +1001,12 @@ export default function TrainerWorkoutPlans() {
                   </tr>
                 ) : filtered.map((plan) => {
                   const pastWorkoutDate = isPastWorkoutPlan(plan);
-                  const pendingApproval = plan.approval_status === "Pending";
+                  const pendingApproval = plan.approval_status === "Pending" && plan.deletion_request_status !== "Pending";
                   const rejectedPlan = plan.approval_status === "Rejected";
-                  const planLocked = Boolean(pendingApproval || rejectedPlan || plan.has_started || pastWorkoutDate);
+                  const planLocked = Boolean(pendingApproval || rejectedPlan || plan.deletion_request_status === "Pending" || plan.has_started || pastWorkoutDate);
                   const canEditPlan = Boolean(
                     plan.user_id &&
+                    plan.deletion_request_status !== "Pending" &&
                     !plan.has_started &&
                     (pendingApproval || rejectedPlan || !pastWorkoutDate)
                   );
@@ -973,9 +1026,14 @@ export default function TrainerWorkoutPlans() {
                       {Number(plan.completed_count) || 0} / {Number(plan.exercise_count) || 0} completed
                     </td>
                     <td className="px-5 py-4">
-                      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusColors[plan.activity_status] || statusColors.Active}`}>
-                        {plan.activity_status || "Active"}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusColors[plan.activity_status] || statusColors.Active}`}>
+                          {plan.activity_status || "Active"}
+                        </span>
+                        {plan.deletion_request_status === "Pending" && (
+                          <span className="inline-flex rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">Deletion requested</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-1">
@@ -993,7 +1051,7 @@ export default function TrainerWorkoutPlans() {
                             <button type="button" onClick={() => handleReviewRequest(plan, "approve")} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Approve ${plan.plan_name}`} title="Approve member workout plan" className="rounded-lg p-2 text-green-600 transition hover:bg-green-500/10 disabled:opacity-50">
                               <Check size={17} />
                             </button>
-                            <button type="button" onClick={() => { setRejectingPlan(plan); setRejectionReason(""); setRejectionError(""); }} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Reject ${plan.plan_name}`} title="Reject member workout plan" className="rounded-lg p-2 text-red-500 transition hover:bg-red-500/10 disabled:opacity-50">
+                            <button type="button" onClick={() => { setRejectingPlan(plan); setRejectionType("plan"); setRejectionReason(""); setRejectionError(""); }} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Reject ${plan.plan_name}`} title="Reject member workout plan" className="rounded-lg p-2 text-red-500 transition hover:bg-red-500/10 disabled:opacity-50">
                               <XCircle size={17} />
                             </button>
                           </>
@@ -1023,7 +1081,9 @@ export default function TrainerWorkoutPlans() {
                           onClick={() => handleDelete(plan)}
                           disabled={planLocked}
                           aria-label={`Delete ${plan.plan_name}`}
-                          title={planLocked ? "Started, completed, or past workout plans are locked." : "Delete workout plan"}
+                          title={plan.deletion_request_status === "Pending"
+                            ? "Review the member's deletion request first."
+                            : planLocked ? "Started, completed, or past workout plans are locked." : "Delete workout plan"}
                           className="rounded-lg p-2 text-red-400 transition hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Trash2 size={16} />
