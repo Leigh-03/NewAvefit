@@ -260,6 +260,74 @@ async function sendWorkoutPlanReadyEmail({ to, firstName }) {
   });
 }
 
+async function sendMemberWorkoutPlanEmail({
+  to,
+  firstName,
+  planName,
+  sessionDate,
+  status,
+  reason,
+}) {
+  const safeName = escapeHtml(firstName || "there");
+  const safePlanName = escapeHtml(planName || "Workout plan");
+  const safeDate = escapeHtml(sessionDate || "Not specified");
+  const safeReason = escapeHtml(reason || "");
+  const statusContent = {
+    updated: {
+      subject: "Your AveFit workout plan was updated",
+      message: "Your coach updated your workout plan. The reason for the changes is below.",
+    },
+    approved: {
+      subject: "Your AveFit workout plan was approved",
+      message: "Your coach approved your workout plan. It is ready to view in AveFit.",
+    },
+    rejected: {
+      subject: "Your AveFit workout plan needs changes",
+      message: "Your coach did not approve your workout plan. Review the reason below and submit an updated plan.",
+    },
+  }[status];
+
+  if (!statusContent) throw new Error("Unsupported workout plan email status.");
+
+  const reasonLine = reason ? `\nReason: ${reason}` : "";
+  const text = [
+    `Hi ${firstName || "there"},`,
+    "",
+    statusContent.message,
+    "",
+    `Plan: ${planName || "Workout plan"}`,
+    `Workout date: ${sessionDate || "Not specified"}`,
+    ...(reasonLine ? [reasonLine.trim()] : []),
+    "",
+    `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/workout`,
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const workoutUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/workout`;
+  const reasonHtml = reason
+    ? `<p style="margin:0 0 20px;font-size:14px;line-height:1.6;"><strong>Reason from your coach:</strong><br>${safeReason.replace(/\r?\n/g, "<br>")}</p>`
+    : "";
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit workout plan update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">${escapeHtml(statusContent.message)}</p>
+        <p style="margin:0 0 8px;font-size:14px;"><strong>Plan:</strong> ${safePlanName}</p>
+        <p style="margin:0 0 20px;font-size:14px;"><strong>Workout date:</strong> ${safeDate}</p>
+        ${reasonHtml}
+        <p style="margin:0 0 20px;"><a href="${escapeHtml(workoutUrl)}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">View workout plan</a></p>
+        <p style="margin:0;font-size:12px;color:#94a3b8;">Avenue Power &amp; Fitness Gym</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({ to, subject: statusContent.subject, text, html });
+}
+
 async function sendCoachAssignmentEmail({
   to,
   trainerName,
@@ -949,6 +1017,7 @@ module.exports = {
   sendMail,
   sendVerificationEmail,
   sendWorkoutPlanReadyEmail,
+  sendMemberWorkoutPlanEmail,
   sendCoachAssignmentEmail,
   formatEmailTime,
   sendUserCoachAssignedEmail,

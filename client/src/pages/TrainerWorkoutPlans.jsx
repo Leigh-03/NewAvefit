@@ -163,6 +163,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
+  const [changeReason, setChangeReason] = useState("");
   const selectedMember = members.find((member) => String(member.user_id) === form.user_id);
   const doseRules = getWorkoutGoalRules(selectedMember?.fitness_goal);
   const keepingExistingDate = plan
@@ -170,6 +171,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   const existingPlanOnDate = !keepingExistingDate && plans.find((item) =>
     String(item.user_id) === form.user_id
     && String(item.scheduled_date || "").slice(0, 10) === form.session_date
+    && item.approval_status !== "Rejected"
     && String(item.workout_plan_id) !== String(plan?.workout_plan_id)
   );
   const availableDays = toList(selectedMember?.preferred_days);
@@ -216,6 +218,12 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
     if (!planName) nextErrors.plan_name = "Plan name is required.";
     if (!form.goal.trim()) nextErrors.goal = "Goal is required. Enter the member's assessment goal.";
     if (!form.session_date) nextErrors.session_date = "Workout date is required.";
+    if (plan && changeReason.trim().length < 5) {
+      nextErrors.change_reason = "Explain why you're changing this plan (at least 5 characters).";
+    }
+    if (plan && changeReason.trim().length > 1000) {
+      nextErrors.change_reason = "The change reason can't exceed 1000 characters.";
+    }
     if (existingPlanOnDate) {
       nextErrors.session_date = "A workout plan already exists for this member on that date. Edit the existing plan instead.";
     }
@@ -237,6 +245,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
       const payload = {
         ...form,
         plan_name: planName,
+        change_reason: changeReason.trim(),
         sessions: form.sessions.map(({ exercise_id, sets, reps }) => ({
           exercise_id,
           sets,
@@ -398,8 +407,10 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
               <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
                 {[
                   ["Goal", selectedMember.fitness_goal || "Not specified"],
+                  ["Target weight", selectedMember.target_weight ? `${selectedMember.target_weight} kg` : "Not specified"],
                   ["BMI", calculateBmi(selectedMember)],
                   ["Activity", selectedMember.activity_level || "Not specified"],
+                  ["Height / weight", `${selectedMember.height ? `${selectedMember.height} cm` : "Height not set"} · ${selectedMember.latest_weight || selectedMember.weight ? `${selectedMember.latest_weight || selectedMember.weight} kg` : "Weight not set"}`],
                   ["Preferred days", toList(selectedMember.preferred_days).join(", ") || "Not specified"],
                   ["Preferred time", formatPreferredWorkoutTime(selectedMember.preferred_workout_time)],
                   ["Weekly frequency", selectedMember.workout_days_per_week ? `${selectedMember.workout_days_per_week} days` : "Not specified"],
@@ -412,10 +423,43 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                   </div>
                 ))}
               </div>
-              {(toList(selectedMember.injuries).length > 0 || toList(selectedMember.health_conditions).length > 0) && (
-                <p className="mt-3 border-t border-orange-500/20 pt-3 text-xs text-amber-500">
-                  Health notes: {[...toList(selectedMember.injuries), ...toList(selectedMember.health_conditions)].join(", ")}. Review these before choosing exercises.
-                </p>
+              <div className="mt-3 grid gap-2 border-t border-orange-500/20 pt-3 text-xs sm:grid-cols-2">
+                <p className="text-amber-500"><strong>Injuries / pain:</strong> {toList(selectedMember.injuries).join(", ") || "None recorded"}</p>
+                <p className="text-amber-500"><strong>Health conditions:</strong> {toList(selectedMember.health_conditions).join(", ") || "None recorded"}</p>
+              </div>
+              {toList(selectedMember.weekly_availability).length > 0 && (
+                <div className="mt-3 border-t border-orange-500/20 pt-3">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-wide text-orange-500">Member-provided availability</p>
+                  <div className="flex flex-wrap gap-2">
+                    {toList(selectedMember.weekly_availability).map((slot) => (
+                      <span key={slot.day_of_week} className="rounded-lg bg-white px-2.5 py-1.5 text-xs text-slate-700 dark:bg-white/5 dark:text-slate-300">
+                        {slot.day_of_week}: {slot.time_preference || `${slot.start_time}–${slot.end_time}`}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {plan && (
+                <div>
+                  <label htmlFor="trainer-plan-change-reason" className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
+                    Reason for changing this plan *
+                  </label>
+                  <textarea
+                    id="trainer-plan-change-reason"
+                    required
+                    rows={3}
+                    maxLength={1000}
+                    value={changeReason}
+                    onChange={(event) => {
+                      setChangeReason(event.target.value);
+                      setFieldError("change_reason", "");
+                    }}
+                    aria-invalid={Boolean(fieldErrors.change_reason)}
+                    placeholder="Explain the changes so the member understands why the plan was adjusted."
+                    className={inputClass("change_reason")}
+                  />
+                  {renderFieldError("change_reason")}
+                </div>
               )}
             </div>
           )}
@@ -427,7 +471,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
               id="trainer-plan-date"
               type="date"
               required
-              min={plan ? undefined : localDateString(new Date())}
+              min={manilaDateString()}
               value={form.session_date}
               onChange={(event) => {
                 const sessionDate = event.target.value;
@@ -641,6 +685,9 @@ export default function TrainerWorkoutPlans() {
   const [showModal, setShowModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
   const [viewingPlan, setViewingPlan] = useState(null);
+  const [rejectingPlan, setRejectingPlan] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [rejectionError, setRejectionError] = useState("");
   const [fetchError, setFetchError] = useState("");
   const [reviewingPlanId, setReviewingPlanId] = useState(null);
 
@@ -684,16 +731,33 @@ export default function TrainerWorkoutPlans() {
     setShowModal(true);
   };
 
-  const handleReviewRequest = async (plan, decision) => {
+  const handleReviewRequest = async (plan, decision, reason = "") => {
     setReviewingPlanId(plan.workout_plan_id);
     setFetchError("");
     try {
-      await trainerApi.put(`/me/workout-plans/${plan.workout_plan_id}/review`, { decision });
+      await trainerApi.put(`/me/workout-plans/${plan.workout_plan_id}/review`, { decision, reason });
       await fetchData();
+      return true;
     } catch (err) {
-      setFetchError(err.response?.data?.message || "Unable to review this workout plan request.");
+      const message = err.response?.data?.message || "Unable to review this workout plan request.";
+      setFetchError(message);
+      if (decision === "reject") setRejectionError(message);
+      return false;
     } finally {
       setReviewingPlanId(null);
+    }
+  };
+
+  const submitRejection = async () => {
+    const reason = rejectionReason.trim();
+    if (reason.length < 5 || reason.length > 1000) {
+      setRejectionError("Enter a reason between 5 and 1000 characters.");
+      return;
+    }
+    if (await handleReviewRequest(rejectingPlan, "reject", reason)) {
+      setRejectingPlan(null);
+      setRejectionReason("");
+      setRejectionError("");
     }
   };
 
@@ -722,6 +786,40 @@ export default function TrainerWorkoutPlans() {
         />
       )}
       {viewingPlan && <PlanDetailsModal plan={viewingPlan} onClose={() => setViewingPlan(null)} />}
+      {rejectingPlan && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <section role="dialog" aria-modal="true" aria-labelledby="workout-rejection-title" className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]">
+            <header className="border-b border-slate-200 p-5 dark:border-slate-800">
+              <h2 id="workout-rejection-title" className="text-lg font-bold text-slate-900 dark:text-white">Reject workout plan</h2>
+              <p className="mt-1 text-sm text-slate-500">{rejectingPlan.plan_name} · {rejectingPlan.member_name}</p>
+            </header>
+            <div className="space-y-2 p-5">
+              <label htmlFor="workout-rejection-reason" className="block text-sm font-medium text-slate-700 dark:text-slate-200">Reason for rejection *</label>
+              <textarea
+                id="workout-rejection-reason"
+                rows={4}
+                maxLength={1000}
+                required
+                autoFocus
+                value={rejectionReason}
+                onChange={(event) => {
+                  setRejectionReason(event.target.value);
+                  setRejectionError("");
+                }}
+                aria-invalid={Boolean(rejectionError)}
+                className="trainer-field w-full rounded-lg px-4 py-3 text-sm"
+                placeholder="Explain what needs to be corrected. This reason will be emailed to the member."
+              />
+              <p className="text-xs text-slate-500">The member will receive this reason by email.</p>
+              {rejectionError && <p role="alert" className="text-sm text-red-500">{rejectionError}</p>}
+            </div>
+            <footer className="flex justify-end gap-3 border-t border-slate-200 p-5 dark:border-slate-800">
+              <button type="button" onClick={() => { setRejectingPlan(null); setRejectionReason(""); setRejectionError(""); }} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">Cancel</button>
+              <button type="button" onClick={submitRejection} disabled={reviewingPlanId === rejectingPlan.workout_plan_id} className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{reviewingPlanId === rejectingPlan.workout_plan_id ? "Rejecting..." : "Reject plan"}</button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
         <div>
@@ -816,7 +914,13 @@ export default function TrainerWorkoutPlans() {
                 ) : filtered.map((plan) => {
                   const pastWorkoutDate = isPastWorkoutPlan(plan);
                   const pendingApproval = plan.approval_status === "Pending";
-                  const planLocked = Boolean(pendingApproval || plan.approval_status === "Rejected" || plan.has_started || pastWorkoutDate);
+                  const rejectedPlan = plan.approval_status === "Rejected";
+                  const planLocked = Boolean(pendingApproval || rejectedPlan || plan.has_started || pastWorkoutDate);
+                  const canEditPlan = Boolean(
+                    plan.user_id &&
+                    !plan.has_started &&
+                    (pendingApproval || rejectedPlan || !pastWorkoutDate)
+                  );
                   return (
                   <tr key={plan.workout_plan_id} className="hover:bg-orange-500/5">
                     <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-800 dark:text-white">{plan.plan_name}</td>
@@ -853,23 +957,23 @@ export default function TrainerWorkoutPlans() {
                             <button type="button" onClick={() => handleReviewRequest(plan, "approve")} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Approve ${plan.plan_name}`} title="Approve member workout plan" className="rounded-lg p-2 text-green-600 transition hover:bg-green-500/10 disabled:opacity-50">
                               <Check size={17} />
                             </button>
-                            <button type="button" onClick={() => handleReviewRequest(plan, "reject")} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Reject ${plan.plan_name}`} title="Reject member workout plan" className="rounded-lg p-2 text-red-500 transition hover:bg-red-500/10 disabled:opacity-50">
+                            <button type="button" onClick={() => { setRejectingPlan(plan); setRejectionReason(""); setRejectionError(""); }} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Reject ${plan.plan_name}`} title="Reject member workout plan" className="rounded-lg p-2 text-red-500 transition hover:bg-red-500/10 disabled:opacity-50">
                               <XCircle size={17} />
                             </button>
                           </>
                         )}
-                        {plan.user_id && !planLocked && (
+                        {canEditPlan && (
                           <button
                             type="button"
                             onClick={() => handleEdit(plan)}
                             aria-label={`Edit ${plan.plan_name}`}
                             className="rounded-lg p-2 text-orange-500 transition hover:bg-orange-500/10 hover:text-orange-600"
-                            title="Edit workout plan"
+                            title={rejectedPlan ? "Revise rejected plan and submit it for approval" : "Edit workout plan"}
                           >
                             <Pencil size={16} />
                           </button>
                         )}
-                        {planLocked && (
+                        {planLocked && !canEditPlan && (
                           <span
                             className="inline-flex items-center gap-1 px-2 text-xs text-slate-500"
                             title={plan.has_started ? "This workout has started or finished and is locked." : "Workout dates in the past are locked."}

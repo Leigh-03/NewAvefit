@@ -6,6 +6,7 @@ const { createNotification } = require("../utils/notifications");
 const { getExperienceRange } = require("./userWorkoutAvailabilityController");
 const {
   sendWorkoutPlanReadyEmail,
+  sendMemberWorkoutPlanEmail,
   sendAccountPasswordChangedEmail,
   sendCoachAccountStatusEmail,
   sendCoachAccountUpdatedEmail,
@@ -13,6 +14,17 @@ const {
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const { getCapacityStatus } = require("../utils/coachAssignment");
 const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutGoalRules");
+
+const deliverWorkoutPlanEmail = async (details, context) => {
+  try {
+    const result = await sendMemberWorkoutPlanEmail(details);
+    if (!result.delivered) {
+      console.warn(`${context} email not delivered because SMTP is not configured.`);
+    }
+  } catch (emailError) {
+    console.error(`${context} email failed:`, emailError.message);
+  }
+};
 
 const {
   validateEmail,
@@ -1818,8 +1830,12 @@ const reviewMemberWorkoutPlan = async (req, res) => {
   const trainerId = req.trainer.trainer_id;
   const planId = Number(req.params.planId);
   const decision = req.body.decision;
+  const reason = typeof req.body.reason === "string" ? req.body.reason.trim() : "";
   if (!Number.isInteger(planId) || planId < 1 || !["approve", "reject"].includes(decision)) {
     return res.status(400).json({ success: false, message: "Choose a valid workout plan and review decision." });
+  }
+  if (decision === "reject" && (reason.length < 5 || reason.length > 1000)) {
+    return res.status(400).json({ success: false, message: "Enter a rejection reason between 5 and 1000 characters." });
   }
 
   let client;
@@ -1829,8 +1845,8 @@ const reviewMemberWorkoutPlan = async (req, res) => {
     await client.query("BEGIN");
     transactionStarted = true;
     const planResult = await client.query(
-      `SELECT wp.workout_plan_id, wp.user_id, wp.approval_status,
-              u.first_name, u.last_name, u.workout_duration, u.workout_days_per_week,
+      `SELECT wp.workout_plan_id, wp.user_id, wp.plan_name, wp.approval_status,
+              u.first_name, u.last_name, u.email, u.workout_duration, u.workout_days_per_week,
               MIN(ws.session_date) AS session_date
        FROM workout_plans wp
        JOIN users u ON u.user_id = wp.user_id AND u.trainer_id = $2
@@ -1973,13 +1989,21 @@ const reviewMemberWorkoutPlan = async (req, res) => {
       recipientId: plan.user_id,
       message: decision === "approve"
         ? "Your workout plan request was approved by your coach."
-        : "Your workout plan request was declined by your coach. You can submit an updated plan.",
+        : `Your workout plan request was declined by your coach. Reason: ${reason} You can submit an updated plan.`,
       notificationType: "workout",
       userName: memberName,
       targetUrl: "/user/workout",
     }).catch((notificationError) => {
       console.error("Workout plan review notification failed:", notificationError.message);
     });
+    await deliverWorkoutPlanEmail({
+      to: plan.email,
+      firstName: plan.first_name,
+      planName: plan.plan_name,
+      sessionDate: String(plan.session_date || "").slice(0, 10),
+      status: decision === "approve" ? "approved" : "rejected",
+      reason: decision === "reject" ? reason : "",
+    }, `Workout plan ${decision}`);
 
     return res.json({
       success: true,
@@ -2000,6 +2024,7 @@ const updateMyWorkoutPlan = async (req, res) => {
   const planName = typeof req.body.plan_name === "string" ? req.body.plan_name.trim() : "";
   const goal = typeof req.body.goal === "string" ? req.body.goal.trim() : "";
   const sessionDate = req.body.session_date;
+  const changeReason = typeof req.body.change_reason === "string" ? req.body.change_reason.trim() : "";
   const sessions = req.body.sessions;
 
   if (!Number.isInteger(planId) || planId < 1) {
@@ -2010,6 +2035,9 @@ const updateMyWorkoutPlan = async (req, res) => {
   }
   if (!goal) {
     return res.status(400).json({ success: false, message: "Goal is required." });
+  }
+  if (changeReason.length < 5 || changeReason.length > 1000) {
+    return res.status(400).json({ success: false, message: "Enter a reason for changing this workout plan between 5 and 1000 characters." });
   }
   const parsedSessionDate = typeof sessionDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sessionDate)
     ? new Date(`${sessionDate}T00:00:00.000Z`)
@@ -2056,7 +2084,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     transactionStarted = true;
     const plan = await client.query(
       `
-      SELECT wp.workout_plan_id, wp.user_id
+      SELECT wp.workout_plan_id, wp.user_id, wp.approval_status
       FROM workout_plans wp
       JOIN users u ON u.user_id = wp.user_id
       WHERE wp.workout_plan_id = $1
@@ -2088,7 +2116,7 @@ const updateMyWorkoutPlan = async (req, res) => {
       const date = String(session.session_date).slice(0, 10);
       return /^\d{4}-\d{2}-\d{2}$/.test(date) && date < todayDate;
     });
-    if (hasPastWorkoutDate) {
+    if (hasPastWorkoutDate && plan.rows[0].approval_status !== "Rejected") {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(409).json({
@@ -2111,7 +2139,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     }
 
     const member = await client.query(
-      `SELECT user_id, activity_level, fitness_goal, workout_days_per_week, workout_duration
+      `SELECT user_id, first_name, email, activity_level, fitness_goal, workout_days_per_week, workout_duration
        FROM users
        WHERE user_id = $1 AND trainer_id = $2 AND LOWER(COALESCE(account_status, 'pending')) = 'active'`,
       [plan.rows[0].user_id, trainerId]
@@ -2202,6 +2230,7 @@ const updateMyWorkoutPlan = async (req, res) => {
       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
       WHERE wp.user_id = $1
         AND ws.session_date = $2
+        AND wp.approval_status IN ('Approved', 'Pending')
         AND wp.workout_plan_id <> $3
       LIMIT 1
       `,
@@ -2222,6 +2251,7 @@ const updateMyWorkoutPlan = async (req, res) => {
        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
        WHERE wp.user_id = $1
          AND wp.workout_plan_id <> $3
+         AND wp.approval_status IN ('Approved', 'Pending')
          AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
          AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')`,
       [plan.rows[0].user_id, sessionDate, planId]
@@ -2265,6 +2295,7 @@ const updateMyWorkoutPlan = async (req, res) => {
        JOIN exercises e ON e.exercise_id = ws.exercise_id
        WHERE wp.user_id = $1
          AND wp.workout_plan_id <> $3
+         AND wp.approval_status IN ('Approved', 'Pending')
          AND ws.session_date = ANY($2::text[])
          AND NULLIF(BTRIM(e.muscle_group), '') IS NOT NULL`,
       [plan.rows[0].user_id, neighboringDates, planId]
@@ -2290,7 +2321,9 @@ const updateMyWorkoutPlan = async (req, res) => {
     await client.query(
       `UPDATE workout_plans
        SET plan_name = $1, goal = $2,
-           scheduled_start_time = $3::time, scheduled_duration_minutes = $4
+           scheduled_start_time = $3::time,
+           scheduled_duration_minutes = $4,
+           approval_status = CASE WHEN approval_status = 'Rejected' THEN 'Pending' ELSE approval_status END
        WHERE workout_plan_id = $5`,
       [planName, goal, scheduledStartTime, sessionDuration, planId]
     );
@@ -2306,6 +2339,24 @@ const updateMyWorkoutPlan = async (req, res) => {
 
     await client.query("COMMIT");
     transactionStarted = false;
+    const awaitingApproval = ["Pending", "Rejected"].includes(plan.rows[0].approval_status);
+    await createNotification({
+      audience: "user",
+      recipientId: Number(plan.rows[0].user_id),
+      message: `Your coach updated your workout plan for ${sessionDate}. Reason: ${changeReason}${awaitingApproval ? " It is awaiting approval." : ""}`,
+      notificationType: "workout",
+      targetUrl: "/user/workout",
+    }).catch((notificationError) => {
+      console.error("Revised workout plan notification failed:", notificationError.message);
+    });
+    await deliverWorkoutPlanEmail({
+      to: member.rows[0].email,
+      firstName: member.rows[0].first_name,
+      planName,
+      sessionDate,
+      status: "updated",
+      reason: changeReason,
+    }, "Workout plan update");
     res.json({ success: true, message: "Workout plan updated." });
   } catch (err) {
     if (transactionStarted) await client.query("ROLLBACK");
