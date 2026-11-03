@@ -239,15 +239,6 @@ const updateWorkout = async (req, res) => {
   }
 };
 
-const deleteWorkout = async (req, res) => {
-  try {
-    await pool.query("DELETE FROM exercises WHERE exercise_id = $1", [req.params.id]);
-    res.json({ success: true, message: "Exercise deleted." });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
 const getWorkoutPlans = async (req, res) => {
   try {
     const result = await pool.query(`
@@ -389,7 +380,7 @@ const deleteAssignedSession = async (req, res) => {
 };
 
 module.exports = {
-  getWorkouts, getCategories, updateWorkout, deleteWorkout,
+  getWorkouts, getCategories, updateWorkout,
   getEquipmentInventory,
   createEquipment,
   updateEquipment,
