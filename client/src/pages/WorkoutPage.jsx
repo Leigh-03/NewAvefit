@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle, Dumbbell, Moon, Play, Plus, RotateCcw, Target } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 import MemberWorkoutPlanRequestModal from "../components/workout/MemberWorkoutPlanRequestModal";
@@ -53,6 +53,7 @@ const isSessionScheduledForDate = (session, date) => {
 
 export default function WorkoutPage() {
   const { user } = useUserAuth();
+  const [searchParams] = useSearchParams();
   const initializedSchedule = useRef(false);
   const [sessions, setSessions] = useState([]);
   const [workoutDays, setWorkoutDays] = useState([]); // days the user picked as their availability
@@ -67,6 +68,12 @@ export default function WorkoutPage() {
   const [hasAssignedCoach, setHasAssignedCoach] = useState(false);
   const [showPlanRequest, setShowPlanRequest] = useState(false);
   const [planRequestNotice, setPlanRequestNotice] = useState("");
+
+  useEffect(() => {
+    if (!planRequestNotice) return undefined;
+    const timer = window.setTimeout(() => setPlanRequestNotice(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [planRequestNotice]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -108,6 +115,21 @@ export default function WorkoutPage() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    const requestedDate = searchParams.get("date") || "";
+    const requestedPlanId = Number(searchParams.get("planId"));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) return;
+    const parsedRequestedDate = new Date(`${requestedDate}T00:00:00.000Z`);
+    if (!Number.isFinite(parsedRequestedDate.getTime()) || parsedRequestedDate.toISOString().slice(0, 10) !== requestedDate) return;
+    const planExists = Number.isInteger(requestedPlanId) && requestedPlanId > 0
+      ? userPlans.some((plan) => Number(plan.workout_plan_id) === requestedPlanId)
+        || sessions.some((session) => Number(session.workout_plan_id) === requestedPlanId)
+      : true;
+    if (!planExists) return;
+    setWeekStart(philippinesMondayString(new Date(`${requestedDate}T12:00:00+08:00`)));
+    setActiveDay(requestedDate);
+  }, [searchParams, sessions, userPlans]);
 
   const isWorkoutDay = (day) => {
     const weekday = getWeekday(day);
@@ -195,6 +217,23 @@ export default function WorkoutPage() {
   const activeDayLabel = formatWorkoutDate(activeDay);
   const weekEnd = weekDates[6];
   const weekLabel = `${formatPhilippinesDate(weekStart, { month: "short", day: "numeric" })} – ${formatPhilippinesDate(weekEnd, { month: "short", day: "numeric", year: "numeric" })}`;
+  const changedPlansForActiveDay = userPlans.filter((plan) =>
+    plan.trainer_change_reason &&
+    philippinesDateKey(plan.session_date) === activeDay &&
+    (!searchParams.get("planId") || Number(plan.workout_plan_id) === Number(searchParams.get("planId")))
+  );
+  const requestedPlanId = Number(searchParams.get("planId")) || null;
+  const hasRequestedPlanChange = changedPlansForActiveDay.some(
+    (plan) => Number(plan.workout_plan_id) === requestedPlanId
+  );
+
+  useEffect(() => {
+    if (loading || !requestedPlanId || !hasRequestedPlanChange) return;
+    document.getElementById(`workout-plan-${requestedPlanId}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [activeDay, hasRequestedPlanChange, loading, requestedPlanId]);
 
   return (
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
@@ -275,6 +314,10 @@ export default function WorkoutPage() {
           {userPlans.filter((plan) => ["Pending", "Rejected"].includes(plan.approval_status)).map((plan) => (
             <p key={plan.workout_plan_id} role="status" className={`rounded-xl border px-4 py-3 text-sm ${plan.approval_status === "Pending" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200" : "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200"}`}>
               <strong>{plan.plan_name}:</strong> {plan.approval_status === "Pending" ? "Waiting for your coach's approval." : "Your coach declined this plan. You can submit an updated request."}
+              {plan.session_date && <> Scheduled for {formatWorkoutDate(plan.session_date)}.</>}
+              {plan.trainer_change_reason && (
+                <span className="mt-2 block"><strong>Reason for coach changes:</strong> {plan.trainer_change_reason}</span>
+              )}
             </p>
           ))}
         </section>
@@ -350,6 +393,28 @@ export default function WorkoutPage() {
 
       {/* Workout List */}
       <div className="mx-auto max-w-5xl space-y-3 px-5 py-3 sm:px-8">
+        {changedPlansForActiveDay.map((plan) => (
+          <section
+            key={plan.workout_plan_id}
+            id={`workout-plan-${plan.workout_plan_id}`}
+            role="status"
+            className="rounded-2xl border border-orange-300 bg-orange-50 p-4 dark:border-orange-500/30 dark:bg-orange-500/10"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-orange-700 dark:text-orange-300">Coach updated this workout plan</p>
+                <h3 className="mt-1 font-semibold text-slate-900 dark:text-white">{plan.plan_name}</h3>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Scheduled for {formatWorkoutDate(plan.session_date)}</p>
+              </div>
+              {plan.approval_status === "Pending" && (
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">Awaiting approval</span>
+              )}
+            </div>
+            <p className="mt-3 rounded-xl bg-white/80 px-3 py-2.5 text-sm text-slate-700 dark:bg-black/20 dark:text-slate-200">
+              <strong className="text-orange-700 dark:text-orange-300">Reason for change:</strong> {plan.trainer_change_reason}
+            </p>
+          </section>
+        ))}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Training plan</p>
@@ -392,7 +457,7 @@ export default function WorkoutPage() {
         ) : (
           daySessions.map((session) => (
             <div key={session.session_id}
-              className={`rounded-2xl border bg-white p-4 shadow-sm dark:bg-[#111] ${session.completed ? "border-green-500/30" : "border-orange-100 dark:border-white/5"}`}>
+              className={`rounded-2xl border bg-white p-4 shadow-sm dark:bg-[#111] ${Number(session.workout_plan_id) === requestedPlanId ? "border-2 border-orange-500 ring-2 ring-orange-500/20" : session.completed ? "border-green-500/30" : "border-orange-100 dark:border-white/5"}`}>
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <p className={`font-semibold ${session.completed ? "text-slate-500" : "text-slate-900 dark:text-white"}`}>

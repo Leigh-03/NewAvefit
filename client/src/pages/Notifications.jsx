@@ -189,7 +189,9 @@ export default function Notifications({ audience = "admin" }) {
                   </div>
                   {notif.target_url?.startsWith("/") && !notif.target_url.startsWith("//") && (
                     <Link
-                      to={notif.target_url}
+                      to={audience === "trainer" && notif.target_url === "/trainer/workouts"
+                        ? "/trainer/workout-plans"
+                        : notif.target_url}
                       onClick={() => {
                         if (!notif.is_read) handleMarkRead(notif.notification_id);
                       }}

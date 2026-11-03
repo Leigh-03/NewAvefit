@@ -2323,9 +2323,10 @@ const updateMyWorkoutPlan = async (req, res) => {
        SET plan_name = $1, goal = $2,
            scheduled_start_time = $3::time,
            scheduled_duration_minutes = $4,
+           trainer_change_reason = $5,
            approval_status = CASE WHEN approval_status = 'Rejected' THEN 'Pending' ELSE approval_status END
-       WHERE workout_plan_id = $5`,
-      [planName, goal, scheduledStartTime, sessionDuration, planId]
+       WHERE workout_plan_id = $6`,
+      [planName, goal, scheduledStartTime, sessionDuration, changeReason, planId]
     );
     await client.query("DELETE FROM workout_sessions WHERE workout_plan_id = $1", [planId]);
     for (const session of sessions) {
@@ -2345,7 +2346,7 @@ const updateMyWorkoutPlan = async (req, res) => {
       recipientId: Number(plan.rows[0].user_id),
       message: `Your coach updated your workout plan for ${sessionDate}. Reason: ${changeReason}${awaitingApproval ? " It is awaiting approval." : ""}`,
       notificationType: "workout",
-      targetUrl: "/user/workout",
+      targetUrl: `/user/workout?planId=${planId}&date=${sessionDate}`,
     }).catch((notificationError) => {
       console.error("Revised workout plan notification failed:", notificationError.message);
     });

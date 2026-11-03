@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Check, ChevronDown, ClipboardList, Eye, LockKeyhole, Pencil, Plus, Search, Trash2, X, XCircle } from "lucide-react";
 import trainerApi from "../trainerApi";
 import { getWorkoutGoalRules } from "../utils/workoutGoalRules";
 
-function PlanDetailsModal({ plan, onClose }) {
+function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject }) {
   const sessions = Array.isArray(plan.sessions) ? plan.sessions : [];
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -41,7 +42,14 @@ function PlanDetailsModal({ plan, onClose }) {
             <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-white/5">No exercises are attached to this plan.</p>
           )}
         </div>
-        <footer className="flex justify-end border-t border-slate-200 p-4 dark:border-slate-800">
+        <footer className="flex flex-wrap justify-between gap-3 border-t border-slate-200 p-4 dark:border-slate-800">
+          {plan.approval_status === "Pending" ? (
+            <div className="flex gap-2">
+              <button type="button" onClick={onEdit} className="rounded-lg border border-orange-500/30 px-3 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-500/10 dark:text-orange-400">Edit request</button>
+              <button type="button" onClick={onReject} className="rounded-lg border border-red-500/30 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Reject</button>
+              <button type="button" onClick={onApprove} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700">Approve</button>
+            </div>
+          ) : <span />}
           <button type="button" onClick={onClose} className="min-h-10 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">Close</button>
         </footer>
       </section>
@@ -675,6 +683,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
 }
 
 export default function TrainerWorkoutPlans() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [plans, setPlans] = useState([]);
   const [members, setMembers] = useState([]);
   const [exercises, setExercises] = useState([]);
@@ -691,7 +700,7 @@ export default function TrainerWorkoutPlans() {
   const [fetchError, setFetchError] = useState("");
   const [reviewingPlanId, setReviewingPlanId] = useState(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setFetchError("");
     try {
       const [plansResponse, membersResponse, exercisesResponse] = await Promise.all([
@@ -699,7 +708,19 @@ export default function TrainerWorkoutPlans() {
         trainerApi.get("/me/roster"),
         trainerApi.get("/me/exercises"),
       ]);
-      setPlans(plansResponse.data.data || []);
+      const loadedPlans = plansResponse.data.data || [];
+      setPlans(loadedPlans);
+      const requestedPlanId = Number(searchParams.get("planId"));
+      if (Number.isInteger(requestedPlanId) && requestedPlanId > 0) {
+        const requestedPlan = loadedPlans.find((item) => Number(item.workout_plan_id) === requestedPlanId);
+        if (requestedPlan) {
+          setViewingPlan(requestedPlan);
+          setSearchParams({}, { replace: true });
+        } else {
+          setFetchError("The workout plan request from this notification could not be found in your current plans.");
+          setSearchParams({}, { replace: true });
+        }
+      }
       setMembers(membersResponse.data.data || []);
       setExercises(exercisesResponse.data.data || []);
     } catch (err) {
@@ -708,11 +729,11 @@ export default function TrainerWorkoutPlans() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   const handleDelete = async (plan) => {
     if (!window.confirm(`Delete "${plan.plan_name}"? This can't be undone.`)) return;
@@ -785,7 +806,22 @@ export default function TrainerWorkoutPlans() {
           onSave={fetchData}
         />
       )}
-      {viewingPlan && <PlanDetailsModal plan={viewingPlan} onClose={() => setViewingPlan(null)} />}
+      {viewingPlan && (
+        <PlanDetailsModal
+          plan={viewingPlan}
+          onClose={() => setViewingPlan(null)}
+          onEdit={() => { handleEdit(viewingPlan); setViewingPlan(null); }}
+          onApprove={async () => {
+            if (await handleReviewRequest(viewingPlan, "approve")) setViewingPlan(null);
+          }}
+          onReject={() => {
+            setRejectingPlan(viewingPlan);
+            setRejectionReason("");
+            setRejectionError("");
+            setViewingPlan(null);
+          }}
+        />
+      )}
       {rejectingPlan && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
           <section role="dialog" aria-modal="true" aria-labelledby="workout-rejection-title" className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]">
