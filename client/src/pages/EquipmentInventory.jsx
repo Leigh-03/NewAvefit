@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, ChevronDown, Pencil, Plus, Search } from "lucide-react";
+import { Boxes, ChevronDown, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import api from "../services/api";
 
 const CONDITIONS = ["Not assessed", "Good", "Rusty", "Worn", "Damaged", "Poor", "Other"];
@@ -131,6 +131,7 @@ export default function EquipmentInventory() {
   const [expandedEquipment, setExpandedEquipment] = useState(null);
   const [editingEquipment, setEditingEquipment] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [deletingEquipmentId, setDeletingEquipmentId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -155,6 +156,21 @@ export default function EquipmentInventory() {
     return equipment.filter((item) => item.equipment_name.toLowerCase().includes(query));
   }, [equipment, search]);
   const totalQuantity = equipment.reduce((total, item) => total + Number(item.quantity || 0), 0);
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`Remove "${item.equipment_name}" from the inventory? The record will be hidden but preserved for existing workout references.`)) return;
+    setDeletingEquipmentId(item.equipment_id);
+    setError("");
+    try {
+      await api.delete(`/workouts/equipment/${item.equipment_id}`);
+      setEquipment((current) => current.filter((entry) => entry.equipment_id !== item.equipment_id));
+      setExpandedEquipment((current) => current === item.equipment_id ? null : current);
+    } catch (requestError) {
+      setError(requestError.response?.data?.message || "Unable to remove equipment.");
+    } finally {
+      setDeletingEquipmentId(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -221,6 +237,16 @@ export default function EquipmentInventory() {
                       <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(item.status)}`}>{item.status}</span>
                       <button type="button" onClick={() => setEditingEquipment(item)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-orange-500 hover:text-orange-600 dark:border-white/10 dark:text-slate-200" aria-label={`Edit ${item.equipment_name} details`}>
                         <Pencil size={14} /> Details
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(item)}
+                        disabled={deletingEquipmentId === item.equipment_id}
+                        className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10"
+                        aria-label={`Delete ${item.equipment_name}`}
+                        title="Remove from equipment inventory"
+                      >
+                        <Trash2 size={14} /> {deletingEquipmentId === item.equipment_id ? "Removing..." : "Delete"}
                       </button>
                       <button type="button" onClick={() => setExpandedEquipment(isExpanded ? null : item.equipment_id)} aria-label={`${isExpanded ? "Hide" : "Show"} ${item.equipment_name} usage`} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10">
                         <ChevronDown size={18} className={`transition-transform ${isExpanded ? "rotate-180" : ""}`} />

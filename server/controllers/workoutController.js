@@ -93,6 +93,7 @@ const getEquipmentInventory = async (_req, res) => {
           GROUP BY u.user_id, u.first_name, u.last_name, wp.workout_plan_id, wp.plan_name, ws.session_date
         ) session_usage
       ) plan_usage ON TRUE
+      WHERE inventory.is_deleted = FALSE
       ORDER BY inventory.equipment_name ASC
     `);
     return res.json({ success: true, data: result.rows });
@@ -113,9 +114,20 @@ const createEquipment = async (req, res) => {
       `INSERT INTO equipment_inventory
         (equipment_name, quantity, equipment_condition, condition_notes, status, updated_at)
        VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (LOWER(BTRIM(equipment_name)))
+       DO UPDATE SET quantity = EXCLUDED.quantity,
+                     equipment_condition = EXCLUDED.equipment_condition,
+                     condition_notes = EXCLUDED.condition_notes,
+                     status = EXCLUDED.status,
+                     is_deleted = FALSE,
+                     updated_at = NOW()
+       WHERE equipment_inventory.is_deleted = TRUE
        RETURNING equipment_id, equipment_name, quantity, equipment_condition AS condition, condition_notes, status, updated_at`,
       [equipmentName, quantity, condition, conditionNotes, status]
     );
+    if (!result.rowCount) {
+      return res.status(409).json({ success: false, message: "This equipment is already in the inventory." });
+    }
     return res.status(201).json({ success: true, data: result.rows[0] });
   } catch (error) {
     if (error.code === "23505") {
@@ -143,7 +155,7 @@ const updateEquipment = async (req, res) => {
     await client.query("BEGIN");
     transactionStarted = true;
     const current = await client.query(
-      "SELECT equipment_name FROM equipment_inventory WHERE equipment_id = $1 FOR UPDATE",
+      "SELECT equipment_name FROM equipment_inventory WHERE equipment_id = $1 AND is_deleted = FALSE FOR UPDATE",
       [equipmentId]
     );
     if (!current.rowCount) {
@@ -177,6 +189,29 @@ const updateEquipment = async (req, res) => {
     return res.status(500).json({ success: false, message: "Unable to update equipment details." });
   } finally {
     client?.release();
+  }
+};
+
+const deleteEquipment = async (req, res) => {
+  const equipmentId = Number(req.params.equipmentId);
+  if (!Number.isInteger(equipmentId) || equipmentId < 1) {
+    return res.status(400).json({ success: false, message: "Choose valid equipment." });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE equipment_inventory
+       SET is_deleted = TRUE, updated_at = NOW()
+       WHERE equipment_id = $1 AND is_deleted = FALSE
+       RETURNING equipment_id`,
+      [equipmentId]
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ success: false, message: "Equipment was not found." });
+    }
+    return res.json({ success: true, message: "Equipment removed from inventory." });
+  } catch (error) {
+    console.error("deleteEquipment error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to remove equipment." });
   }
 };
 
@@ -358,6 +393,7 @@ module.exports = {
   getEquipmentInventory,
   createEquipment,
   updateEquipment,
+  deleteEquipment,
   getWorkoutPlans, createWorkoutPlan, deleteWorkoutPlan,
   getMemberSessions, assignSessionToMember, deleteAssignedSession,
 };
