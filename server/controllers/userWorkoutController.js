@@ -27,6 +27,7 @@ const getUserWorkoutPlan = async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT ws.*, e.exercise_name, e.muscle_group, e.difficulty, e.equipment, e.description,
+             wp.workout_plan_id, wp.plan_name, wp.trainer_change_reason,
              wp.scheduled_start_time, wp.scheduled_duration_minutes
       FROM workout_sessions ws
       JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
@@ -46,7 +47,13 @@ const getUserWorkoutPlan = async (req, res) => {
 const getUserPlans = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT * FROM workout_plans WHERE user_id = $1 ORDER BY created_at DESC",
+      `SELECT wp.*,
+              (SELECT MIN(ws.session_date)
+               FROM workout_sessions ws
+               WHERE ws.workout_plan_id = wp.workout_plan_id) AS session_date
+       FROM workout_plans wp
+       WHERE wp.user_id = $1
+       ORDER BY wp.created_at DESC`,
       [req.user.user_id]
     );
     res.json({ success: true, data: result.rows });
@@ -241,7 +248,7 @@ const requestWorkoutPlan = async (req, res) => {
       message: `${memberName} submitted "${planName}" for your approval.`,
       notificationType: "workout",
       userName: memberName,
-      targetUrl: "/trainer/workouts",
+      targetUrl: `/trainer/workout-plans?planId=${planId}`,
     }).catch((notificationError) => {
       console.error("Workout plan request notification failed:", notificationError.message);
     });

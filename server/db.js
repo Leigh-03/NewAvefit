@@ -394,6 +394,10 @@ const initializeDatabase = async () => {
       ALTER TABLE workout_plans
       ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) NOT NULL DEFAULT 'Approved'
     `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS trainer_change_reason TEXT
+    `);
 
     await client.query(`
       ALTER TABLE users
