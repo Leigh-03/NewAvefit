@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import OnboardingShell from "../components/layout/OnboardingShell";
 import { useNavigate } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
@@ -13,15 +13,26 @@ const sanitizeNumberInput = (value) => {
 export default function Assessment() {
   const navigate = useNavigate();
   const { user } = useUserAuth();
-  const [gender, setGender] = useState("Male");
-  const [age, setAge] = useState("");
-  const [weight, setWeight] = useState("");
-  const [height, setHeight] = useState("");
+  const [gender, setGender] = useState(user?.gender || "Male");
+  const [age, setAge] = useState(user?.age?.toString() || "");
+  const [weight, setWeight] = useState(user?.weight?.toString() || "");
+  const [height, setHeight] = useState(user?.height?.toString() || "");
   const [bmi, setBmi] = useState(null);
   const [bmiCategory, setBmiCategory] = useState("");
   const [calculated, setCalculated] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
   const [formError, setFormError] = useState("");
+
+  useEffect(() => {
+    if (!user) return;
+    setGender(user.gender || "Male");
+    setAge(user.age != null ? String(user.age) : "");
+    setWeight(user.weight != null ? String(user.weight) : "");
+    setHeight(user.height != null ? String(user.height) : "");
+    setCalculated(false);
+    setBmi(null);
+    setFormError("");
+  }, [user]);
 
   const validateFields = () => {
     const fields = [
@@ -80,9 +91,8 @@ export default function Assessment() {
 
     try {
       await userApi.put("/profile", {
-        ...user,
         gender,
-        age: parseInt(age),
+        age: parseInt(age, 10),
         weight: parseFloat(weight),
         height: parseFloat(height),
       });

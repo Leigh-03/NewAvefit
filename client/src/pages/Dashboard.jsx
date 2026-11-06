@@ -1,25 +1,43 @@
 import { useEffect, useState } from "react";
-import { Users, Clock, Dumbbell, BarChart3, UserCheck } from "lucide-react";
+import { Users, Clock, Dumbbell, BarChart3, UserCheck, TriangleAlert, Wrench } from "lucide-react";
 import { Link } from "react-router-dom";
 import StatCard from "../components/dashboard/StatCard";
 import GrowthChart from "../components/dashboard/GrowthChart";
 import ActivityList from "../components/dashboard/ActivityList";
 import api from "../services/api";
 
+const normalizeEquipmentStatus = (status) => ({
+  "Under repair": "Under Maintenance",
+  "Under Maintenance": "Under Maintenance",
+  "Needs replacement": "Needs replacement",
+  "In service": "In service",
+  "Needs inspection": "Needs inspection",
+}[String(status || "").trim()] || String(status || "").trim() || "Needs inspection");
+
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
+  const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
 
   useEffect(() => {
-    api.get("/analytics/dashboard")
-      .then((res) => setStats(res.data.data))
+    Promise.all([
+      api.get("/analytics/dashboard"),
+      api.get("/workouts/equipment"),
+    ])
+      .then(([dashboardRes, equipmentRes]) => {
+        setStats(dashboardRes.data.data);
+        setEquipment(Array.isArray(equipmentRes.data?.data) ? equipmentRes.data.data : []);
+      })
       .catch((err) => {
         console.error(err);
         setFetchError(err.response?.data?.message || err.message || "Couldn't load dashboard stats.");
       })
       .finally(() => setLoading(false));
   }, []);
+
+  const needReplacementCount = equipment.filter((item) => normalizeEquipmentStatus(item.status) === "Needs replacement").length;
+  const underMaintenanceCount = equipment.filter((item) => normalizeEquipmentStatus(item.status) === "Under Maintenance").length;
 
   return (
     <div className="space-y-6">
@@ -62,6 +80,27 @@ export default function Dashboard() {
           />
         </div>
       )}
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
+        <Link to="/admin/equipment?status=Needs%20replacement" className="rounded-2xl border border-red-200 bg-red-50 p-3 transition hover:border-red-300 hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:hover:bg-red-500/15">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-red-700 dark:text-red-300">
+              <TriangleAlert size={16} />
+              <span className="text-[11px] font-bold uppercase tracking-wide">Need replacement</span>
+            </div>
+            <span className="text-2xl font-black text-red-700 dark:text-red-300">{loading ? "—" : needReplacementCount}</span>
+          </div>
+        </Link>
+        <Link to="/admin/equipment?status=Under%20Maintenance" className="rounded-2xl border border-amber-200 bg-amber-50 p-3 transition hover:border-amber-300 hover:bg-amber-100 dark:border-amber-500/20 dark:bg-amber-500/10 dark:hover:bg-amber-500/15">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+              <Wrench size={16} />
+              <span className="text-[11px] font-bold uppercase tracking-wide">Under Maintenance</span>
+            </div>
+            <span className="text-2xl font-black text-amber-700 dark:text-amber-300">{loading ? "—" : underMaintenanceCount}</span>
+          </div>
+        </Link>
+      </section>
 
       <section aria-label="Quick links" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
