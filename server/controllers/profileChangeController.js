@@ -418,12 +418,14 @@ const reviewChangeRequest = async (req, res) => {
         const change = payload.weekly_availability;
         const normalized = normalizeAvailability(change?.availability);
         const frequency = Number(change?.workout_days_per_week);
-        const duration = Number(change?.workout_duration);
+        const duration = change?.workout_duration == null || change.workout_duration === ""
+          ? null
+          : Number(change.workout_duration);
         const level = change?.activity_level;
         if (
           normalized.error ||
           !Number.isInteger(frequency) ||
-          ![30, 45, 60, 75, 90].includes(duration) ||
+          (duration !== null && ![30, 45, 60, 75, 90].includes(duration)) ||
           !["Beginner", "Intermediate", "Advanced"].includes(level)
         ) {
           await client.query("ROLLBACK");
@@ -447,7 +449,7 @@ const reviewChangeRequest = async (req, res) => {
           `UPDATE users
            SET activity_level = $1,
                workout_days_per_week = $2,
-               workout_duration = $3,
+               workout_duration = COALESCE($3, workout_duration),
                preferred_days = $4,
                preferred_workout_time = NULL,
                updated_at = NOW()

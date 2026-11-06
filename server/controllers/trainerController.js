@@ -43,10 +43,14 @@ const {
 
 const GOAL_SPECIALTIES = [
   "Weight Loss",
+  "Gain Weight",
   "Muscle Gain",
   "Maintain Weight",
   "General Fitness",
 ];
+const DEFAULT_WORKOUT_SESSION_DURATION = 60;
+const formatWorkoutPlanName = (firstName, trainingProgram) =>
+  `${String(firstName || "Member").trim()}'s ${trainingProgram} day Workout Routine`;
 
 const timeToMinutes = (value) => {
   const [hours, minutes] = String(value).split(":").map(Number);
@@ -1097,6 +1101,8 @@ const getTrainerRoster = async (req, res) => {
         u.preferred_workout_time,
         u.workout_days_per_week,
         u.workout_duration,
+        u.membership_start_date,
+        u.membership_end_date,
         COALESCE(user_availability.slots, '[]'::json) AS weekly_availability,
         pl.weight AS latest_weight,
         pl.bmi AS latest_bmi,
@@ -1315,6 +1321,8 @@ const getMyRoster = async (req, res) => {
         u.preferred_workout_time,
         u.workout_days_per_week,
         u.workout_duration,
+        u.membership_start_date,
+        u.membership_end_date,
         COALESCE(user_availability.slots, '[]'::json) AS weekly_availability,
         pl.weight AS latest_weight,
         pl.bmi AS latest_bmi,
@@ -1438,6 +1446,7 @@ const getMyWorkoutPlans = async (req, res) => {
         wp.workout_plan_id,
         wp.plan_name,
         wp.goal,
+        u.target_weight,
         wp.training_program,
         wp.previous_training_program,
         wp.is_program_switch,
@@ -1527,18 +1536,10 @@ const getMyWorkoutPlans = async (req, res) => {
 
 const createMyWorkoutPlan = async (req, res) => {
   const trainerId = req.trainer.trainer_id;
-  const planName = typeof req.body.plan_name === "string" ? req.body.plan_name.trim() : "";
-  const goal = typeof req.body.goal === "string" ? req.body.goal.trim() : "";
   const userId = Number(req.body.user_id);
   const sessionDate = req.body.session_date;
   const sessions = req.body.sessions;
 
-  if (!planName) {
-    return res.status(400).json({ success: false, message: "Plan name is required." });
-  }
-  if (!goal) {
-    return res.status(400).json({ success: false, message: "Goal is required." });
-  }
   if (!Number.isInteger(userId) || userId < 1) {
     return res.status(400).json({ success: false, message: "Choose a member for this workout plan." });
   }
@@ -1598,7 +1599,8 @@ const createMyWorkoutPlan = async (req, res) => {
     const member = await client.query(
       `
       SELECT user_id, first_name, email, activity_level, fitness_goal,
-             workout_days_per_week, workout_duration, preferred_days, injuries, health_conditions
+             target_weight, membership_end_date,
+             workout_days_per_week, preferred_days, injuries, health_conditions
       FROM users
       WHERE user_id = $1
         AND trainer_id = $2
@@ -1614,6 +1616,12 @@ const createMyWorkoutPlan = async (req, res) => {
     }
 
     const memberPreferences = member.rows[0];
+    if (memberPreferences.membership_end_date
+      && String(memberPreferences.membership_end_date).slice(0, 10) < today.rows[0].today) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(403).json({ success: false, message: "This member's membership has ended. Renew it before scheduling a workout plan." });
+    }
     const trainingProgram = getProgramForDate(sessionDate, memberPreferences.preferred_days || []);
     if (!trainingProgram || !TRAINING_PROGRAMS.includes(trainingProgram)
       || (req.body.training_program && req.body.training_program !== trainingProgram)) {
@@ -1624,6 +1632,10 @@ const createMyWorkoutPlan = async (req, res) => {
         message: "Choose exercises for the program automatically assigned to this member's preferred workout day.",
       });
     }
+    const planName = formatWorkoutPlanName(memberPreferences.first_name, trainingProgram);
+    const goal = memberPreferences.target_weight != null
+      ? `Target weight: ${memberPreferences.target_weight} kg`
+      : memberPreferences.fitness_goal || "Fitness goal not set";
     const memberAvailability = await client.query(
       `SELECT day_of_week, time_preference,
               TO_CHAR(start_time, 'HH24:MI') AS start_time,
@@ -1635,7 +1647,7 @@ const createMyWorkoutPlan = async (req, res) => {
     const level = memberPreferences.activity_level || "Beginner";
     const [minimumDays, maximumDays] = getExperienceRange(level);
     const workoutFrequency = Number(memberPreferences.workout_days_per_week);
-    const sessionDuration = Number(memberPreferences.workout_duration);
+    const sessionDuration = DEFAULT_WORKOUT_SESSION_DURATION;
     if (!Number.isInteger(workoutFrequency) || workoutFrequency < minimumDays || workoutFrequency > maximumDays) {
       await client.query("ROLLBACK");
       transactionStarted = false;
@@ -1665,14 +1677,6 @@ const createMyWorkoutPlan = async (req, res) => {
         message: `This member is not available on ${scheduledWeekday[0].toUpperCase()}${scheduledWeekday.slice(1)}.`,
       });
     }
-    if (!Number.isInteger(sessionDuration) || sessionDuration < 30 || sessionDuration > 90) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(400).json({
-        success: false,
-        message: "The member must set a valid preferred workout session duration before a plan can be scheduled.",
-      });
-    }
     const compatibleStartTimes = await getCoachCompatibleStartTimes(
       client,
       trainerId,
@@ -1685,7 +1689,7 @@ const createMyWorkoutPlan = async (req, res) => {
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
+        message: "The coach and member do not have a shared 60-minute availability window on this day.",
       });
     }
     const scheduledStartTime = compatibleStartTimes[0];
@@ -1895,7 +1899,7 @@ const reviewMemberWorkoutPlan = async (req, res) => {
     const planResult = await client.query(
       `SELECT wp.workout_plan_id, wp.user_id, wp.plan_name, wp.approval_status,
               wp.deletion_request_status,
-              u.first_name, u.last_name, u.email, u.workout_duration, u.workout_days_per_week,
+              u.first_name, u.last_name, u.email, u.workout_days_per_week,
               MIN(ws.session_date) AS session_date
        FROM workout_plans wp
        JOIN users u ON u.user_id = wp.user_id AND u.trainer_id = $2
@@ -1991,12 +1995,7 @@ const reviewMemberWorkoutPlan = async (req, res) => {
         transactionStarted = false;
         return res.status(400).json({ success: false, message: `The member is no longer available on ${scheduledWeekday}.` });
       }
-      const duration = Number(plan.workout_duration);
-      if (!Number.isInteger(duration) || duration < 30 || duration > 90) {
-        await client.query("ROLLBACK");
-        transactionStarted = false;
-        return res.status(400).json({ success: false, message: "The member needs a valid workout duration before this plan can be approved." });
-      }
+      const duration = DEFAULT_WORKOUT_SESSION_DURATION;
       const compatibleTimes = await getCoachCompatibleStartTimes(
         client,
         trainerId,
@@ -2189,20 +2188,12 @@ const reviewMemberWorkoutPlanDeletion = async (req, res) => {
 const updateMyWorkoutPlan = async (req, res) => {
   const trainerId = req.trainer.trainer_id;
   const planId = Number(req.params.planId);
-  const planName = typeof req.body.plan_name === "string" ? req.body.plan_name.trim() : "";
-  const goal = typeof req.body.goal === "string" ? req.body.goal.trim() : "";
   const sessionDate = req.body.session_date;
   const changeReason = typeof req.body.change_reason === "string" ? req.body.change_reason.trim() : "";
   const sessions = req.body.sessions;
 
   if (!Number.isInteger(planId) || planId < 1) {
     return res.status(400).json({ success: false, message: "Choose a valid workout plan." });
-  }
-  if (!planName) {
-    return res.status(400).json({ success: false, message: "Plan name is required." });
-  }
-  if (!goal) {
-    return res.status(400).json({ success: false, message: "Goal is required." });
   }
   if (changeReason.length < 5 || changeReason.length > 1000) {
     return res.status(400).json({ success: false, message: "Enter a reason for changing this workout plan between 5 and 1000 characters." });
@@ -2253,7 +2244,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     const plan = await client.query(
       `
       SELECT wp.workout_plan_id, wp.user_id, wp.approval_status, wp.deletion_request_status,
-             wp.training_program
+             wp.training_program, wp.goal
       FROM workout_plans wp
       JOIN users u ON u.user_id = wp.user_id
       WHERE wp.workout_plan_id = $1
@@ -2313,7 +2304,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     }
 
     const member = await client.query(
-      `SELECT user_id, first_name, email, activity_level, fitness_goal, workout_days_per_week, workout_duration, injuries, health_conditions
+      `SELECT user_id, first_name, email, activity_level, fitness_goal, workout_days_per_week, injuries, health_conditions
        FROM users
        WHERE user_id = $1 AND trainer_id = $2 AND LOWER(COALESCE(account_status, 'pending')) = 'active'`,
       [plan.rows[0].user_id, trainerId]
@@ -2334,7 +2325,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     const level = member.rows[0].activity_level || "Beginner";
     const [minimumDays, maximumDays] = getExperienceRange(level);
     const workoutFrequency = Number(member.rows[0].workout_days_per_week);
-    const sessionDuration = Number(member.rows[0].workout_duration);
+    const sessionDuration = DEFAULT_WORKOUT_SESSION_DURATION;
     if (!Number.isInteger(workoutFrequency) || workoutFrequency < minimumDays || workoutFrequency > maximumDays) {
       await client.query("ROLLBACK");
       transactionStarted = false;
@@ -2362,14 +2353,6 @@ const updateMyWorkoutPlan = async (req, res) => {
         message: `This member is not available on ${scheduledWeekday}.`,
       });
     }
-    if (!Number.isInteger(sessionDuration) || sessionDuration < 30 || sessionDuration > 90) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(400).json({
-        success: false,
-        message: "The member must set a valid preferred workout session duration before a plan can be scheduled.",
-      });
-    }
     const compatibleStartTimes = await getCoachCompatibleStartTimes(
       client,
       trainerId,
@@ -2382,7 +2365,7 @@ const updateMyWorkoutPlan = async (req, res) => {
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
+        message: "The coach and member do not have a shared 60-minute availability window on this day.",
       });
     }
     const scheduledStartTime = compatibleStartTimes[0];
@@ -2514,7 +2497,7 @@ const updateMyWorkoutPlan = async (req, res) => {
            trainer_change_reason = $5,
            approval_status = CASE WHEN approval_status = 'Rejected' THEN 'Pending' ELSE approval_status END
        WHERE workout_plan_id = $6`,
-      [planName, goal, scheduledStartTime, sessionDuration, changeReason, planId]
+      [formatWorkoutPlanName(member.rows[0].first_name, plan.rows[0].training_program || "Workout"), plan.rows[0].goal, scheduledStartTime, sessionDuration, changeReason, planId]
     );
     await client.query("DELETE FROM workout_sessions WHERE workout_plan_id = $1", [planId]);
     for (const session of sessions) {
@@ -2933,7 +2916,7 @@ const assignSessionAsTrainer = async (req, res) => {
 
     const memberResult = await client.query(
       `
-      SELECT user_id, activity_level, fitness_goal, workout_days_per_week, workout_duration
+      SELECT user_id, activity_level, fitness_goal, workout_days_per_week
       FROM users
       WHERE user_id = $1
         AND trainer_id = $2
@@ -2970,7 +2953,7 @@ const assignSessionAsTrainer = async (req, res) => {
     );
     const [minimumDays, maximumDays] = getExperienceRange(member.activity_level);
     const workoutFrequency = Number(member.workout_days_per_week);
-    const sessionDuration = Number(member.workout_duration);
+    const sessionDuration = DEFAULT_WORKOUT_SESSION_DURATION;
     if (!Number.isInteger(workoutFrequency) || workoutFrequency < minimumDays || workoutFrequency > maximumDays) {
       await client.query("ROLLBACK");
       transactionStarted = false;
@@ -2985,14 +2968,6 @@ const assignSessionAsTrainer = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `The member must select exactly ${workoutFrequency} available days to match their weekly workout frequency.`,
-      });
-    }
-    if (!Number.isInteger(sessionDuration) || sessionDuration < 30 || sessionDuration > 90) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(400).json({
-        success: false,
-        message: "The member must set a valid preferred workout session duration before a plan can be scheduled.",
       });
     }
     const weekday = [
@@ -3027,7 +3002,7 @@ const assignSessionAsTrainer = async (req, res) => {
       transactionStarted = false;
       return res.status(400).json({
         success: false,
-        message: "The coach and member do not have enough overlapping availability for this session duration on the selected day.",
+        message: "The coach and member do not have a shared 60-minute availability window on this day.",
       });
     }
 

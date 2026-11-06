@@ -63,9 +63,9 @@ export default function Assessment() {
       return;
     }
     const h = parseFloat(height) / 100;
-    const result = (parseFloat(weight) / (h * h)).toFixed(1);
-    const cat = getBMICategory(parseFloat(result));
-    setBmi(result);
+    const result = parseFloat(weight) / (h * h);
+    const cat = getBMICategory(result);
+    setBmi(result.toFixed(2));
     setBmiCategory(cat);
     setCalculated(true);
   };

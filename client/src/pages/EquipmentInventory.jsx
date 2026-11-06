@@ -2,8 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Boxes, ChevronDown, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import api from "../services/api";
 
-const CONDITIONS = ["Not assessed", "Good", "Rusty", "Worn", "Damaged", "Poor", "Other"];
-const STATUSES = ["Needs inspection", "In service", "Under repair", "Repaired", "Replaced", "Retired"];
+const CONDITIONS_BY_STATUS = {
+  "Needs inspection": ["Not assessed"],
+  "Under repair": ["Damaged"],
+  "In service": ["Good", "Rusty"],
+  "Needs replacement": ["Poor", "Damaged", "Worn"],
+};
+const STATUSES = Object.keys(CONDITIONS_BY_STATUS);
 
 const emptyForm = {
   equipment_name: "",
@@ -17,7 +22,9 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
   const [form, setForm] = useState(() => equipment ? {
     equipment_name: equipment.equipment_name,
     quantity: String(equipment.quantity),
-    condition: equipment.condition,
+    condition: CONDITIONS_BY_STATUS[equipment.status]?.includes(equipment.condition)
+      ? equipment.condition
+      : CONDITIONS_BY_STATUS[equipment.status]?.[0] || "Not assessed",
     condition_notes: equipment.condition_notes || "",
     status: equipment.status,
   } : emptyForm);
@@ -85,15 +92,23 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
             />
           </label>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-            Condition *
-            <select value={form.condition} onChange={(event) => setForm({ ...form, condition: event.target.value })} className={fieldClass}>
-              {CONDITIONS.map((condition) => <option key={condition} value={condition}>{condition}</option>)}
+            Status *
+            <select value={form.status} onChange={(event) => {
+              const status = event.target.value;
+              setForm({ ...form, status, condition: CONDITIONS_BY_STATUS[status][0] });
+            }} className={fieldClass}>
+              {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
             </select>
           </label>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-            Status *
-            <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })} className={fieldClass}>
-              {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+            Condition *
+            <select
+              value={form.condition}
+              disabled={CONDITIONS_BY_STATUS[form.status].length === 1}
+              onChange={(event) => setForm({ ...form, condition: event.target.value })}
+              className={fieldClass}
+            >
+              {CONDITIONS_BY_STATUS[form.status].map((condition) => <option key={condition} value={condition}>{condition}</option>)}
             </select>
           </label>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -104,7 +119,7 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
               value={form.condition_notes}
               onChange={(event) => setForm({ ...form, condition_notes: event.target.value })}
               className={fieldClass}
-              placeholder={form.condition === "Other" ? "Describe the condition (required for Other)" : "Optional notes, e.g. rust on the frame"}
+              placeholder="Optional notes, e.g. rust on the frame"
             />
           </label>
           {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
@@ -135,11 +150,9 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
 
 const statusClass = (status) => ({
   "In service": "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300",
-  Repaired: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300",
-  Replaced: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+  "Needs replacement": "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
   "Under repair": "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-  "Needs inspection": "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300",
-  Retired: "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300",
+  "Needs inspection": "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
 }[status] || "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300");
 
 export default function EquipmentInventory() {
@@ -196,6 +209,7 @@ export default function EquipmentInventory() {
     return equipment.filter((item) => item.equipment_name.toLowerCase().includes(query));
   }, [equipment, search]);
   const totalQuantity = equipment.reduce((total, item) => total + Number(item.quantity || 0), 0);
+  const underMaintenanceCount = equipment.filter((item) => item.status === "Under repair").length;
 
   const handleDelete = async (item) => {
     if (!window.confirm(`Remove "${item.equipment_name}" from the inventory? The record will be hidden but preserved for existing workout references.`)) return;
@@ -242,7 +256,7 @@ export default function EquipmentInventory() {
 
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
 
-      <section className="grid gap-3 sm:grid-cols-2">
+      <section className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Equipment items</p>
           <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading ? "—" : equipment.length}</p>
@@ -250,6 +264,10 @@ export default function EquipmentInventory() {
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total quantity</p>
           <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading ? "—" : totalQuantity}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Under Maintenance Equipment</p>
+          <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading ? "—" : underMaintenanceCount}</p>
         </div>
       </section>
 
@@ -311,12 +329,15 @@ export default function EquipmentInventory() {
                       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Boxes size={18} /></span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-bold text-slate-900 dark:text-white">{item.equipment_name}</span>
-                        <span className="mt-1 block text-xs text-slate-500">Condition: {item.condition}{item.condition_notes ? ` · ${item.condition_notes}` : ""}</span>
+                        <span className="mt-1 block text-xs text-slate-500">Status: {item.status} · Condition: {item.condition}{item.condition_notes ? ` · ${item.condition_notes}` : ""}</span>
                       </span>
                     </button>
                     <div className="flex flex-wrap items-center justify-end gap-3">
                       <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Qty: {item.quantity}</span>
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(item.status)}`}>{item.status}</span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(item.status)}`}>
+                        {item.status === "Under repair" ? "Under Maintenance" : item.status}
+                        {item.status === "Needs inspection" && <span aria-label="Needs attention" title="Needs inspection" className="ml-1 inline-block h-2 w-2 rounded-full bg-red-500 align-middle" />}
+                      </span>
                       <button type="button" onClick={() => setEditingEquipment(item)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-orange-500 hover:text-orange-600 dark:border-white/10 dark:text-slate-200" aria-label={`Edit ${item.equipment_name} details`}>
                         <Pencil size={14} /> Details
                       </button>

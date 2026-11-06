@@ -13,6 +13,8 @@ const {
   requiresConservativeWorkout,
 } = require("../utils/trainingPrograms");
 
+const DEFAULT_WORKOUT_SESSION_DURATION = 60;
+
 const SCHEDULED_FOR_TODAY_SQL = `(
   (
     ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
@@ -80,16 +82,8 @@ const getUserPlans = async (req, res) => {
 };
 
 const requestWorkoutPlan = async (req, res) => {
-  const planName = typeof req.body.plan_name === "string" ? req.body.plan_name.trim() : "";
-  const goal = typeof req.body.goal === "string" ? req.body.goal.trim() : "";
   const sessionDate = req.body.session_date;
   const sessions = req.body.sessions;
-  if (!planName || planName.length > 100) {
-    return res.status(400).json({ success: false, message: "Enter a workout plan name (up to 100 characters)." });
-  }
-  if (!goal || goal.length > 200) {
-    return res.status(400).json({ success: false, message: "Enter a workout goal (up to 200 characters)." });
-  }
   const parsedDate = typeof sessionDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sessionDate)
     ? new Date(`${sessionDate}T00:00:00.000Z`)
     : null;
@@ -126,8 +120,9 @@ const requestWorkoutPlan = async (req, res) => {
 
     const memberResult = await client.query(
       `SELECT u.user_id, u.first_name, u.last_name, u.email, u.trainer_id,
-              u.fitness_goal, u.workout_duration, u.workout_days_per_week,
+              u.fitness_goal, u.workout_days_per_week,
               u.preferred_days, u.injuries, u.health_conditions,
+              u.target_weight, u.membership_end_date,
               t.full_name AS trainer_name,
               t.email AS trainer_email
        FROM users u
@@ -156,6 +151,15 @@ const requestWorkoutPlan = async (req, res) => {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({ success: false, message: "Workout date can't be in the past." });
+    }
+    if (member.membership_end_date
+      && String(member.membership_end_date).slice(0, 10) < todayResult.rows[0].today) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(403).json({
+        success: false,
+        message: "Your membership has ended. You can continue using AveFit, but workout requests are unavailable until it is renewed.",
+      });
     }
 
     const scheduledDay = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" }).format(parsedDate);
@@ -186,10 +190,10 @@ const requestWorkoutPlan = async (req, res) => {
         transactionStarted = false;
         return res.status(400).json({ success: false, message: "Choose an alternative program to request a switch." });
       }
-      if (getScheduledPrograms(member.preferred_days || []).has(trainingProgram)) {
+      if (!getScheduledPrograms(member.preferred_days || []).has(trainingProgram)) {
         await client.query("ROLLBACK");
         transactionStarted = false;
-        return res.status(409).json({ success: false, message: "That program is already part of your preferred weekly schedule." });
+        return res.status(409).json({ success: false, message: "Choose an unfinished program from your preferred weekly split." });
       }
       const alreadySwitched = await client.query(
         `SELECT 1
@@ -208,6 +212,26 @@ const requestWorkoutPlan = async (req, res) => {
         transactionStarted = false;
         return res.status(409).json({ success: false, message: "You have already requested this program switch this week." });
       }
+      const completedProgram = await client.query(
+        `SELECT 1
+         FROM workout_plans wp
+         JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+         WHERE wp.user_id = $1
+           AND wp.training_program = $2
+           AND wp.approval_status = 'Approved'
+           AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $3::date), 'YYYY-MM-DD')
+           AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $3::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+         GROUP BY wp.workout_plan_id
+         HAVING COUNT(*) > 0
+           AND COUNT(*) FILTER (WHERE ws.completed = TRUE) = COUNT(*)
+         LIMIT 1`,
+        [member.user_id, trainingProgram, sessionDate]
+      );
+      if (completedProgram.rowCount) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(409).json({ success: false, message: "That program has already been completed this week." });
+      }
     } else if (trainingProgram !== defaultProgram) {
       await client.query("ROLLBACK");
       transactionStarted = false;
@@ -221,12 +245,7 @@ const requestWorkoutPlan = async (req, res) => {
       return res.status(400).json({ success: false, message: "Set your weekly workout frequency before submitting a plan." });
     }
 
-    const sessionDuration = Number(member.workout_duration);
-    if (!Number.isInteger(sessionDuration) || sessionDuration < 30 || sessionDuration > 90) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(400).json({ success: false, message: "Set a valid workout session duration in your profile before submitting a plan." });
-    }
+    const sessionDuration = DEFAULT_WORKOUT_SESSION_DURATION;
 
     const exercisesResult = await client.query(
       `SELECT e.exercise_id, e.muscle_group, e.difficulty, c.category_name
@@ -307,6 +326,10 @@ const requestWorkoutPlan = async (req, res) => {
       });
     }
 
+    const planName = `Program: ${trainingProgram}`;
+    const goal = member.target_weight != null && Number.isFinite(Number(member.target_weight))
+      ? `Target weight: ${Number(member.target_weight)} kg`
+      : member.fitness_goal || "Fitness goal not set";
     const planResult = await client.query(
       `INSERT INTO workout_plans
          (user_id, trainer_id, plan_name, goal, scheduled_duration_minutes, approval_status, training_program, previous_training_program, is_program_switch)
@@ -332,8 +355,8 @@ const requestWorkoutPlan = async (req, res) => {
       audience: "trainer",
       recipientId: member.trainer_id,
       message: isProgramSwitch
-        ? `${memberName} switched today's program from ${defaultProgram} to ${trainingProgram} and submitted "${planName}" for approval.`
-        : `${memberName} submitted "${planName}" for your approval.`,
+        ? `${memberName} requested a switch from ${defaultProgram} to ${trainingProgram}. Goal weight: ${member.target_weight == null ? "not set" : `${member.target_weight} kg`}. Review the workout request.`
+        : `${memberName} requested a ${trainingProgram} workout. Goal weight: ${member.target_weight == null ? "not set" : `${member.target_weight} kg`}.`,
       notificationType: "workout",
       userName: memberName,
       targetUrl: `/trainer/workout-plans?planId=${planId}`,
@@ -350,6 +373,7 @@ const requestWorkoutPlan = async (req, res) => {
           memberName,
           planName,
           trainingProgram,
+          targetWeight: member.target_weight,
           isProgramSwitch,
           previousProgram: defaultProgram,
         });

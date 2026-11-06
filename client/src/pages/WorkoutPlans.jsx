@@ -40,7 +40,7 @@ function PlanModal({ members, trainers, onClose, onSave }) {
             <select value={form.goal} onChange={(e) => setForm({ ...form, goal: e.target.value })}
               className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
               <option value="">Select goal...</option>
-              {["Weight Loss", "Muscle Gain", "General Fitness", "Endurance", "Flexibility"].map((g) => (
+              {["Weight Loss", "Gain Weight", "General Fitness", "Endurance", "Flexibility"].map((g) => (
                 <option key={g}>{g}</option>
               ))}
             </select>

@@ -59,6 +59,7 @@ function getBMICategory(bmi) {
   if (bmi < 30) return { label: "Overweight", color: "text-orange-500" };
   return { label: "Obese", color: "text-red-500" };
 }
+const formatFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
 
 const getManilaToday = () => {
   const parts = new Intl.DateTimeFormat("en", {
@@ -95,7 +96,7 @@ const getMembershipStatus = (member) => {
   if (!member.membership_months || !member.membership_end_date) return "Not recorded";
   if (member.membership_start_date &&
       String(member.membership_start_date).slice(0, 10) > getManilaToday()) return "Upcoming";
-  return String(member.membership_end_date).slice(0, 10) >= getManilaToday() ? "Active" : "Expired";
+  return String(member.membership_end_date).slice(0, 10) >= getManilaToday() ? "Active" : "Inactive";
 };
 
 function MemberPhoto({ member, large = false }) {
@@ -360,6 +361,7 @@ export default function Members() {
   const [reviewError, setReviewError] = useState("");
   const [decisionNotice, setDecisionNotice] = useState("");
   const [sendingReportMemberId, setSendingReportMemberId] = useState(null);
+  const [sendingAllReports, setSendingAllReports] = useState(false);
   const [reportNotice, setReportNotice] = useState({ message: "", error: "" });
 
   const fetchData = async () => {
@@ -373,7 +375,8 @@ export default function Members() {
       ]);
 
       // The API returns arrays directly. Also support { data: [...] } responses.
-      const memberRows = Array.isArray(m.data) ? m.data : (m.data?.data || []);
+      const memberRows = (Array.isArray(m.data) ? m.data : (m.data?.data || []))
+        .map((member) => ({ ...member, fitness_goal: formatFitnessGoal(member.fitness_goal) }));
       const trainerRows = Array.isArray(t.data) ? t.data : (t.data?.data || []);
 
       setMembers(memberRows);
@@ -437,6 +440,22 @@ export default function Members() {
     }
   };
 
+  const sendAllMemberReports = async () => {
+    setSendingAllReports(true);
+    setReportNotice({ message: "", error: "" });
+    try {
+      const response = await api.post("/analytics/weekly-progress-report");
+      setReportNotice({ message: response.data.message, error: "" });
+    } catch (error) {
+      setReportNotice({
+        message: "",
+        error: error.response?.data?.message || "Unable to send weekly progress reports.",
+      });
+    } finally {
+      setSendingAllReports(false);
+    }
+  };
+
   const handleApprove=async id=>{setDecisionNotice("");try{const member = members.find((row) => Number(row.member_id) === Number(id));const response=await api.put(`/members/${id}/approve`);setDecisionNotice(response.data.email_sent===false?"Member approved, but the notification email could not be delivered. Check the email-service configuration.":"Member approved and the notification email was sent.");const updatedMembers=await fetchData();if(member?.status?.trim().toLowerCase()==="pending"){const approvedMember=updatedMembers?.find((row)=>Number(row.member_id)===Number(id));if(approvedMember)setViewMember(approvedMember);}}catch(e){alert(e.response?.data?.message||"Failed to update member status.");}};
   const handleReject=async id=>{setDecisionNotice("");try{const response=await api.put(`/members/${id}/reject`);setDecisionNotice(response.data.email_sent===false?"Member status updated, but the notification email could not be delivered. Check the email-service configuration.":"Member status updated and the notification email was sent.");await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to deactivate member.");}};
   const handleDelete=(id)=>{
@@ -462,9 +481,10 @@ export default function Members() {
   const handleAssign=async(member,trainer_id)=>{
     await api.put(`/members/${member.member_id}/trainer`,{trainer_id});
     const response = await api.get("/members");
-    const rows = Array.isArray(response.data)
+    const rows = (Array.isArray(response.data)
       ? response.data
-      : (response.data?.data || []);
+      : (response.data?.data || []))
+      .map((row) => ({ ...row, fitness_goal: formatFitnessGoal(row.fitness_goal) }));
     setMembers(rows);
 
     const updated = rows.find(
@@ -485,9 +505,9 @@ export default function Members() {
       ? { ...current, ...updatedMembership }
       : current);
   };
-  const filtered=members.filter(m=>{const q=search.toLowerCase();return (m.full_name?.toLowerCase().includes(q)||m.email?.toLowerCase().includes(q))&&(filter==="All"||String(m.status||"").trim().toLowerCase()===filter.toLowerCase());});
+  const filtered=members.filter(m=>{const q=search.toLowerCase();const displayStatus=getMembershipStatus(m)==="Inactive"&&String(m.status||"").trim().toLowerCase()==="active"?"inactive":String(m.status||"").trim().toLowerCase();return (m.full_name?.toLowerCase().includes(q)||m.email?.toLowerCase().includes(q))&&(filter==="All"||displayStatus===filter.toLowerCase());});
   const pendingCount=members.filter(m=>String(m.status||"").trim().toLowerCase()==="pending").length;
-  const activeCount=members.filter(m=>String(m.status||"").trim().toLowerCase()==="active").length;
+  const activeCount=members.filter(m=>String(m.status||"").trim().toLowerCase()==="active"&&getMembershipStatus(m)!=="Inactive").length;
 
   return <div className="space-y-6">
     {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate} onViewProgress={setProgressMember}/>}
@@ -604,10 +624,18 @@ export default function Members() {
         </div>
       </section>
     )}
-    <section aria-labelledby="weekly-progress-report-title" className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-5">
+    <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-5">
+      <summary className="cursor-pointer list-none text-lg font-bold text-slate-900 marker:hidden dark:text-white">
+        <span className="inline-flex items-center gap-2"><Mail size={18} className="text-orange-500" /> Weekly Progress Reports</span>
+        <span className="mt-1 block text-sm font-normal text-slate-600 dark:text-slate-400">Open to send a report to one member or all active members.</span>
+      </summary>
+      <section aria-labelledby="weekly-progress-report-title" className="mt-4 space-y-4 border-t border-slate-200 pt-4 dark:border-white/10">
       <div>
         <h2 id="weekly-progress-report-title" className="text-lg font-bold text-slate-900 dark:text-white">Weekly Progress Report</h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Send an individual report to an active user. The dashboard button sends reports to all active users.</p>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Send an individual report or send reports to all active users.</p>
+        <button type="button" onClick={sendAllMemberReports} disabled={sendingAllReports || sendingReportMemberId !== null} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60">
+          <Mail size={15} />{sendingAllReports ? "Sending reports..." : "Send to all active members"}
+        </button>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {members.filter((member) => String(member.status || "").trim().toLowerCase() === "active").map((member) => (
@@ -616,7 +644,7 @@ export default function Members() {
               <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{member.full_name}</p>
               <p className="truncate text-xs text-slate-500">{member.email}</p>
             </div>
-            <button type="button" onClick={() => sendMemberReport(member)} disabled={sendingReportMemberId !== null} aria-label={`Send weekly progress report to ${member.full_name}`} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60">
+            <button type="button" onClick={() => sendMemberReport(member)} disabled={sendingReportMemberId !== null || sendingAllReports} aria-label={`Send weekly progress report to ${member.full_name}`} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60">
               <Mail size={14} />{sendingReportMemberId === member.member_id ? "Sending..." : "Send"}
             </button>
           </div>
@@ -625,10 +653,11 @@ export default function Members() {
           <p className="text-sm text-slate-500">No active users to send reports to.</p>
         )}
       </div>
-    </section>
+      </section>
+    </details>
     <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-slate-100 px-3 dark:bg-white/5 sm:max-w-xs"><Search size={16} className="shrink-0 text-slate-400"/><span className="sr-only">Search members</span><input type="search" placeholder="Search name or email..." value={search} onChange={e=>setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"/></label><div role="group" aria-label="Filter  members by status" className="flex gap-2 overflow-x-auto">{["All","Active","Pending","Inactive","Rejected"].map(s=><button key={s} type="button" aria-pressed={filter===s} onClick={()=>setFilter(s)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${filter===s?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"}`}>{s}{s==="Pending"&&pendingCount>0?` (${pendingCount})`:""}</button>)}</div></div>
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
-      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full min-w-[1080px] table-fixed text-sm"><colgroup><col style={{ width: "22%" }} /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "15%" }} /><col style={{ width: "10%" }} /><col style={{ width: "16%" }} /></colgroup><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Status","Membership","Joined","Actions"].map(h=><th key={h} className="text-left px-2 py-4 sm:px-3 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:filtered.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 items-center gap-2"><MemberPhoto member={member}/><div className="min-w-0">      <p className="flex min-w-0 items-center gap-1.5 font-semibold text-slate-800 dark:text-white"><span className="truncate">{member.full_name}</span>{member.missing_profile_fields?.length > 0 && <span title={`Missing information: ${member.missing_profile_fields.join(", ")}`} aria-label={`Incomplete profile: ${member.missing_profile_fields.join(", ")}`} className="h-2 w-2 shrink-0 rounded-full bg-red-500"/>}</p><p className="truncate text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-2 py-4 sm:px-3 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-2 py-4 sm:px-3">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span className="truncate">{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 flex-col items-start"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"?"}</span><span className={`text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></div></td><td className="px-2 py-4 sm:px-3 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-2 py-4 sm:px-3"><div className="space-y-1"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Expired" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-2 py-4 sm:px-3 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-2 py-4 sm:px-3" onClick={e=>e.stopPropagation()}><div className="flex items-center justify-start gap-1"><button onClick={()=>setViewMember(member)} className="grid h-8 w-8 place-items-center rounded-lg text-orange-500 transition hover:bg-orange-50 dark:hover:bg-orange-500/10" title="View member / change coach" aria-label={`View ${member.full_name}`}><UserRoundCog size={16}/></button>{memberStatus==="pending"?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Approve member" aria-label={`Approve ${member.full_name}`}><CheckCircle size={16}/></button>:(memberStatus==="inactive"||memberStatus==="rejected")?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title={memberStatus==="rejected"?"Approve member":"Reactivate member"} aria-label={`${memberStatus==="rejected"?"Approve":"Reactivate"} ${member.full_name}`}><CheckCircle size={16}/></button>:null}{memberStatus==="pending"?<button onClick={()=>handleReject(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Reject" aria-label={`Reject ${member.full_name}`}><XCircle size={16}/></button>:null}<button onClick={()=>handleDelete(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Delete" aria-label={`Delete ${member.full_name}`}><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
+      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full min-w-[1080px] table-fixed text-sm"><colgroup><col style={{ width: "22%" }} /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "15%" }} /><col style={{ width: "10%" }} /><col style={{ width: "16%" }} /></colgroup><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Status","Membership","Joined","Actions"].map(h=><th key={h} className="text-left px-2 py-4 sm:px-3 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:filtered.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 items-center gap-2"><MemberPhoto member={member}/><div className="min-w-0">      <p className="flex min-w-0 items-center gap-1.5 font-semibold text-slate-800 dark:text-white"><span className="truncate">{member.full_name}</span>{member.missing_profile_fields?.length > 0 && <span title={`Missing information: ${member.missing_profile_fields.join(", ")}`} aria-label={`Incomplete profile: ${member.missing_profile_fields.join(", ")}`} className="h-2 w-2 shrink-0 rounded-full bg-red-500"/>}</p><p className="truncate text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-2 py-4 sm:px-3 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-2 py-4 sm:px-3">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span className="truncate">{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 flex-col items-start"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"?"}</span><span className={`text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></div></td><td className="px-2 py-4 sm:px-3 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-2 py-4 sm:px-3">      <div className="space-y-1"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Inactive" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-2 py-4 sm:px-3 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-2 py-4 sm:px-3" onClick={e=>e.stopPropagation()}><div className="flex items-center justify-start gap-1"><button onClick={()=>setViewMember(member)} className="grid h-8 w-8 place-items-center rounded-lg text-orange-500 transition hover:bg-orange-50 dark:hover:bg-orange-500/10" title="View member / change coach" aria-label={`View ${member.full_name}`}><UserRoundCog size={16}/></button>{memberStatus==="pending"?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Approve member" aria-label={`Approve ${member.full_name}`}><CheckCircle size={16}/></button>:(memberStatus==="inactive"||memberStatus==="rejected")?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title={memberStatus==="rejected"?"Approve member":"Reactivate member"} aria-label={`${memberStatus==="rejected"?"Approve":"Reactivate"} ${member.full_name}`}><CheckCircle size={16}/></button>:null}{memberStatus==="pending"?<button onClick={()=>handleReject(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Reject" aria-label={`Reject ${member.full_name}`}><XCircle size={16}/></button>:null}<button onClick={()=>handleDelete(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Delete" aria-label={`Delete ${member.full_name}`}><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
       <div className="px-6 py-3 border-t border-slate-100 dark:border-gray-800 text-sm text-slate-400">Showing {filtered.length} of {members.length} registered members</div>
     </div>
   </div>;

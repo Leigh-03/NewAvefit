@@ -366,7 +366,7 @@ export default function Analytics() {
             : <p className="py-12 text-center text-sm text-slate-500">No member growth data available yet.</p>}
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-          <h3 className="mb-4 text-base font-bold text-slate-900 dark:text-white">Goal distribution</h3>
+          <h3 className="mb-4 text-base font-bold text-slate-900 dark:text-white">Weight goal distribution</h3>
           {goalChart.labels.length > 0
             ? <div className="h-72"><Doughnut data={goalChart} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { color: "#737373" } } } }} /></div>
             : <p className="py-12 text-center text-sm text-slate-500">No member goals recorded yet.</p>}

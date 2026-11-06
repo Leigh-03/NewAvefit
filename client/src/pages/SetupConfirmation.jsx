@@ -74,6 +74,7 @@ export default function SetupConfirmation() {
     try {
       const setupProfile = { ...profile };
       delete setupProfile.trainer_id;
+      delete setupProfile.workout_duration;
       await userApi.put("/profile", {
         ...setupProfile,
         ...(preferredCoach?.trainer_id ? { trainer_id: preferredCoach.trainer_id } : {}),
@@ -81,7 +82,6 @@ export default function SetupConfirmation() {
         activity_level: healthData.experience || "Beginner",
         target_weight: goalData.targetWeight || null,
         workout_days_per_week: availability.daysPerWeek ? parseInt(availability.daysPerWeek) : null,
-        workout_duration: availability.duration ? parseInt(String(availability.duration), 10) : null,
         preferred_days: availability.days || [],
         preferred_workout_time: availability.preferredWorkoutTime || null,
         intensity: 3,
@@ -153,7 +153,6 @@ export default function SetupConfirmation() {
         <div className="bg-slate-50 rounded-2xl p-4 mb-4">
           <h3 className="text-sm font-semibold text-slate-600 mb-2">Availability</h3>
           <Row label="Days Per Week" value={availability.daysPerWeek || "—"} />
-          <Row label="Session Duration" value={availability.duration || "—"} />
           <Row label="Workout Days" value={(availability.availability || []).map((slot) => `${slot.day_of_week} (${slot.time_preference})`).join(", ") || "—"} />
           <Row label="Preferred Coach" value={preferredCoach?.full_name || "No coach selected"} />
         </div>

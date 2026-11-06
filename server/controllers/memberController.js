@@ -739,6 +739,10 @@ const updateMemberMembership = async (req, res) => {
         SET membership_months = NULL,
             membership_start_date = NULL,
             membership_end_date = NULL,
+            membership_expiry_notified_for = NULL,
+            membership_expired_notified_for = NULL,
+            membership_expiry_email_attempted_for = NULL,
+            membership_expired_email_attempted_for = NULL,
             updated_at = CURRENT_TIMESTAMP
         WHERE user_id = $1
         RETURNING user_id, membership_months, membership_start_date, membership_end_date
@@ -779,6 +783,10 @@ const updateMemberMembership = async (req, res) => {
             END
             + make_interval(months => $1) - INTERVAL '1 day'
           )::date,
+          membership_expiry_notified_for = NULL,
+          membership_expired_notified_for = NULL,
+          membership_expiry_email_attempted_for = NULL,
+          membership_expired_email_attempted_for = NULL,
           updated_at = CURRENT_TIMESTAMP
       WHERE user_id = $2
       RETURNING user_id, membership_months, membership_start_date, membership_end_date

@@ -9,6 +9,8 @@ import {
   requiresConservativeWorkout,
 } from "../utils/trainingPrograms";
 
+const formatFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
+
 function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApproveDeletion, onRejectDeletion }) {
   const sessions = Array.isArray(plan.sessions) ? plan.sessions : [];
   const injuries = toList(plan.injuries).filter((item) => item !== "None");
@@ -21,6 +23,7 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApprov
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Workout plan details</p>
             <h2 id="trainer-plan-details-title" className="mt-1 text-xl font-black text-slate-900 dark:text-white">{plan.plan_name}</h2>
             <p className="mt-1 text-sm text-slate-500">{plan.member_name || "Member"} · {plan.goal || "Goal not set"}</p>
+            <p className="mt-1 text-xs font-medium text-slate-500">Goal weight: {plan.target_weight == null ? "Not set" : `${plan.target_weight} kg`}</p>
             {plan.training_program && (
               <p className="mt-1 text-xs font-semibold text-orange-600 dark:text-orange-400">
                 {plan.is_program_switch
@@ -279,11 +282,11 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   };
 
   const handleSubmit = async () => {
-    const planName = form.plan_name.trim();
+    const planName = trainingProgram && selectedMember
+      ? `${selectedMember.first_name}'s ${trainingProgram} day Workout Routine`
+      : "";
     const nextErrors = {};
     if (!form.user_id) nextErrors.user_id = "Choose a member.";
-    if (!planName) nextErrors.plan_name = "Plan name is required.";
-    if (!form.goal.trim()) nextErrors.goal = "Goal is required. Enter the member's assessment goal.";
     if (!form.session_date) nextErrors.session_date = "Workout date is required.";
     if (plan && changeReason.trim().length < 5) {
       nextErrors.change_reason = "Explain why you're changing this plan (at least 5 characters).";
@@ -411,7 +414,9 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                   setForm({
                     ...form,
                     user_id: event.target.value,
-                    goal,
+                    goal: member?.target_weight != null
+                      ? `Target weight: ${member.target_weight} kg`
+                      : goal,
                     session_date: sessionDate,
                     plan_name: form.plan_name || (member ? `${member.first_name}'s Workout Routine` : ""),
                     sessions: form.sessions.map((session) => {
@@ -448,50 +453,33 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
             </div>
             {renderFieldError("user_id")}
           </div>
-          <div>
-            <label htmlFor="trainer-plan-name" className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
-              Plan Name *
-            </label>
-            <input
-              id="trainer-plan-name"
-              type="text"
-              required
-              value={form.plan_name}
-              onChange={(event) => {
-                setForm({ ...form, plan_name: event.target.value });
-                setFieldError("plan_name", event.target.value.trim() ? "" : "Plan name is required.");
-              }}
-              aria-invalid={Boolean(fieldErrors.plan_name)}
-              placeholder="e.g. Beginner Strength Program"
-              className={inputClass("plan_name")}
-            />
-            {renderFieldError("plan_name")}
+          <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            {trainingProgram ? `Program: ${trainingProgram}` : "Choose a member and workout date to view the assigned program."}
+            {selectedMember && trainingProgram && (
+              <p className="mt-1 text-xs font-normal">
+                Plan name: {selectedMember.first_name}&apos;s {trainingProgram} day Workout Routine
+              </p>
+            )}
           </div>
           <div>
             <label htmlFor="trainer-plan-goal" className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
-              Goal from assessment *
+              Member goal weight (read-only)
             </label>
             <input
               id="trainer-plan-goal"
               type="text"
-              required
-              value={form.goal}
-              onChange={(event) => {
-                setForm({ ...form, goal: event.target.value });
-                setFieldError("goal", event.target.value.trim() ? "" : "Goal is required.");
-              }}
-              aria-invalid={Boolean(fieldErrors.goal)}
-              placeholder="Select a member to load their goal"
+              value={form.goal || (selectedMember?.target_weight != null ? `Target weight: ${selectedMember.target_weight} kg` : formatFitnessGoal(selectedMember?.fitness_goal) || "")}
+              readOnly
+              placeholder="Select a member to view their goal weight"
               className={inputClass("goal")}
             />
-            {renderFieldError("goal")}
           </div>
           {selectedMember && (
             <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-4">
               <p className="mb-3 text-xs font-bold uppercase tracking-wide text-orange-500">Member assessment</p>
               <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
                 {[
-                  ["Goal", selectedMember.fitness_goal || "Not specified"],
+                  ["Goal", formatFitnessGoal(selectedMember.fitness_goal) || "Not specified"],
                   ["Target weight", selectedMember.target_weight ? `${selectedMember.target_weight} kg` : "Not specified"],
                   ["BMI", calculateBmi(selectedMember)],
                   ["Activity", selectedMember.activity_level || "Not specified"],
@@ -499,7 +487,6 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                   ["Preferred days", toList(selectedMember.preferred_days).join(", ") || "Not specified"],
                   ["Preferred time", formatPreferredWorkoutTime(selectedMember.preferred_workout_time)],
                   ["Weekly frequency", selectedMember.workout_days_per_week ? `${selectedMember.workout_days_per_week} days` : "Not specified"],
-                  ["Session length", selectedMember.workout_duration ? `${selectedMember.workout_duration} min` : "Not specified"],
                   ["Preferred intensity", INTENSITY_LABELS[Number(selectedMember.intensity)] || "Not specified"],
                 ].map(([label, value]) => (
                   <div key={label}>

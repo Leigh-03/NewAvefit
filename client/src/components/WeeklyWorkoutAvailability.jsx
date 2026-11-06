@@ -8,21 +8,10 @@ const TIME_OPTIONS = [
   { value: "Evening", label: "Evening", detail: "5:00 PM – 10:00 PM" },
   { value: "Flexible", label: "Flexible", detail: "6:00 AM – 10:00 PM" },
 ];
-const DURATION_OPTIONS = [
-  { value: 30, label: "30 minutes", detail: "Short session" },
-  { value: 45, label: "45 minutes", detail: "Moderate session" },
-  { value: 60, label: "60 minutes", detail: "Standard session" },
-  { value: 75, label: "75 minutes", detail: "Extended session" },
-  { value: 90, label: "90 minutes", detail: "Extended session" },
-];
 const EXPERIENCE_RANGES = {
   Beginner: { min: 2, max: 3 },
   Intermediate: { min: 3, max: 5 },
   Advanced: { min: 4, max: 6 },
-};
-const normalizeDuration = (value) => {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-  return DURATION_OPTIONS.some((option) => option.value === parsed) ? parsed : "";
 };
 
 const readDraft = () => {
@@ -38,7 +27,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
   const hasContinue = Boolean(onContinue);
   const [availability, setAvailability] = useState([]);
   const [daysPerWeek, setDaysPerWeek] = useState("");
-  const [duration, setDuration] = useState("");
   const [level, setLevel] = useState(experienceLevel || "Beginner");
   const [setupComplete, setSetupComplete] = useState(false);
   const [pendingRequest, setPendingRequest] = useState(false);
@@ -70,7 +58,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
           saved.workout_days_per_week ??
           range.min
         ));
-        setDuration(normalizeDuration(draft?.duration ?? saved.workout_duration));
       })
       .catch((err) => {
         console.error("Weekly availability load failed:", err);
@@ -128,10 +115,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
       setError(frequencyMessage);
       return;
     }
-    if (!duration) {
-      setError("Choose a preferred workout session duration.");
-      return;
-    }
     if (availability.length === 0) {
       setError("Select at least one day when you are available to work out.");
       return;
@@ -140,7 +123,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
     try {
       const payload = {
         workout_days_per_week: frequency,
-        workout_duration: Number(duration),
         availability,
         activity_level: level,
       };
@@ -158,7 +140,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
       const savedAvailability = data.data.availability;
       const draft = {
         daysPerWeek: String(frequency),
-        duration: `${duration} mins`,
         availability: savedAvailability,
         days: savedAvailability.map((slot) => slot.day_of_week),
       };
@@ -252,7 +233,7 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
             })}
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4">
             <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
               Workout days per week
               <select
@@ -273,24 +254,6 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
               </span>
             </label>
 
-            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Preferred Workout Session Duration
-              <select
-                value={duration}
-                required
-                onChange={(event) => {
-                  setDuration(normalizeDuration(event.target.value));
-                  setError("");
-                }}
-                className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-900 dark:border-white/10 dark:bg-[#111] dark:text-white"
-              >
-                <option value="" disabled>Choose a session duration</option>
-                {DURATION_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label} – {option.detail}</option>
-                ))}
-              </select>
-              <span className="mt-1 block text-xs font-normal text-slate-500">Maximum preferred time for each workout session.</span>
-            </label>
           </div>
 
           <p className="text-xs text-slate-500">

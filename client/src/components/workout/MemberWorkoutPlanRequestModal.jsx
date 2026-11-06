@@ -4,7 +4,6 @@ import userApi from "../../userApi";
 import { philippinesDateString } from "../../utils/philippinesDate";
 import { getWorkoutGoalRules } from "../../utils/workoutGoalRules";
 import {
-  TRAINING_PROGRAMS,
   exerciseMatchesProgram,
   getExerciseDose,
   getProgramForDate,
@@ -36,6 +35,7 @@ const getWeekDateRange = (dateKey) => {
 export default function MemberWorkoutPlanRequestModal({
   initialDate,
   initialGoal,
+  initialTargetWeight,
   workoutDays,
   workoutFrequency,
   injuries = [],
@@ -46,11 +46,9 @@ export default function MemberWorkoutPlanRequestModal({
   onSubmitted,
 }) {
   const [exercises, setExercises] = useState([]);
-  const [planName, setPlanName] = useState("");
-  const [goal, setGoal] = useState(initialGoal || "");
-  const [sessionDate, setSessionDate] = useState(() => (
+  const sessionDate = (
     initialDate && initialDate >= philippinesDateString() ? initialDate : philippinesDateString()
-  ));
+  );
   const defaultProgram = getProgramForDate(sessionDate, workoutDays, workoutFrequency);
   const [isSwitchingProgram, setIsSwitchingProgram] = useState(false);
   const [selectedProgram, setSelectedProgram] = useState(defaultProgram);
@@ -73,13 +71,28 @@ export default function MemberWorkoutPlanRequestModal({
   );
   const selectedWeekPlan = getWeekDateRange(sessionDate);
   const scheduledPrograms = getScheduledPrograms(workoutDays);
+  const completedPrograms = new Set(
+    Object.values(existingSessions
+      .filter((session) => {
+        const date = String(session.session_date || "").slice(0, 10);
+        return date >= selectedWeek.start && date <= selectedWeek.end;
+      })
+      .reduce((groups, session) => {
+        const key = `${session.workout_plan_id || session.training_program}:${String(session.session_date).slice(0, 10)}`;
+        if (!groups[key]) groups[key] = { program: session.training_program, completed: true };
+        groups[key].completed = groups[key].completed && session.completed === true;
+        return groups;
+      }, {}))
+      .filter((group) => group.completed && group.program)
+      .map((group) => group.program)
+  );
   const usedSwitchPrograms = new Set(
     existingPlans
       .filter((plan) => plan.is_program_switch && plan.session_date >= selectedWeekPlan.start && plan.session_date <= selectedWeekPlan.end)
       .map((plan) => plan.training_program)
   );
-  const availableSwitchPrograms = TRAINING_PROGRAMS.filter((program) => (
-    program !== defaultProgram && !scheduledPrograms.has(program) && !usedSwitchPrograms.has(program)
+  const availableSwitchPrograms = [...scheduledPrograms].filter((program) => (
+    program !== defaultProgram && !completedPrograms.has(program) && !usedSwitchPrograms.has(program)
   ));
   const visibleExercises = exercises.filter((exercise) => (
     exerciseMatchesProgram(exercise, selectedProgram) &&
@@ -138,10 +151,6 @@ export default function MemberWorkoutPlanRequestModal({
   const submitRequest = async (event) => {
     event.preventDefault();
     setError("");
-    if (!planName.trim() || !goal.trim()) {
-      setError("Enter a plan name and goal.");
-      return;
-    }
     if (sessions.length < 3) {
       setError("Add at least 3 exercises.");
       return;
@@ -159,7 +168,7 @@ export default function MemberWorkoutPlanRequestModal({
       return Number(session.sets) < rules.sets[0] || Number(session.sets) > rules.sets[1]
         || Number(session.reps) < rules.reps[0] || Number(session.reps) > rules.reps[1];
     })) {
-      setError("Use the displayed sets and reps range for each exercise. Injury-aware exercises use a reduced beginner range.");
+      setError("Use the displayed sets and reps range for each exercise. Conservative workouts use a reduced beginner range.");
       return;
     }
     const usedExercises = sessions.map((session) => session.exercise_id);
@@ -176,8 +185,6 @@ export default function MemberWorkoutPlanRequestModal({
     setSaving(true);
     try {
       const { data } = await userApi.post("/workout-plan-requests", {
-        plan_name: planName.trim(),
-        goal: goal.trim(),
         session_date: sessionDate,
         training_program: selectedProgram,
         is_program_switch: isSwitchingProgram,
@@ -197,30 +204,17 @@ export default function MemberWorkoutPlanRequestModal({
       <section role="dialog" aria-modal="true" aria-labelledby="member-plan-request-title" className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]" onClick={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b border-slate-200 p-5 dark:border-slate-800 sm:p-6">
           <div>
-            <h2 id="member-plan-request-title" className="text-xl font-bold text-slate-900 dark:text-white">Create a workout plan</h2>
+            <h2 id="member-plan-request-title" className="text-xl font-bold text-slate-900 dark:text-white">Request a workout from your coach</h2>
             <p className="mt-1 text-sm text-slate-500">Your coach must approve it before it appears in your schedule.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10"><X size={20} /></button>
         </header>
 
         <form onSubmit={submitRequest} className="space-y-5 p-5 sm:p-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Plan name
-              <input value={planName} onChange={(event) => setPlanName(event.target.value)} maxLength={100} required className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 dark:border-slate-700 dark:bg-[#171717] dark:text-white" placeholder="e.g. Full-body strength" />
-            </label>
-            <label className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Workout date
-              <input type="date" min={philippinesDateString()} value={sessionDate} onChange={(event) => setSessionDate(event.target.value)} required className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
-            </label>
-          </div>
-          <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Goal
-            <input value={goal} onChange={(event) => setGoal(event.target.value)} maxLength={200} required className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 dark:border-slate-700 dark:bg-[#171717] dark:text-white" placeholder="What do you want to focus on?" />
-          </label>
-
           <section className="rounded-xl border border-orange-200 bg-orange-50/70 p-4 dark:border-orange-500/20 dark:bg-orange-500/[0.06]">
-            <p className="text-sm font-bold text-slate-900 dark:text-white">Today&apos;s program: {defaultProgram || "Not set"}</p>
+            <p className="text-sm font-bold text-slate-900 dark:text-white">Program: {selectedProgram || "Not set"}</p>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Workout date: {sessionDate}</p>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Goal weight: {initialTargetWeight ? `${initialTargetWeight} kg` : "Not set in your profile"}</p>
             <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Your program is assigned from your preferred workout days and weekly frequency.</p>
             <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
               <input type="checkbox" checked={isSwitchingProgram} disabled={!availableSwitchPrograms.length} onChange={(event) => {
@@ -228,18 +222,18 @@ export default function MemberWorkoutPlanRequestModal({
                 setIsSwitchingProgram(switching);
                 handleProgramChange(switching ? availableSwitchPrograms[0] : defaultProgram);
               }} />
-              Would you like to switch program today?
+              Would you like to request a different program from your coach?
             </label>
             {isSwitchingProgram && (
               <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Choose another program (coach approval required)
+                Choose an unfinished program this week (coach approval required)
                 <select value={selectedProgram} onChange={(event) => handleProgramChange(event.target.value)} className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white">
                   {availableSwitchPrograms.map((program) => <option key={program} value={program}>{program}</option>)}
                 </select>
               </label>
             )}
-            {isSwitchingProgram && <p className="mt-2 text-xs text-slate-500">A switched program can only be requested once per week. Your coach will be notified by email and must approve the workout.</p>}
-            {!availableSwitchPrograms.length && <p className="mt-2 text-xs text-slate-500">All alternative programs are already scheduled or have been used this week.</p>}
+            {isSwitchingProgram && <p className="mt-2 text-xs text-slate-500">Your coach will receive an in-app and email notification and must approve the request. Programs already completed this week are unavailable.</p>}
+            {!availableSwitchPrograms.length && <p className="mt-2 text-xs text-slate-500">There are no unfinished alternative programs available this week.</p>}
             {(injuries.length > 0 || healthConditions.length > 0) && (
               <p className="mt-3 rounded-lg border border-amber-300/50 bg-amber-100/60 p-3 text-xs leading-relaxed text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
                 Injury-related exercises and workouts for members with recorded health conditions use a conservative beginner starting range for coach review. This is not medical advice; consult a healthcare professional about exercise restrictions.
@@ -297,7 +291,7 @@ export default function MemberWorkoutPlanRequestModal({
           {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
           <div className="flex justify-end gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
             <button type="button" onClick={onClose} disabled={saving} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">Cancel</button>
-            <button type="submit" disabled={saving || loadingExercises || exercises.length === 0} className="min-h-11 rounded-xl bg-orange-600 px-5 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Submitting..." : "Submit for approval"}</button>
+            <button type="submit" disabled={saving || loadingExercises || exercises.length === 0} className="min-h-11 rounded-xl bg-orange-600 px-5 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Sending request..." : "Request workout from coach"}</button>
           </div>
         </form>
       </section>

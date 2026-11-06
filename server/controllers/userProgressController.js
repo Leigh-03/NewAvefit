@@ -106,7 +106,7 @@ const calculatePrediction = async (req, res) => {
 const autoPredict = async (req, res) => {
   try {
     const {
-      goal,                 // "Weight Loss" | "Muscle Gain" | "Maintain Weight"
+      goal,                 // "Weight Loss" | "Gain Weight" | "Maintain Weight"
       current_weight,
       target_weight,
       height,
@@ -131,6 +131,7 @@ const autoPredict = async (req, res) => {
     // Safe, realistic weekly body-weight change ranges (kg/week)
     const RATE_BOUNDS = {
       "Weight Loss": { base: 0.4, min: 0.25, max: 1.0 },
+      "Gain Weight": { base: 0.2, min: 0.1, max: 0.45 },
       "Muscle Gain": { base: 0.2, min: 0.1, max: 0.45 },
     };
 

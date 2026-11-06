@@ -72,33 +72,93 @@ const getDatabaseConfig = () => {
 const pool = new Pool(getDatabaseConfig());
 
 const expireMemberships = async (userId = null) => {
-  const result = await pool.query(`
-    UPDATE users
-    SET account_status = 'Inactive',
-        token_version = token_version + 1,
-        updated_at = CURRENT_TIMESTAMP
+  const { createNotification } = require("./utils/notifications");
+  const { isMailConfigured, sendMembershipReminderEmail } = require("./utils/mailer");
+  const dueMembers = await pool.query(`
+    SELECT user_id, first_name, email, membership_end_date::text AS membership_end_date,
+           (membership_end_date - (NOW() AT TIME ZONE 'Asia/Manila')::date)::int AS days_remaining
+    FROM users
     WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
       AND membership_end_date IS NOT NULL
-      AND membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+      AND (
+        (
+          membership_end_date > (NOW() AT TIME ZONE 'Asia/Manila')::date
+          AND membership_end_date <= (NOW() AT TIME ZONE 'Asia/Manila')::date + 3
+          AND membership_expiry_notified_for IS DISTINCT FROM membership_end_date
+        )
+        OR (
+          membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+          AND membership_expired_notified_for IS DISTINCT FROM membership_end_date
+        )
+      )
       AND ($1::integer IS NULL OR user_id = $1)
-    RETURNING user_id, first_name, last_name
+    ORDER BY membership_end_date, user_id
   `, [userId]);
 
-  if (result.rowCount > 0) {
-    const { createNotification } = require("./utils/notifications");
-    await Promise.all(result.rows.map((user) => createNotification({
-      audience: "user",
-      recipientId: user.user_id,
-      notificationType: "membership",
-      message: "Your membership has ended. Please contact the gym administrator for assistance.",
-      userName: `${user.first_name || ""} ${user.last_name || ""}`.trim() || null,
-      targetUrl: "/user/profile",
-    }).catch((err) => {
-      console.error("Membership expiry notification failed:", err.message);
-    })));
+  let notifiedCount = 0;
+  for (const member of dueMembers.rows) {
+    const expired = Number(member.days_remaining) < 0;
+    const marker = expired ? "membership_expired_notified_for" : "membership_expiry_notified_for";
+    const eventType = expired ? "membership_expired" : "membership_expiring";
+    const notificationClaim = await pool.query(`
+      UPDATE users
+      SET ${marker} = membership_end_date
+      WHERE user_id = $1
+        AND ${marker} IS DISTINCT FROM membership_end_date
+      RETURNING user_id
+    `, [member.user_id]);
+    if (!notificationClaim.rowCount) continue;
+
+    const dateText = member.membership_end_date;
+    const daysRemaining = Number(member.days_remaining);
+    const message = expired
+      ? `Your membership ended on ${dateText}. You can still use AveFit, but workout plan requests are unavailable until your membership is renewed.`
+      : `Your membership ends in ${daysRemaining} ${daysRemaining === 1 ? "day" : "days"} (${dateText}). Renew before it ends to keep requesting workout plans.`;
+    try {
+      await createNotification({
+        audience: "user",
+        recipientId: member.user_id,
+        notificationType: eventType,
+        message,
+        targetUrl: "/user/profile",
+      });
+      notifiedCount += 1;
+    } catch (error) {
+      console.error(`Membership notification failed for user ${member.user_id}:`, error.message);
+      await pool.query(
+        `UPDATE users SET ${marker} = NULL
+         WHERE user_id = $1 AND ${marker} = $2::date`,
+        [member.user_id, dateText]
+      );
+      continue;
+    }
+
+    if (!member.email || !isMailConfigured()) continue;
+    const emailMarker = expired ? "membership_expired_email_attempted_for" : "membership_expiry_email_attempted_for";
+    const emailClaim = await pool.query(`
+      UPDATE users
+      SET ${emailMarker} = membership_end_date
+      WHERE user_id = $1
+        AND ${emailMarker} IS DISTINCT FROM membership_end_date
+      RETURNING user_id
+    `, [member.user_id]);
+    if (!emailClaim.rowCount) continue;
+    try {
+      const delivery = await sendMembershipReminderEmail({
+        to: member.email,
+        firstName: member.first_name,
+        membershipEndDate: dateText,
+        daysRemaining,
+      });
+      if (!delivery.delivered) {
+        console.error(`Membership reminder email was not delivered to user ${member.user_id}.`);
+      }
+    } catch (error) {
+      console.error(`Membership reminder email failed for user ${member.user_id}:`, error.message);
+    }
   }
 
-  return result.rowCount;
+  return notifiedCount;
 };
 
 pool.on("error", (err) => {
@@ -177,6 +237,30 @@ const initializeDatabase = async () => {
     await client.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS equipment_inventory_name_unique
       ON equipment_inventory (LOWER(BTRIM(equipment_name)))
+    `);
+    await client.query(`
+      UPDATE equipment_inventory
+      SET status = CASE status
+        WHEN 'Repaired' THEN 'In service'
+        WHEN 'Replaced' THEN 'In service'
+        WHEN 'Retired' THEN 'Needs replacement'
+        ELSE status
+      END
+      WHERE status IN ('Repaired', 'Replaced', 'Retired')
+    `);
+    await client.query(`
+      UPDATE equipment_inventory
+      SET equipment_condition = CASE status
+        WHEN 'Needs inspection' THEN 'Not assessed'
+        WHEN 'Under repair' THEN 'Damaged'
+        WHEN 'In service' THEN CASE WHEN equipment_condition = 'Rusty' THEN 'Rusty' ELSE 'Good' END
+        WHEN 'Needs replacement' THEN CASE
+          WHEN equipment_condition IN ('Poor', 'Damaged', 'Worn') THEN equipment_condition
+          ELSE 'Worn'
+        END
+        ELSE equipment_condition
+      END
+      WHERE status IN ('Needs inspection', 'Under repair', 'In service', 'Needs replacement')
     `);
     await client.query(`
       DO $$
@@ -472,6 +556,13 @@ const initializeDatabase = async () => {
         ADD COLUMN IF NOT EXISTS membership_months INTEGER,
         ADD COLUMN IF NOT EXISTS membership_start_date DATE,
         ADD COLUMN IF NOT EXISTS membership_end_date DATE
+    `);
+    await client.query(`
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS membership_expiry_notified_for DATE,
+        ADD COLUMN IF NOT EXISTS membership_expired_notified_for DATE,
+        ADD COLUMN IF NOT EXISTS membership_expiry_email_attempted_for DATE,
+        ADD COLUMN IF NOT EXISTS membership_expired_email_attempted_for DATE
     `);
 
     await client.query(`

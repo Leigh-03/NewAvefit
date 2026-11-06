@@ -5,21 +5,23 @@ import userApi from "../userApi";
 
 const aliases = {
   "Weight Loss": ["weight loss", "weight management", "hiit", "circuit training", "group fitness", "conditioning"],
+  "Gain Weight": ["muscle", "bodybuilding", "physique", "powerlifting", "olympic weightlifting", "kettlebell training", "calisthenics"],
   "Muscle Gain": ["muscle", "bodybuilding", "physique", "powerlifting", "olympic weightlifting", "kettlebell training", "calisthenics"],
   "Maintain Weight": ["wellness", "maintenance", "functional fitness", "group fitness", "conditioning"],
   "General Fitness": ["general fitness", "fitness", "functional fitness", "group fitness", "hiit", "circuit training", "conditioning"],
 };
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const formatGoalSpecialty = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
 
 function score(t, goal) {
   const text = `${(t.specializations || []).join(" ")} ${t.bio || ""} ${t.goal_specialty || ""}`.toLowerCase();
-  return (t.goal_specialty === goal ? 100 : 0) +
+  return (t.goal_specialty === goal || (goal === "Gain Weight" && t.goal_specialty === "Muscle Gain") ? 100 : 0) +
     (aliases[goal] || aliases["General Fitness"]).reduce((n, w) => n + (text.includes(w) ? 15 : 0), 0);
 }
 
 function expertise(t) {
-  return [...new Set([...(t.specializations || []), t.goal_specialty].filter(Boolean))].slice(0, 8);
+  return [...new Set([...(t.specializations || []), formatGoalSpecialty(t.goal_specialty)].filter(Boolean))].slice(0, 8);
 }
 
 function TrainerPhoto({ trainer, className = "", fit = "contain" }) {
@@ -37,7 +39,7 @@ function TrainerPhoto({ trainer, className = "", fit = "contain" }) {
 function TrainerProfileModal({ trainer, goal, assigned, onClose }) {
   const [photoOpen, setPhotoOpen] = useState(false);
   if (!trainer) return null;
-  const items = [...new Set([...(trainer.specializations || []), trainer.goal_specialty].filter(Boolean))];
+  const items = [...new Set([...(trainer.specializations || []), formatGoalSpecialty(trainer.goal_specialty)].filter(Boolean))];
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6" onClick={onClose}>
@@ -84,7 +86,7 @@ function TrainerProfileModal({ trainer, goal, assigned, onClose }) {
               {trainer.full_name}
             </h2>
             <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">
-              {trainer.goal_specialty || "General Fitness Coach"}
+              {formatGoalSpecialty(trainer.goal_specialty) || "General Fitness Coach"}
             </p>
             {assigned && (
               <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300">
@@ -272,14 +274,14 @@ export default function Coaches() {
                 {i === 0 && <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg"><Sparkles size={13} /> Best match</span>}
                 {assignedTrainerId === t.trainer_id && <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg"><BadgeCheck size={14} /> Assigned Coach</span>}
               </div>
-              <p className="absolute bottom-4 left-5 right-5 z-10 text-xs font-semibold text-white drop-shadow-md sm:bottom-5 sm:left-7 md:hidden">{t.goal_specialty || "General Fitness Coach"}</p>
+              <p className="absolute bottom-4 left-5 right-5 z-10 text-xs font-semibold text-white drop-shadow-md sm:bottom-5 sm:left-7 md:hidden">{formatGoalSpecialty(t.goal_specialty) || "General Fitness Coach"}</p>
             </div>
             <div className="flex flex-col justify-center p-5 sm:p-7">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach profile</p>
                   <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">{t.full_name}</h2>
-                  <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{t.goal_specialty || "General Fitness Coach"}</p>
+                  <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{formatGoalSpecialty(t.goal_specialty) || "General Fitness Coach"}</p>
                   {score(t, goal) === 0 && (
                     <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
                       This coach’s specialty may not match your selected goal. You can still view their profile.
