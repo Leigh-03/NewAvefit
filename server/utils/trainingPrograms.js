@@ -48,8 +48,20 @@ const searchableMuscles = (exercise) => (
   `${exercise.category_name || ""} ${exercise.muscle_group || ""}`.toLowerCase()
 );
 
+const toList = (value) => {
+  if (Array.isArray(value)) return value.filter((item) => item != null && String(item).trim() !== "");
+  if (value == null) return [];
+  if (typeof value === "string") {
+    return value
+      .split(/[;,]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [value].filter((item) => item != null && String(item).trim() !== "");
+};
+
 const hasHealthConditions = (conditions = []) => (
-  Array.isArray(conditions) && conditions.some((condition) => {
+  toList(conditions).some((condition) => {
     const value = String(condition || "").trim().toLowerCase();
     return value && !["none", "no condition", "no conditions", "n/a"].includes(value);
   })
@@ -66,7 +78,7 @@ const exerciseMatchesProgram = (exercise, program) => {
 
 const isExerciseAffectedByInjury = (exercise, injuries = []) => {
   const muscles = searchableMuscles(exercise);
-  return injuries.some((injury) => {
+  return toList(injuries).some((injury) => {
     const injuryName = String(injury || "").toLowerCase().trim();
     if (!injuryName || ["none", "no injury", "no injuries", "n/a"].includes(injuryName)) return false;
     const mappedRegions = Object.entries(INJURY_MUSCLES)
@@ -81,7 +93,7 @@ const getProgramForDate = (date, preferredDays = []) => {
   const weekday = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" })
     .format(new Date(`${date}T00:00:00.000Z`));
   const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  const days = weekdays.filter((day) => preferredDays.some(
+  const days = weekdays.filter((day) => toList(preferredDays).some(
     (preferredDay) => String(preferredDay).toLowerCase() === day.toLowerCase()
   ));
   const dayIndex = days.findIndex((day) => day.toLowerCase() === weekday.toLowerCase());
@@ -92,7 +104,7 @@ const getProgramForDate = (date, preferredDays = []) => {
 
 const getScheduledPrograms = (preferredDays = []) => {
   const weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  const days = weekdays.filter((day) => preferredDays.some(
+  const days = weekdays.filter((day) => toList(preferredDays).some(
     (preferredDay) => String(preferredDay).toLowerCase() === day.toLowerCase()
   ));
   return new Set(PROGRAM_SCHEDULES[days.length] || ["Full Body"]);
