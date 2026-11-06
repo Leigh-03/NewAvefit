@@ -106,16 +106,19 @@ const requestWorkoutPlan = async (req, res) => {
   if (normalizedRequestType === "member_plan" && requestType !== "specific_workout" && (sessions.length < 3 || sessions.length > 30)) {
     return res.status(400).json({ success: false, message: "A workout plan must contain between 3 and 30 exercises." });
   }
-  if (normalizedRequestType === "member_plan" && requestType === "specific_workout" && (sessions.length < 1 || sessions.length > 30)) {
-    return res.status(400).json({ success: false, message: "A specific workout request must include between 1 and 30 exercises." });
+  if (normalizedRequestType === "member_plan" && requestType === "specific_workout" && sessions.length > 30) {
+    return res.status(400).json({ success: false, message: "A workout request can include up to 30 exercises." });
   }
-  if (normalizedRequestType === "coach_created" && sessions.length !== 0) {
+  if ((requestType === "keep_current_program" || requestType === "specific_workout" || requestType === "program_change") && sessions.length > 30) {
+    return res.status(400).json({ success: false, message: "A coach-requested workout can include up to 30 exercises." });
+  }
+  if (normalizedRequestType === "coach_created" && requestType !== "keep_current_program" && sessions.length !== 0) {
     return res.status(400).json({ success: false, message: "A coach-created workout request must not include member-selected exercises." });
   }
   if (requestNote.length > 1000) {
     return res.status(400).json({ success: false, message: "Keep the coach notes under 1000 characters." });
   }
-  if (sessions.some((session) =>
+  if (sessions.length && sessions.some((session) =>
     !session ||
     !Number.isInteger(Number(session.exercise_id)) ||
     Number(session.exercise_id) < 1 ||
@@ -129,7 +132,7 @@ const requestWorkoutPlan = async (req, res) => {
     return res.status(400).json({ success: false, message: "Every exercise needs sets from 1 to 6 and reps from 3 to 16." });
   }
   const exerciseIds = sessions.map((session) => Number(session.exercise_id));
-  if (new Set(exerciseIds).size !== exerciseIds.length) {
+  if (sessions.length && new Set(exerciseIds).size !== exerciseIds.length) {
     return res.status(400).json({ success: false, message: "An exercise can only appear once in a workout plan." });
   }
 

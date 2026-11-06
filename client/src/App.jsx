@@ -46,6 +46,7 @@ import MembershipPeriod from "./pages/MembershipPeriod";
 import TrainerLogin from "./pages/TrainerLogin";
 import TrainerLayout from "./pages/TrainerLayout";
 import TrainerDashboard from "./pages/TrainerDashboard";
+import TrainerRosterPage from "./pages/TrainerRosterPage";
 import TrainerProfile from "./pages/TrainerProfile";
 import TrainerWorkoutPlans from "./pages/TrainerWorkoutPlans";
 import TrainerExercises from "./pages/TrainerExercises";
@@ -155,18 +156,38 @@ export default function App() {
         <Route path="/coach/login" element={<TrainerLogin />} />
         <Route path="/trainer/login" element={<TrainerLogin />} />
         <Route
+          path="/coach/*"
+          element={
+            <TrainerProtectedRoute>
+              <TrainerLayout>
+                <Routes>
+                  <Route path="/dashboard" element={<TrainerDashboard />} />
+                  <Route path="/roster" element={<TrainerRosterPage />} />
+                  <Route path="/workout-plans" element={<TrainerWorkoutPlans hideCreatePlanButton />} />
+                  <Route path="/availability" element={<TrainerAvailability />} />
+                  <Route path="/exercises" element={<TrainerExercises />} />
+                  <Route path="/notifications" element={<Notifications audience="trainer" />} />
+                  <Route path="/profile" element={<TrainerProfile />} />
+                  <Route path="*" element={<Navigate to="/coach/dashboard" replace />} />
+                </Routes>
+              </TrainerLayout>
+            </TrainerProtectedRoute>
+          }
+        />
+        <Route
           path="/trainer/*"
           element={
             <TrainerProtectedRoute>
               <TrainerLayout>
                 <Routes>
-                  <Route path="/roster" element={<TrainerDashboard />} />
+                  <Route path="/dashboard" element={<TrainerDashboard />} />
+                  <Route path="/roster" element={<TrainerRosterPage />} />
                   <Route path="/workout-plans" element={<TrainerWorkoutPlans />} />
                   <Route path="/availability" element={<TrainerAvailability />} />
                   <Route path="/exercises" element={<TrainerExercises />} />
                   <Route path="/notifications" element={<Notifications audience="trainer" />} />
                   <Route path="/profile" element={<TrainerProfile />} />
-                  <Route path="*" element={<Navigate to="/trainer/roster" replace />} />
+                  <Route path="*" element={<Navigate to="/trainer/dashboard" replace />} />
                 </Routes>
               </TrainerLayout>
             </TrainerProtectedRoute>
