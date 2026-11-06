@@ -203,7 +203,7 @@ export default function TrainerDashboard(){
   return <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8"><MemberProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onViewProgress={setProgressMember}/>{progressMember&&<ProgressHistoryModal member={progressMember} fetchProgress={fetchTrainerProgress} onClose={()=>setProgressMember(null)}/>}
     <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
       <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach workspace</p>
-      <h1 className="mt-2 flex items-center gap-2 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl"><Users size={25} className="text-orange-500"/> My Roster</h1>
+      <h1 className="mt-2 flex items-center gap-2 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl"><Users size={25} className="text-orange-500"/> Dashboard</h1>
       <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">Review member profiles, goals, and progress. Create workout plans from the Workout Plans page.</p>
     </header>
     {fetchError&&<div role="alert" className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{fetchError}</div>}
@@ -225,13 +225,6 @@ export default function TrainerDashboard(){
         <div className={`${panelClass} xl:col-span-2`}><h3 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Workout completion by member</h3>{assignedTotal?<div className="h-72"><Bar data={memberProgress} options={memberBarOptions}/></div>:<p className="py-12 text-center text-sm text-slate-500">Create workout plans to compare member completion.</p>}</div>
         <div className={`${panelClass} xl:col-span-2`}><h3 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Weekly workout schedule</h3>{weeklyHasData?<div className="h-64"><Bar data={weeklyActivity} options={barOptions}/></div>:<p className="py-12 text-center text-sm text-slate-500">No weekday workout schedule data yet.</p>}</div>
       </div>}
-    </section>
-    <section aria-labelledby="roster-members-heading">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div><h2 id="roster-members-heading" className="text-lg font-bold text-slate-900 dark:text-white">Your members</h2><p className="mt-1 text-xs text-slate-500">View your members’ profiles.</p></div>
-        {!loading&&members.length>0&&<label className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 dark:border-white/10 dark:bg-[#111] sm:max-w-xs"><Search size={16} className="text-slate-400"/><span className="sr-only">Search roster</span><input type="search" value={rosterSearch} onChange={event=>setRosterSearch(event.target.value)} placeholder="Search members..." className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"/></label>}
-      </div>
-      {loading?<div className="space-y-3">{[...Array(3)].map((_,i)=><div key={i} className="h-20 animate-pulse rounded-2xl border border-orange-100 bg-white dark:border-white/5 dark:bg-[#111]"/>)}</div>:members.length===0?<div className="rounded-2xl border border-dashed border-orange-200 bg-white py-16 text-center dark:border-white/10 dark:bg-[#111]"><Users size={36} className="mx-auto mb-3 text-orange-500"/><p className="font-semibold text-slate-900 dark:text-white">No members assigned yet</p><p className="mt-1 text-sm text-slate-500">Members will appear here after the gym assigns them to you.</p></div>:filteredMembers.length===0?<div className="rounded-2xl border border-dashed border-orange-200 bg-white py-12 text-center dark:border-white/10 dark:bg-[#111]"><Search size={28} className="mx-auto mb-2 text-orange-500"/><p className="font-semibold text-slate-900 dark:text-white">No members match that search</p><button type="button" onClick={()=>setRosterSearch("")} className="mt-2 text-sm font-semibold text-orange-700 dark:text-orange-300">Clear search</button></div>:<div className="space-y-3">{filteredMembers.map(m=><MemberRow key={m.user_id} member={m} onViewProfile={setProfileMember}/>)}</div>}
     </section>
   </div>;
 }

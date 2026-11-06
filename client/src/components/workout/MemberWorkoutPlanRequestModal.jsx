@@ -127,7 +127,7 @@ export default function MemberWorkoutPlanRequestModal({
   const isSpecificWorkout = requestType === "specific_workout";
   const isCoachCreated = requestType === "coach_created";
   const isProgramSwitch = selectedProgram !== defaultProgram;
-  const requestNeedsExerciseEditor = isKeepCurrentProgram || isProgramChange || isSpecificWorkout;
+  const requestNeedsExerciseEditor = isKeepCurrentProgram || isProgramChange;
   const visibleExercises = exercises.filter((exercise) => (
     exerciseMatchesProgram(exercise, selectedProgram || defaultProgram) &&
     (!requiresConservativeWorkout(exercise, injuries, healthConditions) || String(exercise.difficulty || "").toLowerCase() === "beginner")
@@ -215,12 +215,12 @@ export default function MemberWorkoutPlanRequestModal({
       setError("Workout requests are only available for future dates. Choose a day after today.");
       return;
     }
-    if (requestType === "program_change" && sessions.length < 3) {
-      setError("Add at least 3 exercises for a program change request.");
+    if (requestType === "program_change" && sessions.length > 30) {
+      setError("A program-change request can include up to 30 exercises.");
       return;
     }
-    if (requestType === "specific_workout" && sessions.length < 1) {
-      setError("Add at least 1 exercise to suggest a specific workout.");
+    if (requestType === "specific_workout" && sessions.length > 30) {
+      setError("A workout request can include up to 30 exercises.");
       return;
     }
     if (requestNeedsExerciseEditor && sessions.some((session) => !session.exercise_id || !session.sets || !session.reps)) {
@@ -261,17 +261,16 @@ export default function MemberWorkoutPlanRequestModal({
         : requestType === "specific_workout" || requestType === "program_change"
           ? "member_plan"
           : requestType;
-      const { data } = await userApi.post("/workout-plan-requests", {
-        session_date: sessionDate,
-        training_program: selectedProgram,
-        request_type: normalizedRequestType,
-        is_program_switch: requestType === "program_change" && isProgramSwitch,
-        previous_program: requestType === "program_change" && isProgramSwitch ? defaultProgram : "",
-        sessions: requestNeedsExerciseEditor
-          ? sessions.map(({ exercise_id, sets, reps }) => ({ exercise_id, sets, reps }))
-          : [],
-        notes: requestNote.trim(),
-      });
+        const wantsProgramChange = requestType === "program_change" || requestType === "specific_workout";
+        const { data } = await userApi.post("/workout-plan-requests", {
+          session_date: sessionDate,
+          training_program: selectedProgram,
+          request_type: normalizedRequestType,
+          is_program_switch: wantsProgramChange && isProgramSwitch,
+          previous_program: wantsProgramChange && isProgramSwitch ? defaultProgram : "",
+          sessions: [],
+          notes: requestNote.trim(),
+        });
       onSubmitted(data.message);
     } catch (requestError) {
       setError(requestError.response?.data?.message || "Unable to submit your workout plan.");
@@ -310,7 +309,7 @@ export default function MemberWorkoutPlanRequestModal({
                   />
                   Keep My Current Program
                 </span>
-                <span className="mt-2 block pl-6 text-xs text-slate-500">Request a new exercise or workout plan from your trainer based on your current program.</span>
+                <span className="mt-2 block pl-6 text-xs text-slate-500">Create a workout plan based on your current program and send it to your trainer for review.</span>
                 <div className="mt-3 ml-6 rounded-lg border border-slate-300 bg-slate-100/70 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-[#171717] dark:text-slate-200">
                   Current split: <span className="font-semibold text-slate-900 dark:text-white">{programLabel(defaultProgram || "Current program")}</span>
                 </div>
@@ -328,7 +327,7 @@ export default function MemberWorkoutPlanRequestModal({
                   />
                   Request a Program Change
                 </span>
-                <span className="mt-2 block pl-6 text-xs text-slate-500">Suggest changes to your existing workout program for your coach to review.</span>
+                <span className="mt-2 block pl-6 text-xs text-slate-500">Create a new workout routine and request a different program for your trainer to review.</span>
                 <div className="mt-3 ml-6 rounded-lg border border-slate-300 bg-slate-100/70 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-[#171717] dark:text-slate-200">
                   Current program: <span className="font-semibold text-slate-900 dark:text-white">{programLabel(defaultProgram || "Current program")}</span>
                 </div>
@@ -356,11 +355,23 @@ export default function MemberWorkoutPlanRequestModal({
                     checked={isSpecificWorkout}
                     onChange={() => handleRequestTypeChange("specific_workout")}
                   />
-                  Request a Specific Workout
+                  Request workout from your coach
                 </span>
-                <span className="mt-2 block pl-6 text-xs text-slate-500">Suggest specific exercises or muscle groups you want included in your next workout.</span>
+                <span className="mt-2 block pl-6 text-xs text-slate-500">Send a request to your trainer for a workout plan and choose another available program if needed.</span>
                 <div className="mt-3 ml-6 rounded-lg border border-slate-300 bg-slate-100/70 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-[#171717] dark:text-slate-200">
-                  Current split: <span className="font-semibold text-slate-900 dark:text-white">{programLabel(defaultProgram || "Current program")}</span>
+                  Current program: <span className="font-semibold text-slate-900 dark:text-white">{programLabel(defaultProgram || "Current program")}</span>
+                </div>
+                <div className="mt-3 ml-6">
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Requested program</label>
+                  <select
+                    aria-label="Requested program"
+                    value={isSpecificWorkout ? selectedProgram : ""}
+                    disabled={!isSpecificWorkout}
+                    onChange={(event) => handleProgramChange(event.target.value)}
+                    className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-[#171717] dark:text-white"
+                  >
+                    {availableCoachRequestPrograms.map((program) => <option key={program} value={program}>{programLabel(program)}</option>)}
+                  </select>
                 </div>
               </label>
             </div>
@@ -380,8 +391,8 @@ export default function MemberWorkoutPlanRequestModal({
           {requestNeedsExerciseEditor && <div>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-bold text-slate-800 dark:text-white">{isProgramChange ? "Proposed program exercises" : "Suggested workout exercises"}</h3>
-                <p className="mt-1 text-xs text-slate-500">{isProgramChange ? `Add your proposed ${selectedProgram || "selected program"} exercises for coach approval.` : `Choose exercises and preferred volume for your coach to review.`}</p>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white">My Personalized Suggested Workout Routine</h3>
+                <p className="mt-1 text-xs text-slate-500">{isProgramChange ? `Add your proposed ${selectedProgram || "selected program"} exercises for coach approval.` : `Add your preferred exercises and sets/reps for your trainer to review.`}</p>
               </div>
               <button type="button" onClick={() => setSessions((current) => [...current, blankExercise(initialGoal)])} disabled={sessions.length >= 30} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-orange-500/30 px-3 text-xs font-semibold text-orange-600 hover:bg-orange-500/10 disabled:opacity-50 dark:text-orange-300">
                 <Plus size={14} /> Add exercise
@@ -431,7 +442,7 @@ export default function MemberWorkoutPlanRequestModal({
                 value={requestNote}
                 onChange={(event) => setRequestNote(event.target.value)}
                 rows={4}
-                placeholder="Example: focus on chest and shoulder work, avoid lower body fatigue, keep reps moderate..."
+                placeholder="Example: I want a more chest-focused workout this week, or please prepare a full-body routine based on my current split."
                 className="mt-2 min-h-24 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-orange-500 dark:border-slate-700 dark:bg-[#171717] dark:text-white"
               />
             </label>

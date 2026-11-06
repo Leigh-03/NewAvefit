@@ -5,11 +5,12 @@ import useUnreadCount from "../components/layout/useUnreadCount";
 import { useTrainerAuth } from "../context/TrainerAuthContext";
 
 const NAV = [
-  { to: "/trainer/roster", icon: Users, label: "My Roster" },
-  { to: "/trainer/workout-plans", icon: ClipboardList, label: "Workout Plans" },
-  { to: "/trainer/availability", icon: CalendarClock, label: "Availability" },
-  { to: "/trainer/exercises", icon: Dumbbell, label: "Exercises" },
-  { to: "/trainer/profile", icon: User, label: "My Profile" },
+  { to: "/coach/dashboard", icon: Users, label: "Dashboard" },
+  { to: "/coach/roster", icon: Users, label: "My Roster" },
+  { to: "/coach/workout-plans", icon: ClipboardList, label: "Workout Plans" },
+  { to: "/coach/availability", icon: CalendarClock, label: "Availability" },
+  { to: "/coach/exercises", icon: Dumbbell, label: "Exercises" },
+  { to: "/coach/profile", icon: User, label: "My Profile" },
 ];
 
 export default function TrainerLayout({ children }) {

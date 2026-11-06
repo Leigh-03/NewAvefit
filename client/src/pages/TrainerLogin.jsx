@@ -24,7 +24,7 @@ export default function TrainerLogin() {
     try {
       const res = await trainerApi.post("/login", form);
       loginTrainer(res.data.trainer, res.data.token);
-      navigate("/trainer/roster", { replace: true });
+      navigate("/coach/dashboard", { replace: true });
     } catch (err) {
       if (err.response?.status === 403 && err.response?.data?.status === "Pending") {
         setPendingNotice(true);

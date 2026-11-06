@@ -16,7 +16,7 @@ const createNotification = async ({
   notificationType = "general",
   message,
   userName = null,
-  targetUrl = "/",
+  targetUrl = null,
 }) => {
   if (!["admin", "trainer", "user"].includes(audience)) {
     throw new Error("Invalid notification audience.");
@@ -25,13 +25,21 @@ const createNotification = async ({
     throw new Error("A valid notification recipient and message are required.");
   }
 
+  const normalizedTargetUrl = targetUrl || (
+    audience === "admin"
+      ? "/admin/notifications"
+      : audience === "trainer"
+        ? "/trainer/notifications"
+        : "/user/notifications"
+  );
+
   const result = await pool.query(
     `INSERT INTO app_notifications
        (audience_type, recipient_id, message, notification_type, related_user_name, target_url)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING notification_id, audience_type, recipient_id, message,
                notification_type, related_user_name, target_url, is_read, created_at`,
-    [audience, Number(recipientId), message, notificationType, userName, targetUrl]
+    [audience, Number(recipientId), message, notificationType, userName, normalizedTargetUrl]
   );
 
   return result.rows[0];

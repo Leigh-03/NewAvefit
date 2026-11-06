@@ -78,6 +78,24 @@ export default function Notifications({ audience = "admin" }) {
     }
   };
 
+  const getNotificationTarget = (targetUrl) => {
+    if (!targetUrl || targetUrl === "/") {
+      return audience === "admin"
+        ? "/admin/notifications"
+        : audience === "trainer"
+          ? "/trainer/notifications"
+          : "/user/notifications";
+    }
+
+    if (!targetUrl.startsWith("/")) return null;
+
+    if (audience === "trainer" && targetUrl === "/trainer/workouts") {
+      return "/trainer/workout-plans";
+    }
+
+    return targetUrl;
+  };
+
   const filtered = notifications.filter((n) => {
     if (filter === "Unread") return !n.is_read;
     if (filter === "Read") return n.is_read;
@@ -187,19 +205,20 @@ export default function Notifications({ audience = "admin" }) {
                       {new Date(notif.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" })}
                     </span>
                   </div>
-                  {notif.target_url?.startsWith("/") && !notif.target_url.startsWith("//") && (
-                    <Link
-                      to={audience === "trainer" && notif.target_url === "/trainer/workouts"
-                        ? "/trainer/workout-plans"
-                        : notif.target_url}
-                      onClick={() => {
-                        if (!notif.is_read) handleMarkRead(notif.notification_id);
-                      }}
-                      className="mt-2 inline-flex text-xs font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
-                    >
-                      {notif.notification_type === "bmi_reminder" ? "Update BMI and progress" : "View"}
-                    </Link>
-                  )}
+                  {(() => {
+                    const target = getNotificationTarget(notif.target_url);
+                    return target && (
+                      <Link
+                        to={target}
+                        onClick={() => {
+                          if (!notif.is_read) handleMarkRead(notif.notification_id);
+                        }}
+                        className="mt-2 inline-flex text-xs font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+                      >
+                        {notif.notification_type === "bmi_reminder" ? "Update BMI and progress" : "View"}
+                      </Link>
+                    );
+                  })()}
                 </div>
 
                 {/* Actions */}

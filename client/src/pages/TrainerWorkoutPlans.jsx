@@ -232,7 +232,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   const existingPlanOnDate = !keepingExistingDate && plans.find((item) =>
     String(item.user_id) === form.user_id
     && String(item.scheduled_date || "").slice(0, 10) === form.session_date
-    && item.approval_status !== "Rejected"
+    && String(item.approval_status || "").toLowerCase() === "approved"
     && String(item.workout_plan_id) !== String(plan?.workout_plan_id)
   );
   const availableDays = toList(selectedMember?.preferred_days);
@@ -754,7 +754,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   );
 }
 
-export default function TrainerWorkoutPlans() {
+export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [plans, setPlans] = useState([]);
   const [members, setMembers] = useState([]);
@@ -888,6 +888,44 @@ export default function TrainerWorkoutPlans() {
   ).filter((plan) => statusFilter === "All" || plan.activity_status === statusFilter)
     .filter((plan) => rosterFilter === "All" || String(plan.user_id) === rosterFilter);
 
+  const showCreatePlanButton = !hideCreatePlanButton && (
+    plans.some((plan) =>
+      String(plan.request_type || "").toLowerCase() === "coach_created" &&
+      String(plan.approval_status || "").toLowerCase() === "pending"
+    ) ||
+    members.some((member) => {
+      const preferredDays = Array.isArray(member.preferred_days)
+        ? member.preferred_days
+        : typeof member.preferred_days === "string"
+          ? member.preferred_days.split(",")
+          : [];
+
+      if (!preferredDays.length) return false;
+
+      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const normalizedDays = preferredDays.map((day) => String(day).trim().toLowerCase());
+      const manilaNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }));
+      const nextWorkoutDate = (() => {
+        for (let offset = 0; offset < 14; offset += 1) {
+          const candidate = new Date(manilaNow);
+          candidate.setDate(manilaNow.getDate() + offset);
+          if (normalizedDays.includes(dayNames[candidate.getDay()].toLowerCase())) {
+            return candidate.toISOString().slice(0, 10);
+          }
+        }
+        return null;
+      })();
+
+      if (!nextWorkoutDate) return false;
+
+      return !plans.some((plan) =>
+        String(plan.user_id) === String(member.user_id) &&
+        String(plan.approval_status || "").toLowerCase() !== "rejected" &&
+        String(plan.scheduled_date || "").slice(0, 10) === nextWorkoutDate
+      );
+    })
+  );
+
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
       {showModal && (
@@ -972,16 +1010,18 @@ export default function TrainerWorkoutPlans() {
           <h1 className="mt-2 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl">Workout Plans</h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Build and track personalized training plans for your roster.</p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setEditingPlan(null);
-            setShowModal(true);
-          }}
-          className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#080808]"
-        >
-          <Plus size={18} /> Create Plan
-        </button>
+        {showCreatePlanButton && (
+          <button
+            type="button"
+            onClick={() => {
+              setEditingPlan(null);
+              setShowModal(true);
+            }}
+            className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#080808]"
+          >
+            <Plus size={18} /> Create Plan
+          </button>
+        )}
       </header>
 
       {fetchError && (
