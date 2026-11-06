@@ -96,9 +96,7 @@ export default function MemberWorkoutPlanRequestModal({
   const availableSwitchPrograms = scheduledPrograms.filter((program) => (
     program !== defaultProgram && !completedPrograms.has(program) && !usedSwitchPrograms.has(program)
   ));
-  const availableCoachRequestPrograms = defaultProgram
-    ? [defaultProgram]
-    : scheduledPrograms;
+  const availableCoachRequestPrograms = scheduledPrograms;
 
   useEffect(() => {
     if (requestType === "program_change") {
@@ -246,7 +244,7 @@ export default function MemberWorkoutPlanRequestModal({
       <section role="dialog" aria-modal="true" aria-labelledby="member-plan-request-title" className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]" onClick={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b border-slate-200 p-5 dark:border-slate-800 sm:p-6">
           <div>
-            <h2 id="member-plan-request-title" className="text-xl font-bold text-slate-900 dark:text-white">Workout request</h2>
+            <h2 id="member-plan-request-title" className="text-xl font-bold text-slate-900 dark:text-white">Create workout plan</h2>
             <p className="mt-1 text-sm text-slate-500">Choose one request type. Your coach will be notified.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10"><X size={20} /></button>
@@ -295,7 +293,7 @@ export default function MemberWorkoutPlanRequestModal({
                     checked={!isProgramChange}
                     onChange={() => handleRequestTypeChange("coach_created")}
                   />
-                  Would you like to request a workout from your coach?
+                  Create workout plan
                 </span>
                 <span className="mt-2 block pl-6">
                   <span className="mb-1 block text-xs text-slate-500">Choose the program for your coach to prepare</span>
@@ -375,7 +373,7 @@ export default function MemberWorkoutPlanRequestModal({
           {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
           <div className="flex justify-end gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
             <button type="button" onClick={onClose} disabled={saving} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">Cancel</button>
-            <button type="submit" disabled={saving || (isProgramChange && (loadingExercises || exercises.length === 0))} className="min-h-11 rounded-xl bg-orange-600 px-5 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Sending request..." : isProgramChange ? "Submit program change for approval" : "Request workout from coach"}</button>
+            <button type="submit" disabled={saving || (isProgramChange && (loadingExercises || exercises.length === 0))} className="min-h-11 rounded-xl bg-orange-600 px-5 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Sending request..." : isProgramChange ? "Submit program change for approval" : "Create workout plan"}</button>
           </div>
         </form>
       </section>
