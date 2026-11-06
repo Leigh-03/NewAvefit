@@ -492,7 +492,7 @@ export default function WorkoutPage() {
                       : null}
             {canRequestWorkout && (
               <button type="button" onClick={() => { setPlanRequestNotice(""); setShowPlanRequest(true); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700">
-                <Plus size={16} /> Request workout from your coach
+                <Plus size={16} /> Create workout plan
               </button>
             )}
             {dayWorkoutStatus && (
