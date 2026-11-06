@@ -2061,6 +2061,20 @@ const reviewMemberWorkoutPlan = async (req, res) => {
         transactionStarted = false;
         return res.status(409).json({ success: false, message: "This workout plan request has already been reviewed." });
       }
+
+      await client.query(`DELETE FROM workout_sessions WHERE workout_plan_id = $1`, [planId]);
+      const deletedPlan = await client.query(
+        `DELETE FROM workout_plans
+         WHERE workout_plan_id = $1
+           AND approval_status = 'Rejected'
+         RETURNING workout_plan_id`,
+        [planId]
+      );
+      if (!deletedPlan.rowCount) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(409).json({ success: false, message: "The rejected request could not be cleared. Please refresh and try again." });
+      }
     }
 
     await client.query("COMMIT");

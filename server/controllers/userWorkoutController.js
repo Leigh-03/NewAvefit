@@ -87,7 +87,13 @@ const getUserPlans = async (req, res) => {
 const requestWorkoutPlan = async (req, res) => {
   const sessionDate = req.body.session_date;
   const requestType = req.body.request_type || "member_plan";
-  if (!["member_plan", "coach_created"].includes(requestType)) {
+  const requestNote = typeof req.body.notes === "string" ? req.body.notes.trim() : "";
+  const normalizedRequestType = requestType === "keep_current_program"
+    ? "coach_created"
+    : requestType === "specific_workout" || requestType === "program_change"
+      ? "member_plan"
+      : requestType;
+  if (!["member_plan", "coach_created", "keep_current_program", "program_change", "specific_workout"].includes(requestType)) {
     return res.status(400).json({ success: false, message: "Choose a valid workout request type." });
   }
   const sessions = Array.isArray(req.body.sessions) ? req.body.sessions : [];
@@ -97,11 +103,17 @@ const requestWorkoutPlan = async (req, res) => {
   if (!parsedDate || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== sessionDate) {
     return res.status(400).json({ success: false, message: "Choose a valid workout date." });
   }
-  if (requestType === "member_plan" && (sessions.length < 3 || sessions.length > 30)) {
+  if (normalizedRequestType === "member_plan" && requestType !== "specific_workout" && (sessions.length < 3 || sessions.length > 30)) {
     return res.status(400).json({ success: false, message: "A workout plan must contain between 3 and 30 exercises." });
   }
-  if (requestType === "coach_created" && sessions.length !== 0) {
+  if (normalizedRequestType === "member_plan" && requestType === "specific_workout" && (sessions.length < 1 || sessions.length > 30)) {
+    return res.status(400).json({ success: false, message: "A specific workout request must include between 1 and 30 exercises." });
+  }
+  if (normalizedRequestType === "coach_created" && sessions.length !== 0) {
     return res.status(400).json({ success: false, message: "A coach-created workout request must not include member-selected exercises." });
+  }
+  if (requestNote.length > 1000) {
+    return res.status(400).json({ success: false, message: "Keep the coach notes under 1000 characters." });
   }
   if (sessions.some((session) =>
     !session ||
@@ -399,10 +411,10 @@ const requestWorkoutPlan = async (req, res) => {
       : member.fitness_goal || "Fitness goal not set";
     const planResult = await client.query(
       `INSERT INTO workout_plans
-         (user_id, trainer_id, plan_name, goal, scheduled_duration_minutes, approval_status, training_program, previous_training_program, is_program_switch, request_type, requested_session_date)
-       VALUES ($1, $2, $3, $4, $5, 'Pending', $6, $7, $8, $9, $10)
-       RETURNING workout_plan_id, plan_name, goal, approval_status, training_program, previous_training_program, is_program_switch, request_type`,
-      [member.user_id, member.trainer_id, planName, goal, sessionDuration, trainingProgram, isProgramSwitch ? defaultProgram : null, isProgramSwitch, requestType, sessionDate]
+         (user_id, trainer_id, plan_name, goal, scheduled_duration_minutes, approval_status, training_program, previous_training_program, is_program_switch, request_type, requested_session_date, request_note)
+       VALUES ($1, $2, $3, $4, $5, 'Pending', $6, $7, $8, $9, $10, $11)
+       RETURNING workout_plan_id, plan_name, goal, approval_status, training_program, previous_training_program, is_program_switch, request_type, request_note`,
+      [member.user_id, member.trainer_id, planName, goal, sessionDuration, trainingProgram, isProgramSwitch ? defaultProgram : null, isProgramSwitch, normalizedRequestType, sessionDate, requestNote || null]
     );
     const planId = planResult.rows[0].workout_plan_id;
     for (const session of sessions) {
@@ -422,10 +434,10 @@ const requestWorkoutPlan = async (req, res) => {
       audience: "trainer",
       recipientId: member.trainer_id,
       message: isProgramSwitch
-        ? requestType === "coach_created"
+        ? normalizedRequestType === "coach_created"
           ? `${memberName} requested you to create a ${trainingProgram} workout for ${sessionDate}, switching from ${defaultProgram}. Review the request.`
           : `${memberName} requested a switch from ${defaultProgram} to ${trainingProgram}. Goal weight: ${member.target_weight == null ? "not set" : `${member.target_weight} kg`}. Review the workout request.`
-        : requestType === "coach_created"
+        : normalizedRequestType === "coach_created"
           ? `${memberName} requested a ${trainingProgram} workout from you for ${sessionDate}. Please create the plan.`
           : `${memberName} requested a ${trainingProgram} workout. Goal weight: ${member.target_weight == null ? "not set" : `${member.target_weight} kg`}.`,
       notificationType: "workout",
@@ -447,7 +459,7 @@ const requestWorkoutPlan = async (req, res) => {
           targetWeight: member.target_weight,
           isProgramSwitch,
           previousProgram: defaultProgram,
-          requestType,
+          requestType: normalizedRequestType,
           sessionDate,
         });
         emailSent = delivery.delivered;
@@ -462,12 +474,12 @@ const requestWorkoutPlan = async (req, res) => {
       email_sent: emailSent,
       message: isProgramSwitch
         ? emailSent
-          ? requestType === "coach_created"
+          ? normalizedRequestType === "coach_created"
             ? "Your request for a coach-created program switch was sent. Your coach has been notified by email."
             : "Program switch submitted. Your coach has been notified by email and must approve the workout."
           : "Your request was submitted, but your coach's email could not be delivered. Please contact your coach."
         : emailSent
-          ? requestType === "coach_created"
+          ? normalizedRequestType === "coach_created"
             ? "Workout request sent. Your coach has been notified by email and will create the plan."
             : "Workout plan submitted. Your coach has been notified by email."
           : "Your request was submitted, but the coach email could not be delivered. Please contact your coach.",

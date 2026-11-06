@@ -92,7 +92,13 @@ export default function GoalSetup() {
       ? currentWeight / ((height / 100) ** 2)
       : null
   ), [currentWeight, height]);
+  const targetBmi = useMemo(() => (
+    targetWeight && height
+      ? targetWeight / ((height / 100) ** 2)
+      : null
+  ), [targetWeight, height]);
   const bmiCategory = bmi === null ? "" : getBmiCategory(bmi);
+  const targetBmiCategory = targetBmi === null ? "" : getBmiCategory(targetBmi);
   const recommendedGoal = bmiCategory === "Underweight"
     ? "Gain Weight"
     : bmiCategory === "Overweight" || bmiCategory === "Obese"
@@ -141,10 +147,17 @@ export default function GoalSetup() {
         <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{profileError}</p>
       ) : (
         <>
-          <div className="mb-5 rounded-xl bg-slate-50 p-4 text-center">
-            <p className="text-sm text-slate-500">Your BMI</p>
-            <p className="mt-1 text-2xl font-bold text-slate-900">{bmi === null ? "—" : bmi.toFixed(2)}</p>
-            <p className={`text-sm font-semibold ${bmiCategory === "Normal" ? "text-green-600" : "text-orange-600"}`}>{bmiCategory}</p>
+          <div className="mb-5 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-2">
+            <div className="text-center">
+              <p className="text-sm text-slate-500">Current BMI</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">{bmi === null ? "—" : bmi.toFixed(2)}</p>
+              <p className={`text-sm font-semibold ${bmiCategory === "Normal" ? "text-green-600" : "text-orange-600"}`}>{bmiCategory}</p>
+            </div>
+            <div className="text-center">
+              <p className="text-sm text-slate-500">Target BMI</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">{targetBmi === null ? "—" : targetBmi.toFixed(2)}</p>
+              <p className={`text-sm font-semibold ${targetBmiCategory === "Normal" ? "text-green-600" : "text-orange-600"}`}>{targetBmiCategory}</p>
+            </div>
           </div>
 
           <div className="mb-8 space-y-3">
