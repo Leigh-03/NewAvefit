@@ -253,10 +253,10 @@ export default function WorkoutPage() {
     philippinesDateKey(plan.session_date) === activeDay &&
     ["Pending", "Approved"].includes(plan.approval_status)
   ));
-  const activeDayIsPast = activeDay < today;
+  const activeDayIsNotFuture = activeDay <= today;
   const membershipExpired = membershipEndDate && membershipEndDate < today;
   const canRequestWorkout = hasAssignedCoach
-    && !activeDayIsPast
+    && !activeDayIsNotFuture
     && !membershipExpired
     && isWorkoutDay(activeDay)
     && Boolean(activeDayProgram)
@@ -471,8 +471,8 @@ export default function WorkoutPage() {
             <h2 className="mt-0.5 font-bold text-slate-900 dark:text-white">{activeDayLabel}&apos;s workouts</h2>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {activeDayIsPast
-              ? <span role="status" className="text-sm font-medium text-slate-500">This workout date has passed. You can no longer request a workout for it.</span>
+            {activeDayIsNotFuture
+              ? <span role="status" className="text-sm font-medium text-slate-500">Workout requests are only available for future dates. Choose a day after today.</span>
               : membershipExpired
                 ? <span role="status" className="text-sm font-medium text-amber-700 dark:text-amber-300">Your membership has ended. Renew it to request a workout plan.</span>
                 : !hasAssignedCoach

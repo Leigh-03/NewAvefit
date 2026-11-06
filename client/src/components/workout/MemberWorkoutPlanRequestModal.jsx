@@ -151,6 +151,10 @@ export default function MemberWorkoutPlanRequestModal({
   const submitRequest = async (event) => {
     event.preventDefault();
     setError("");
+    if (sessionDate <= philippinesDateString()) {
+      setError("Workout requests are only available for future dates. Choose a day after today.");
+      return;
+    }
     if (sessions.length < 3) {
       setError("Add at least 3 exercises.");
       return;

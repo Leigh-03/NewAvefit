@@ -229,7 +229,10 @@ export default function UserAnalytics() {
             <div className="flex items-center gap-2"><Target size={20} className="text-orange-500" /><h2 id="forecast-title" className="text-lg font-bold">Goal forecast scenarios</h2></div>
             <label className="mt-4 block max-w-xs text-sm font-semibold text-slate-700 dark:text-slate-200">
               Target weight (kg)
-              <input type="number" min="20" max="200" step="0.1" value={targetWeight} onChange={(event) => setTargetWeight(event.target.value)} className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 text-sm text-slate-900 outline-none focus:border-orange-500 dark:border-slate-700 dark:bg-white/5 dark:text-white" />
+              <input type="number" min="20" max="200" step="1" value={targetWeight} onChange={(event) => {
+                const value = event.target.value;
+                if (value === "" || Number.isInteger(Number(value))) setTargetWeight(value);
+              }} className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 text-sm text-slate-900 outline-none focus:border-orange-500 dark:border-slate-700 dark:bg-white/5 dark:text-white" />
             </label>
             {metrics.target == null ? <p className="mt-3 text-sm text-slate-500">Enter a target in the correct direction for your goal to view an estimate.</p> : (
               <>

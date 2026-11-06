@@ -11,7 +11,7 @@ const PROGRAM_SCHEDULES = {
   6: ["Push", "Pull", "Legs", "Chest & Back", "Shoulders & Arms", "Legs"],
 };
 
-const getTodayProgramTotals = (members, today) => {
+const getTodayProgramTotals = (members, today, includeMemberNames) => {
   const totals = new Map();
   for (const member of members) {
     const preferredDays = Array.isArray(member.preferred_days) ? member.preferred_days : [];
@@ -23,10 +23,16 @@ const getTodayProgramTotals = (members, today) => {
 
     const schedule = PROGRAM_SCHEDULES[orderedDays.length] || ["Full Body"];
     const program = schedule[dayIndex % schedule.length];
-    totals.set(program, (totals.get(program) || 0) + 1);
+    if (!totals.has(program)) {
+      totals.set(program, { program, count: 0, members: [] });
+    }
+    const total = totals.get(program);
+    total.count += 1;
+    if (includeMemberNames && member.member_name) {
+      total.members.push(member.member_name);
+    }
   }
-  return [...totals.entries()]
-    .map(([program, count]) => ({ program, count }))
+  return [...totals.values()]
     .sort((left, right) => right.count - left.count || left.program.localeCompare(right.program));
 };
 
@@ -35,7 +41,7 @@ const getTrainingPulse = async (req, res) => {
     const audience = req.trainingAudience;
     const trainerId = audience === "trainer" ? Number(req.trainer.trainer_id) : null;
     const memberResult = await pool.query(`
-      SELECT preferred_days
+      SELECT preferred_days, CONCAT_WS(' ', first_name, last_name) AS member_name
       FROM users
       WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
         AND ($1::int IS NULL OR trainer_id = $1)
@@ -45,7 +51,8 @@ const getTrainingPulse = async (req, res) => {
       timeZone: "Asia/Manila",
       weekday: "long",
     }).format(new Date());
-    const todayPrograms = getTodayProgramTotals(memberResult.rows, today);
+    const includeMemberNames = audience === "admin" || audience === "trainer";
+    const todayPrograms = getTodayProgramTotals(memberResult.rows, today, includeMemberNames);
     const currentDay = WEEKDAYS.find((day) => day.toLowerCase() === today.toLowerCase());
     const availabilityResult = await pool.query(`
       SELECT period.label, COUNT(DISTINCT member.user_id)::int AS count
