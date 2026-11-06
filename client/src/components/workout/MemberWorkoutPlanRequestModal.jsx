@@ -97,7 +97,7 @@ export default function MemberWorkoutPlanRequestModal({
     program !== defaultProgram && !completedPrograms.has(program) && !usedSwitchPrograms.has(program)
   ));
   const availableCoachRequestPrograms = defaultProgram
-    ? Array.from(new Set([defaultProgram, ...availableSwitchPrograms]))
+    ? [defaultProgram]
     : scheduledPrograms;
 
   useEffect(() => {
