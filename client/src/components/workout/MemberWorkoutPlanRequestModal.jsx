@@ -207,7 +207,7 @@ export default function MemberWorkoutPlanRequestModal({
       return Number(session.sets) < rules.sets[0] || Number(session.sets) > rules.sets[1]
         || Number(session.reps) < rules.reps[0] || Number(session.reps) > rules.reps[1];
     })) {
-      setError("Use the displayed sets and reps range for each exercise. Conservative workouts use a reduced beginner range.");
+      setError("Use the displayed sets and reps range for each exercise. The 1–2 sets / 6–10 reps reduced range applies only when injury or health-condition restrictions are present; otherwise the beginner minimum is 3 sets.");
       return;
     }
     const usedExercises = sessions.map((session) => session.exercise_id);

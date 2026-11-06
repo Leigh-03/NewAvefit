@@ -1496,7 +1496,7 @@ const getMyWorkoutPlans = async (req, res) => {
       LEFT JOIN LATERAL (
       SELECT
           MIN(ws.session_date) FILTER (
-            WHERE ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            WHERE ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
           ) AS scheduled_date,
           COUNT(ws.session_id)::int AS exercise_count,
           COUNT(ws.session_id) FILTER (WHERE ws.completed = TRUE)::int AS completed_count,
@@ -1774,7 +1774,7 @@ const createMyWorkoutPlan = async (req, res) => {
           || Number(session.reps) < 6 || Number(session.reps) > 10) {
           await client.query("ROLLBACK");
           transactionStarted = false;
-          return res.status(400).json({ success: false, message: "Injury-affected exercises or plans for members with recorded health conditions must use beginner options with 1–2 sets and 6–10 reps." });
+          return res.status(400).json({ success: false, message: "For injury-affected exercises or recorded health conditions, use beginner options with 1–2 sets and 6–10 reps. Without those restrictions, the normal beginner minimum is 3 sets." });
         }
       } else if (!isWorkoutDoseAllowed(memberPreferences.fitness_goal, session.sets, session.reps)) {
         const rules = getWorkoutGoalRules(memberPreferences.fitness_goal);
@@ -2038,7 +2038,8 @@ const reviewMemberWorkoutPlan = async (req, res) => {
         `UPDATE workout_plans
          SET approval_status = 'Approved',
              scheduled_start_time = $1::time,
-             scheduled_duration_minutes = $2
+             scheduled_duration_minutes = $2,
+             trainer_change_reason = NULL
          WHERE workout_plan_id = $3 AND approval_status = 'Pending'`,
         [startTime, duration, planId]
       );
@@ -2049,8 +2050,11 @@ const reviewMemberWorkoutPlan = async (req, res) => {
       }
     } else {
       const rejected = await client.query(
-        "UPDATE workout_plans SET approval_status = 'Rejected' WHERE workout_plan_id = $1 AND approval_status = 'Pending'",
-        [planId]
+        `UPDATE workout_plans
+         SET approval_status = 'Rejected',
+             trainer_change_reason = $1
+         WHERE workout_plan_id = $2 AND approval_status = 'Pending'`,
+        [reason, planId]
       );
       if (!rejected.rowCount) {
         await client.query("ROLLBACK");
@@ -2629,7 +2633,7 @@ const deleteMyWorkoutPlan = async (req, res) => {
 
     const planDate = await client.query(
       `SELECT MIN(session_date) FILTER (
-         WHERE session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+         WHERE session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
        ) AS scheduled_date,
        COALESCE(BOOL_OR(started_at IS NOT NULL OR completed = TRUE), FALSE) AS has_started,
        TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today

@@ -81,12 +81,12 @@ const getTrainingPulse = async (req, res) => {
         AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
         AND (
           (
-            ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
             AND ws.session_date = TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD')
           )
           OR (
-            ws.session_date !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-            AND LOWER(BTRIM(ws.session_date)) = LOWER(TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'FMDay'))
+            ws.session_date::text !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            AND LOWER(BTRIM(ws.session_date::text)) = LOWER(TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'FMDay'))
           )
         )
       GROUP BY BTRIM(e.equipment)

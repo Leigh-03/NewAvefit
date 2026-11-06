@@ -17,12 +17,12 @@ const DEFAULT_WORKOUT_SESSION_DURATION = 60;
 
 const SCHEDULED_FOR_TODAY_SQL = `(
   (
-    ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
     AND ws.session_date = TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD')
   )
   OR (
-    ws.session_date !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-    AND LOWER(BTRIM(ws.session_date)) = LOWER(TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'FMDay'))
+    ws.session_date::text !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    AND LOWER(BTRIM(ws.session_date::text)) = LOWER(TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'FMDay'))
   )
 )`;
 
@@ -213,13 +213,25 @@ const requestWorkoutPlan = async (req, res) => {
            AND wp.is_program_switch = TRUE
            AND wp.training_program = $2
            AND (
-             (wp.requested_session_date >= DATE_TRUNC('week', $3::date)::date
-               AND wp.requested_session_date < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date)
+             (CASE
+                WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN wp.requested_session_date::date
+                ELSE NULL
+              END >= DATE_TRUNC('week', $3::date)::date
+               AND CASE
+                   WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN wp.requested_session_date::date
+                   ELSE NULL
+                 END < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date)
              OR EXISTS (
-               SELECT 1 FROM workout_sessions ws
-               WHERE ws.workout_plan_id = wp.workout_plan_id
-                 AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $3::date), 'YYYY-MM-DD')
-                 AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $3::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+               SELECT 1 FROM workout_sessions ws2
+               WHERE ws2.workout_plan_id = wp.workout_plan_id
+                 AND CASE
+                     WHEN ws2.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws2.session_date::date
+                     ELSE NULL
+                   END >= DATE_TRUNC('week', $3::date)::date
+                 AND CASE
+                     WHEN ws2.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws2.session_date::date
+                     ELSE NULL
+                   END < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date
              )
            )
          LIMIT 1`,
@@ -237,8 +249,14 @@ const requestWorkoutPlan = async (req, res) => {
          WHERE wp.user_id = $1
            AND wp.training_program = $2
            AND wp.approval_status = 'Approved'
-           AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $3::date), 'YYYY-MM-DD')
-           AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $3::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+           AND CASE
+             WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws.session_date::date
+             ELSE NULL
+           END >= DATE_TRUNC('week', $3::date)::date
+           AND CASE
+             WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws.session_date::date
+             ELSE NULL
+           END < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date
          GROUP BY wp.workout_plan_id
          HAVING COUNT(*) > 0
            AND COUNT(*) FILTER (WHERE ws.completed = TRUE) = COUNT(*)
@@ -294,7 +312,7 @@ const requestWorkoutPlan = async (req, res) => {
         if (Number(session.sets) < 1 || Number(session.sets) > 2 || Number(session.reps) < 6 || Number(session.reps) > 10) {
           await client.query("ROLLBACK");
           transactionStarted = false;
-          return res.status(400).json({ success: false, message: "Conservative workouts must use 1–2 sets and 6–10 reps before coach review." });
+          return res.status(400).json({ success: false, message: "This reduced 1–2 sets / 6–10 reps range applies only when the member has injury or health-condition restrictions. Otherwise, the normal beginner minimum is 3 sets." });
         }
       } else if (!isWorkoutDoseAllowed(member.fitness_goal, session.sets, session.reps)) {
         const rules = getWorkoutGoalRules(member.fitness_goal);
@@ -315,11 +333,17 @@ const requestWorkoutPlan = async (req, res) => {
        WHERE wp.user_id = $1
          AND wp.approval_status IN ('Approved', 'Pending')
          AND (
-           wp.requested_session_date = $2::date
+           (CASE
+             WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN wp.requested_session_date::date
+             ELSE NULL
+           END = $2::date)
            OR EXISTS (
              SELECT 1 FROM workout_sessions ws
              WHERE ws.workout_plan_id = wp.workout_plan_id
-               AND ws.session_date = $2
+               AND CASE
+                 WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws.session_date::date
+                 ELSE NULL
+               END = $2::date
            )
          )
        LIMIT 1`,
@@ -337,13 +361,25 @@ const requestWorkoutPlan = async (req, res) => {
        WHERE wp.user_id = $1
          AND wp.approval_status IN ('Approved', 'Pending')
          AND (
-           wp.requested_session_date >= DATE_TRUNC('week', $2::date)::date
-           AND wp.requested_session_date < (DATE_TRUNC('week', $2::date) + INTERVAL '7 days')::date
+           ((CASE
+             WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN wp.requested_session_date::date
+             ELSE NULL
+           END >= DATE_TRUNC('week', $2::date)::date)
+           AND (CASE
+             WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN wp.requested_session_date::date
+             ELSE NULL
+           END < (DATE_TRUNC('week', $2::date) + INTERVAL '7 days')::date))
            OR EXISTS (
              SELECT 1 FROM workout_sessions ws
              WHERE ws.workout_plan_id = wp.workout_plan_id
-               AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
-               AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+               AND CASE
+                 WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws.session_date::date
+                 ELSE NULL
+               END >= DATE_TRUNC('week', $2::date)::date
+               AND CASE
+                 WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws.session_date::date
+                 ELSE NULL
+               END < (DATE_TRUNC('week', $2::date) + INTERVAL '7 days')::date
            )
          )`,
       [member.user_id, sessionDate]
