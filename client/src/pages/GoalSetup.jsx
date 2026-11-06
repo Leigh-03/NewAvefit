@@ -15,29 +15,25 @@ const getNormalWeightRange = (heightCm) => {
   const minimum = 18.5 * heightMeters ** 2;
   const maximum = 24.9 * heightMeters ** 2;
   return {
-    min: Math.ceil(minimum * 10) / 10,
-    max: Math.floor(maximum * 10) / 10,
+    min: Math.ceil(minimum),
+    max: Math.floor(maximum),
   };
 };
 
-const roundToTenth = (value) => Math.round(value * 10) / 10;
-
 const getRange = (goal, currentWeight, normalRange) => {
-  const currentTenths = Math.round(currentWeight * 10);
-  const normalMin = Math.round(normalRange.min * 10);
-  const normalMax = Math.round(normalRange.max * 10);
-
   if (goal === "Weight Loss") {
-    const max = Math.min(normalMax, currentTenths - 1);
-    const boundedMax = Math.max(normalMin, max);
-    return { min: normalMin, max: boundedMax };
+    const max = Math.min(normalRange.max, Math.ceil(currentWeight) - 1);
+    return { min: normalRange.min, max: Math.max(normalRange.min, max) };
   }
   if (goal === "Gain Weight") {
-    const min = Math.max(normalMin, currentTenths + 1);
-    const boundedMin = Math.min(min, normalMax);
-    return { min: boundedMin, max: normalMax };
+    const min = Math.max(normalRange.min, Math.floor(currentWeight) + 1);
+    return { min: Math.min(min, normalRange.max), max: normalRange.max };
   }
-  return { min: currentTenths, max: currentTenths };
+  const maintenanceWeight = Math.min(
+    Math.max(Math.round(currentWeight), normalRange.min),
+    normalRange.max
+  );
+  return { min: maintenanceWeight, max: maintenanceWeight };
 };
 
 const getBmiCategory = (bmi) => {
@@ -82,7 +78,7 @@ export default function GoalSetup() {
         setCurrentWeight(weight);
         setHeight(heightCm);
         setGoal(recommendedGoal);
-        setTargetWeight(roundToTenth(recommendedGoal === "Maintain Weight" ? weight : range.max));
+        setTargetWeight(range.max);
       })
       .catch((error) => {
         console.error("Goal setup profile load failed:", error);
@@ -120,14 +116,14 @@ export default function GoalSetup() {
     if (!availableGoals.has(nextGoal) || !normalRange || !currentWeight) return;
     setGoal(nextGoal);
     const nextRange = getRange(nextGoal, currentWeight, normalRange);
-    setTargetWeight((previous) => roundToTenth(
-      Math.min(Math.max(previous, nextRange.min / 10), nextRange.max / 10)
-    ));
+    setTargetWeight((previous) => Math.min(Math.max(previous, nextRange.min), nextRange.max));
   };
 
   const handleContinue = () => {
     if (!goal || !availableGoals.has(goal)) return;
-    const finalTarget = isLocked ? currentWeight : targetWeight;
+    const finalTarget = isLocked
+      ? range.min
+      : Math.round(Math.min(Math.max(targetWeight, range.min), range.max));
     sessionStorage.setItem("avefit_goal", JSON.stringify({ goal, targetWeight: finalTarget }));
     navigate("/user/health");
   };
@@ -193,12 +189,12 @@ export default function GoalSetup() {
             <div className="mb-3 flex items-center justify-between">
               <label htmlFor="target-weight" className="text-sm font-medium text-slate-600">Target Weight</label>
               <span className="text-2xl font-bold text-orange-500">
-                {loading || !currentWeight ? "—" : `${(isLocked ? currentWeight : targetWeight).toFixed(1)} kg`}
+                {loading || !currentWeight ? "—" : `${isLocked ? range.min : targetWeight} kg`}
               </span>
             </div>
             {isLocked ? (
               <p className="rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                Your target stays at your current weight ({currentWeight?.toFixed(1)} kg).
+                Your target stays at your current weight ({range.min} kg).
               </p>
             ) : (
               <>
@@ -208,14 +204,14 @@ export default function GoalSetup() {
                   min={range.min}
                   max={range.max}
                   step="1"
-                  value={Math.round(targetWeight * 10)}
+                  value={targetWeight}
                   disabled={loading || !currentWeight}
-                  onChange={(event) => setTargetWeight(Number(event.target.value) / 10)}
+                  onChange={(event) => setTargetWeight(Number(event.target.value))}
                   className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-100 accent-orange-500 disabled:opacity-50"
                 />
                 <div className="mt-1 flex justify-between text-xs text-slate-500">
-                  <span>{(range.min / 10).toFixed(1)} kg</span>
-                  <span>{(range.max / 10).toFixed(1)} kg</span>
+                  <span>{range.min} kg</span>
+                  <span>{range.max} kg</span>
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
                   Target choices stay between BMI 18.5 and 24.9.

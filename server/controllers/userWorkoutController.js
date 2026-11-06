@@ -147,10 +147,10 @@ const requestWorkoutPlan = async (req, res) => {
     const todayResult = await client.query(
       "SELECT TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today"
     );
-    if (sessionDate < todayResult.rows[0].today) {
+    if (sessionDate <= todayResult.rows[0].today) {
       await client.query("ROLLBACK");
       transactionStarted = false;
-      return res.status(400).json({ success: false, message: "Workout date can't be in the past." });
+      return res.status(400).json({ success: false, message: "Workout requests are only available for future dates." });
     }
     if (member.membership_end_date
       && String(member.membership_end_date).slice(0, 10) < todayResult.rows[0].today) {

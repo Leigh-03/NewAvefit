@@ -51,17 +51,31 @@ export default function TrainingPulse({ audience }) {
       <div className="mb-4">
         <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Today · {data?.today || "—"}</p>
         <h2 id={`training-pulse-${audience}`} className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Training overview</h2>
-        <p className="mt-1 text-xs text-slate-500">Based on members&apos; preferred workout days and saved availability. Counts are anonymized.</p>
+        <p className="mt-1 text-xs text-slate-500">Based on members&apos; preferred workout days and saved availability.</p>
       </div>
       {error ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p> : (
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-xl bg-slate-50 p-4 dark:bg-white/[0.04]">
             <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500"><Dumbbell size={15} /> Most scheduled program today</p>
             {data?.busiestProgram ? (
-              <p className="mt-2 text-lg font-black text-slate-900 dark:text-white">
-                {data.busiestProgram.program}
-                <span className="ml-2 text-sm font-medium text-slate-500">{data.busiestProgram.count} {data.busiestProgram.count === 1 ? "member" : "members"}</span>
-              </p>
+              <>
+                <p className="mt-2 text-lg font-black text-slate-900 dark:text-white">
+                  {data.busiestProgram.program}
+                  <span className="ml-2 text-sm font-medium text-slate-500">{data.busiestProgram.count} {data.busiestProgram.count === 1 ? "member" : "members"}</span>
+                </p>
+                {audience !== "user" && data.busiestProgram.members?.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold text-slate-500">Members on this program today</p>
+                    <ul className="mt-1 flex flex-wrap gap-2">
+                      {data.busiestProgram.members.map((name, index) => (
+                        <li key={`${name}-${index}`} className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-white/10 dark:text-slate-300">
+                          {name}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
             ) : <p className="mt-2 text-sm text-slate-500">No members selected today as a workout day.</p>}
             {!!data?.todayPrograms?.length && (
               <ul className="mt-3 flex flex-wrap gap-2">
