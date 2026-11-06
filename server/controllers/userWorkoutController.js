@@ -109,7 +109,10 @@ const requestWorkoutPlan = async (req, res) => {
   if (normalizedRequestType === "member_plan" && requestType === "specific_workout" && (sessions.length < 1 || sessions.length > 30)) {
     return res.status(400).json({ success: false, message: "A specific workout request must include between 1 and 30 exercises." });
   }
-  if (normalizedRequestType === "coach_created" && sessions.length !== 0) {
+  if (requestType === "keep_current_program" && (sessions.length < 1 || sessions.length > 30)) {
+    return res.status(400).json({ success: false, message: "Create your workout plan with between 1 and 30 exercises." });
+  }
+  if (normalizedRequestType === "coach_created" && requestType !== "keep_current_program" && sessions.length !== 0) {
     return res.status(400).json({ success: false, message: "A coach-created workout request must not include member-selected exercises." });
   }
   if (requestNote.length > 1000) {
