@@ -364,7 +364,13 @@ export default function WorkoutPage() {
         <section aria-label="Workout plan requests" className="mx-5 mt-5 space-y-2 sm:mx-8">
           {userPlans.filter((plan) => ["Pending", "Rejected"].includes(plan.approval_status)).map((plan) => (
             <p key={plan.workout_plan_id} role="status" className={`rounded-xl border px-4 py-3 text-sm ${plan.approval_status === "Pending" ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200" : "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200"}`}>
-              <strong>{plan.plan_name}:</strong> {plan.approval_status === "Pending" ? "Waiting for your coach's approval." : "Your coach declined this plan. You can submit an updated request."}
+              <strong>{plan.plan_name}:</strong> {plan.approval_status === "Pending"
+                ? plan.request_type === "coach_created"
+                  ? "Your coach has been notified and will prepare this workout."
+                  : "Waiting for your coach's approval."
+                : plan.request_type === "coach_created"
+                  ? "Your coach declined this workout request. You can submit another request."
+                  : "Your coach declined this plan. You can submit an updated request."}
               {plan.session_date && <> Scheduled for {formatWorkoutDate(plan.session_date)}.</>}
               {plan.trainer_change_reason && (
                 <span className="mt-2 block"><strong>Reason for coach changes:</strong> {plan.trainer_change_reason}</span>

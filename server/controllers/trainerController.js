@@ -1450,6 +1450,7 @@ const getMyWorkoutPlans = async (req, res) => {
         wp.training_program,
         wp.previous_training_program,
         wp.is_program_switch,
+        wp.request_type,
         wp.status,
         wp.approval_status,
         wp.deletion_request_status,
@@ -1460,7 +1461,7 @@ const getMyWorkoutPlans = async (req, res) => {
         u.user_id,
         u.injuries,
         u.health_conditions,
-        plan_sessions.scheduled_date,
+        COALESCE(plan_sessions.scheduled_date, wp.requested_session_date::text) AS scheduled_date,
         wp.scheduled_start_time,
         wp.scheduled_duration_minutes,
         plan_sessions.exercise_count,
@@ -1493,7 +1494,7 @@ const getMyWorkoutPlans = async (req, res) => {
       FROM workout_plans wp
       LEFT JOIN users u ON u.user_id = wp.user_id
       LEFT JOIN LATERAL (
-        SELECT
+      SELECT
           MIN(ws.session_date) FILTER (
             WHERE ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
           ) AS scheduled_date,
@@ -1696,10 +1697,18 @@ const createMyWorkoutPlan = async (req, res) => {
     const weeklyPlanCount = await client.query(
       `SELECT COUNT(DISTINCT wp.workout_plan_id)::int AS count
        FROM workout_plans wp
-       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
        WHERE wp.user_id = $1
-         AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
-         AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')`,
+         AND wp.approval_status IN ('Approved', 'Pending')
+         AND (
+           (wp.requested_session_date >= DATE_TRUNC('week', $2::date)::date
+             AND wp.requested_session_date < (DATE_TRUNC('week', $2::date) + INTERVAL '7 days')::date)
+           OR EXISTS (
+             SELECT 1 FROM workout_sessions ws
+             WHERE ws.workout_plan_id = wp.workout_plan_id
+               AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
+               AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+           )
+         )`,
       [userId, sessionDate]
     );
     if (Number(weeklyPlanCount.rows[0].count) >= workoutFrequency) {
@@ -1715,9 +1724,16 @@ const createMyWorkoutPlan = async (req, res) => {
       `
       SELECT wp.workout_plan_id
       FROM workout_plans wp
-      JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
       WHERE wp.user_id = $1
-        AND ws.session_date = $2
+        AND wp.approval_status IN ('Approved', 'Pending')
+        AND (
+          wp.requested_session_date = $2::date
+          OR EXISTS (
+            SELECT 1 FROM workout_sessions ws
+            WHERE ws.workout_plan_id = wp.workout_plan_id
+              AND ws.session_date = $2
+          )
+        )
       LIMIT 1
       `,
       [userId, sessionDate]
@@ -1898,12 +1914,13 @@ const reviewMemberWorkoutPlan = async (req, res) => {
     transactionStarted = true;
     const planResult = await client.query(
       `SELECT wp.workout_plan_id, wp.user_id, wp.plan_name, wp.approval_status,
-              wp.deletion_request_status,
+              wp.deletion_request_status, wp.request_type,
               u.first_name, u.last_name, u.email, u.workout_days_per_week,
-              MIN(ws.session_date) AS session_date
+              COALESCE(MIN(ws.session_date)::text, wp.requested_session_date::text) AS session_date,
+              COUNT(ws.session_id)::int AS session_count
        FROM workout_plans wp
        JOIN users u ON u.user_id = wp.user_id AND u.trainer_id = $2
-       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+       LEFT JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
        WHERE wp.workout_plan_id = $1 AND wp.trainer_id = $2
        GROUP BY wp.workout_plan_id, u.user_id`,
       [planId, trainerId]
@@ -1923,6 +1940,14 @@ const reviewMemberWorkoutPlan = async (req, res) => {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(409).json({ success: false, message: "This workout plan request has already been reviewed." });
+    }
+    if (decision === "approve" && Number(plan.session_count) < 3) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: "Add at least 3 exercises to this requested workout before approving it.",
+      });
     }
 
     let startTime = null;
@@ -2195,7 +2220,7 @@ const updateMyWorkoutPlan = async (req, res) => {
   if (!Number.isInteger(planId) || planId < 1) {
     return res.status(400).json({ success: false, message: "Choose a valid workout plan." });
   }
-  if (changeReason.length < 5 || changeReason.length > 1000) {
+  if (changeReason.length > 1000) {
     return res.status(400).json({ success: false, message: "Enter a reason for changing this workout plan between 5 and 1000 characters." });
   }
   const parsedSessionDate = typeof sessionDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sessionDate)
@@ -2244,7 +2269,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     const plan = await client.query(
       `
       SELECT wp.workout_plan_id, wp.user_id, wp.approval_status, wp.deletion_request_status,
-             wp.training_program, wp.goal
+             wp.training_program, wp.goal, wp.request_type
       FROM workout_plans wp
       JOIN users u ON u.user_id = wp.user_id
       WHERE wp.workout_plan_id = $1
@@ -2273,6 +2298,12 @@ const updateMyWorkoutPlan = async (req, res) => {
        FOR UPDATE`,
       [planId]
     );
+    const isInitialCoachRequest = plan.rows[0].request_type === "coach_created" && planSessions.rowCount === 0;
+    if (!isInitialCoachRequest && changeReason.length < 5) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({ success: false, message: "Enter a reason for changing this workout plan between 5 and 1000 characters." });
+    }
     const currentDate = await client.query(
       "SELECT TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today"
     );
@@ -2374,11 +2405,17 @@ const updateMyWorkoutPlan = async (req, res) => {
       `
       SELECT wp.workout_plan_id
       FROM workout_plans wp
-      JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
       WHERE wp.user_id = $1
-        AND ws.session_date = $2
         AND wp.approval_status IN ('Approved', 'Pending')
         AND wp.workout_plan_id <> $3
+        AND (
+          wp.requested_session_date = $2::date
+          OR EXISTS (
+            SELECT 1 FROM workout_sessions ws
+            WHERE ws.workout_plan_id = wp.workout_plan_id
+              AND ws.session_date = $2
+          )
+        )
       LIMIT 1
       `,
       [plan.rows[0].user_id, sessionDate, planId]
@@ -2395,12 +2432,19 @@ const updateMyWorkoutPlan = async (req, res) => {
     const weeklyPlanCount = await client.query(
       `SELECT COUNT(DISTINCT wp.workout_plan_id)::int AS count
        FROM workout_plans wp
-       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
        WHERE wp.user_id = $1
          AND wp.workout_plan_id <> $3
          AND wp.approval_status IN ('Approved', 'Pending')
-         AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
-         AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')`,
+         AND (
+           (wp.requested_session_date >= DATE_TRUNC('week', $2::date)::date
+             AND wp.requested_session_date < (DATE_TRUNC('week', $2::date) + INTERVAL '7 days')::date)
+           OR EXISTS (
+             SELECT 1 FROM workout_sessions ws
+             WHERE ws.workout_plan_id = wp.workout_plan_id
+               AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
+               AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+           )
+         )`,
       [plan.rows[0].user_id, sessionDate, planId]
     );
     if (Number(weeklyPlanCount.rows[0].count) >= workoutFrequency) {

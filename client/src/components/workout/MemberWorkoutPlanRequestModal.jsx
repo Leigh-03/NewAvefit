@@ -17,6 +17,8 @@ const blankExercise = (goal) => ({
   reps: String(getWorkoutGoalRules(goal).reps[0]),
 });
 
+const programLabel = (program) => program === "Full Body" ? program : `${program} day`;
+
 const weekdayForDate = (date) => {
   if (!date) return "";
   return new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" })
@@ -50,7 +52,7 @@ export default function MemberWorkoutPlanRequestModal({
     initialDate && initialDate >= philippinesDateString() ? initialDate : philippinesDateString()
   );
   const defaultProgram = getProgramForDate(sessionDate, workoutDays, workoutFrequency);
-  const [isSwitchingProgram, setIsSwitchingProgram] = useState(false);
+  const [requestType, setRequestType] = useState("coach_created");
   const [selectedProgram, setSelectedProgram] = useState(defaultProgram);
   const doseRules = getWorkoutGoalRules(initialGoal);
   const [sessions, setSessions] = useState([blankExercise(initialGoal), blankExercise(initialGoal), blankExercise(initialGoal)]);
@@ -70,7 +72,7 @@ export default function MemberWorkoutPlanRequestModal({
       .map((scheduledSession) => String(scheduledSession.exercise_id))
   );
   const selectedWeekPlan = getWeekDateRange(sessionDate);
-  const scheduledPrograms = getScheduledPrograms(workoutDays);
+  const scheduledPrograms = [...getScheduledPrograms(workoutDays)];
   const completedPrograms = new Set(
     Object.values(existingSessions
       .filter((session) => {
@@ -91,9 +93,31 @@ export default function MemberWorkoutPlanRequestModal({
       .filter((plan) => plan.is_program_switch && plan.session_date >= selectedWeekPlan.start && plan.session_date <= selectedWeekPlan.end)
       .map((plan) => plan.training_program)
   );
-  const availableSwitchPrograms = [...scheduledPrograms].filter((program) => (
+  const availableSwitchPrograms = scheduledPrograms.filter((program) => (
     program !== defaultProgram && !completedPrograms.has(program) && !usedSwitchPrograms.has(program)
   ));
+  const availableCoachRequestPrograms = defaultProgram
+    ? Array.from(new Set([defaultProgram, ...availableSwitchPrograms]))
+    : scheduledPrograms;
+
+  useEffect(() => {
+    if (requestType === "program_change") {
+      if (!availableSwitchPrograms.length) {
+        setSelectedProgram(defaultProgram);
+        return;
+      }
+      if (!availableSwitchPrograms.includes(selectedProgram)) {
+        setSelectedProgram(availableSwitchPrograms[0]);
+      }
+      return;
+    }
+
+    if (!availableCoachRequestPrograms.includes(selectedProgram)) {
+      setSelectedProgram(defaultProgram || availableCoachRequestPrograms[0] || "");
+    }
+  }, [availableCoachRequestPrograms, availableSwitchPrograms, defaultProgram, requestType, selectedProgram]);
+  const isProgramChange = requestType === "program_change";
+  const isProgramSwitch = selectedProgram !== defaultProgram;
   const visibleExercises = exercises.filter((exercise) => (
     exerciseMatchesProgram(exercise, selectedProgram) &&
     (!requiresConservativeWorkout(exercise, injuries, healthConditions) || String(exercise.difficulty || "").toLowerCase() === "beginner")
@@ -101,7 +125,7 @@ export default function MemberWorkoutPlanRequestModal({
 
   useEffect(() => {
     setSelectedProgram(defaultProgram);
-    setIsSwitchingProgram(false);
+    setRequestType("coach_created");
     setSessions((current) => current.map(() => blankExercise(initialGoal)));
   }, [defaultProgram, initialGoal]);
 
@@ -139,6 +163,13 @@ export default function MemberWorkoutPlanRequestModal({
     })));
   };
 
+  const handleRequestTypeChange = (nextType) => {
+    setRequestType(nextType);
+    handleProgramChange(nextType === "program_change"
+      ? availableSwitchPrograms[0] || defaultProgram
+      : defaultProgram);
+  };
+
   const handleExerciseSelection = (index, exerciseId) => {
     const rules = getDoseRulesForExercise(exerciseId);
     setSessions((current) => current.map((session, sessionIndex) => (
@@ -155,19 +186,23 @@ export default function MemberWorkoutPlanRequestModal({
       setError("Workout requests are only available for future dates. Choose a day after today.");
       return;
     }
-    if (sessions.length < 3) {
+    if (isProgramChange && sessions.length < 3) {
       setError("Add at least 3 exercises.");
       return;
     }
-    if (sessions.some((session) => !session.exercise_id || !session.sets || !session.reps)) {
+    if (isProgramChange && sessions.some((session) => !session.exercise_id || !session.sets || !session.reps)) {
       setError("Choose an exercise and enter sets and reps for every row.");
       return;
     }
-    if (isSwitchingProgram && !availableSwitchPrograms.includes(selectedProgram)) {
+    if (isProgramChange && !availableSwitchPrograms.includes(selectedProgram)) {
       setError("That program has already been scheduled or switched to this week. Choose another program.");
       return;
     }
-    if (sessions.some((session) => {
+    if (!scheduledPrograms.includes(selectedProgram)) {
+      setError("Choose a program from your weekly workout split.");
+      return;
+    }
+    if (isProgramChange && sessions.some((session) => {
       const rules = getDoseRulesForExercise(session.exercise_id);
       return Number(session.sets) < rules.sets[0] || Number(session.sets) > rules.sets[1]
         || Number(session.reps) < rules.reps[0] || Number(session.reps) > rules.reps[1];
@@ -176,7 +211,7 @@ export default function MemberWorkoutPlanRequestModal({
       return;
     }
     const usedExercises = sessions.map((session) => session.exercise_id);
-    if (new Set(usedExercises).size !== usedExercises.length) {
+    if (isProgramChange && new Set(usedExercises).size !== usedExercises.length) {
       setError("Choose a different exercise for each row.");
       return;
     }
@@ -191,9 +226,12 @@ export default function MemberWorkoutPlanRequestModal({
       const { data } = await userApi.post("/workout-plan-requests", {
         session_date: sessionDate,
         training_program: selectedProgram,
-        is_program_switch: isSwitchingProgram,
-        previous_program: isSwitchingProgram ? defaultProgram : "",
-        sessions: sessions.map(({ exercise_id, sets, reps }) => ({ exercise_id, sets, reps })),
+        request_type: isProgramChange ? "member_plan" : "coach_created",
+        is_program_switch: isProgramSwitch,
+        previous_program: isProgramSwitch ? defaultProgram : "",
+        sessions: isProgramChange
+          ? sessions.map(({ exercise_id, sets, reps }) => ({ exercise_id, sets, reps }))
+          : [],
       });
       onSubmitted(data.message);
     } catch (requestError) {
@@ -208,36 +246,78 @@ export default function MemberWorkoutPlanRequestModal({
       <section role="dialog" aria-modal="true" aria-labelledby="member-plan-request-title" className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]" onClick={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b border-slate-200 p-5 dark:border-slate-800 sm:p-6">
           <div>
-            <h2 id="member-plan-request-title" className="text-xl font-bold text-slate-900 dark:text-white">Request a workout from your coach</h2>
-            <p className="mt-1 text-sm text-slate-500">Your coach must approve it before it appears in your schedule.</p>
+            <h2 id="member-plan-request-title" className="text-xl font-bold text-slate-900 dark:text-white">Workout request</h2>
+            <p className="mt-1 text-sm text-slate-500">Choose one request type. Your coach will be notified.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10"><X size={20} /></button>
         </header>
 
         <form onSubmit={submitRequest} className="space-y-5 p-5 sm:p-6">
           <section className="rounded-xl border border-orange-200 bg-orange-50/70 p-4 dark:border-orange-500/20 dark:bg-orange-500/[0.06]">
-            <p className="text-sm font-bold text-slate-900 dark:text-white">Program: {selectedProgram || "Not set"}</p>
             <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Workout date: {sessionDate}</p>
             <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Goal weight: {initialTargetWeight ? `${initialTargetWeight} kg` : "Not set in your profile"}</p>
-            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Your program is assigned from your preferred workout days and weekly frequency.</p>
-            <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
-              <input type="checkbox" checked={isSwitchingProgram} disabled={!availableSwitchPrograms.length} onChange={(event) => {
-                const switching = event.target.checked;
-                setIsSwitchingProgram(switching);
-                handleProgramChange(switching ? availableSwitchPrograms[0] : defaultProgram);
-              }} />
-              Would you like to request a different program from your coach?
-            </label>
-            {isSwitchingProgram && (
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+              Today&apos;s program: {programLabel(defaultProgram)}. Options are limited to your {workoutDays.length || workoutFrequency}-day weekly split.
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className={`block rounded-xl border p-3 ${isProgramChange ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}>
+                <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  <input
+                    type="radio"
+                    name="workout-request-type"
+                    value="program_change"
+                    checked={isProgramChange}
+                    disabled={!availableSwitchPrograms.length}
+                    onChange={() => handleRequestTypeChange("program_change")}
+                  />
+                  Would you like to change program?
+                </span>
+                <span className="mt-2 block pl-6">
+                  <span className="mb-1 block text-xs text-slate-500">Choose an unfinished program, then select exercises for coach approval</span>
+                  <select
+                    aria-label="Program to switch to"
+                    value={isProgramChange ? selectedProgram : ""}
+                    disabled={!isProgramChange || !availableSwitchPrograms.length}
+                    onChange={(event) => handleProgramChange(event.target.value)}
+                    className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-[#171717] dark:text-white"
+                  >
+                    {!isProgramChange && <option value="">Select change program to choose</option>}
+                    {availableSwitchPrograms.map((program) => <option key={program} value={program}>{programLabel(program)}</option>)}
+                  </select>
+                </span>
+              </label>
+              <label className={`block rounded-xl border p-3 ${!isProgramChange ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}>
+                <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  <input
+                    type="radio"
+                    name="workout-request-type"
+                    value="coach_created"
+                    checked={!isProgramChange}
+                    onChange={() => handleRequestTypeChange("coach_created")}
+                  />
+                  Would you like to request a workout from your coach?
+                </span>
+                <span className="mt-2 block pl-6">
+                  <span className="mb-1 block text-xs text-slate-500">Choose the program for your coach to prepare</span>
+                  <select
+                    aria-label="Program requested from coach"
+                    value={!isProgramChange ? selectedProgram : ""}
+                    disabled={isProgramChange}
+                    onChange={(event) => handleProgramChange(event.target.value)}
+                    className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-[#171717] dark:text-white"
+                  >
+                    {!selectedProgram && <option value="">Select a program</option>}
+                    {availableCoachRequestPrograms.map((program) => <option key={program} value={program}>{programLabel(program)}</option>)}
+                  </select>
+                </span>
+              </label>
+            </div>
+            {isProgramChange && (
               <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-300">
-                Choose an unfinished program this week (coach approval required)
-                <select value={selectedProgram} onChange={(event) => handleProgramChange(event.target.value)} className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white">
-                  {availableSwitchPrograms.map((program) => <option key={program} value={program}>{program}</option>)}
-                </select>
+                {`Program change: ${programLabel(defaultProgram) || "Not set"} → ${programLabel(selectedProgram) || "Select a program"}. Your coach must approve it.`}
               </label>
             )}
-            {isSwitchingProgram && <p className="mt-2 text-xs text-slate-500">Your coach will receive an in-app and email notification and must approve the request. Programs already completed this week are unavailable.</p>}
-            {!availableSwitchPrograms.length && <p className="mt-2 text-xs text-slate-500">There are no unfinished alternative programs available this week.</p>}
+            {!availableSwitchPrograms.length && <p className="mt-2 text-xs text-slate-500">There are no unfinished alternative programs available to change to this week.</p>}
             {(injuries.length > 0 || healthConditions.length > 0) && (
               <p className="mt-3 rounded-lg border border-amber-300/50 bg-amber-100/60 p-3 text-xs leading-relaxed text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
                 Injury-related exercises and workouts for members with recorded health conditions use a conservative beginner starting range for coach review. This is not medical advice; consult a healthcare professional about exercise restrictions.
@@ -245,7 +325,7 @@ export default function MemberWorkoutPlanRequestModal({
             )}
           </section>
 
-          <div>
+          {isProgramChange && <div>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-800 dark:text-white">Exercises (minimum 3)</h3>
@@ -290,12 +370,12 @@ export default function MemberWorkoutPlanRequestModal({
                 ))}
               </div>
             )}
-          </div>
+          </div>}
 
           {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
           <div className="flex justify-end gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
             <button type="button" onClick={onClose} disabled={saving} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">Cancel</button>
-            <button type="submit" disabled={saving || loadingExercises || exercises.length === 0} className="min-h-11 rounded-xl bg-orange-600 px-5 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Sending request..." : "Request workout from coach"}</button>
+            <button type="submit" disabled={saving || (isProgramChange && (loadingExercises || exercises.length === 0))} className="min-h-11 rounded-xl bg-orange-600 px-5 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Sending request..." : isProgramChange ? "Submit program change for approval" : "Request workout from coach"}</button>
           </div>
         </form>
       </section>
