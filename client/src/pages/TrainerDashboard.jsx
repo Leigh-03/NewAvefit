@@ -57,6 +57,23 @@ function toList(val) {
   return [];
 }
 
+function getManilaToday() {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function isMembershipInactive(member) {
+  return Boolean(member.membership_end_date)
+    && String(member.membership_end_date).slice(0, 10) < getManilaToday();
+}
+const formatFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
+
 function calculateBmi(weight, height) {
   const weightKg = Number(weight);
   const heightCm = Number(height);
@@ -79,6 +96,11 @@ function MemberProfileModal({ member, onClose, onViewProgress }) {
         <div className="absolute z-20 bottom-5 left-6 right-6 text-white"><p className="text-xs uppercase tracking-widest font-bold text-orange-300">Member Profile</p><h2 className="text-3xl font-bold mt-1">{member.first_name} {member.last_name}</h2><p className="text-sm text-slate-300 mt-1">{member.email}</p></div>
       </div>
       <div className="p-6 sm:p-8 space-y-5">
+        {isMembershipInactive(member) && (
+          <p role="status" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+            Membership inactive · ended {String(member.membership_end_date).slice(0, 10)}
+          </p>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           {[['Phone',member.phone],['Gender',member.gender],['Age',member.age?`${member.age} yrs`:'—'],['Height',member.height?`${member.height} cm`:'—'],['Weight',currentWeight?`${currentWeight} kg`:'—'],['Target Weight',member.target_weight?`${member.target_weight} kg`:'—'],['BMI',currentBmi||'—'],['Goal',member.fitness_goal||'—']].map(([l,v])=><div key={l} className="rounded-xl bg-slate-50 dark:bg-slate-900 p-3"><p className="text-xs text-slate-400">{l}</p><p className="mt-1 font-semibold text-slate-700 dark:text-slate-200 break-words">{v}</p></div>)}
         </div>
@@ -119,7 +141,10 @@ function MemberRow({ member, onViewProfile }) {
           )}
         </div>
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">{member.first_name} {member.last_name}</p>
+          <p className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+            <span className="truncate">{member.first_name} {member.last_name}</span>
+            {isMembershipInactive(member) && <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-500/15 dark:text-red-300">Inactive</span>}
+          </p>
           <p className="truncate text-xs text-slate-500">{member.fitness_goal || "No goal set"} · {member.email}</p>
         </div>
       </div>
@@ -136,7 +161,7 @@ function MemberRow({ member, onViewProfile }) {
 
 export default function TrainerDashboard(){
   const [members,setMembers]=useState([]),[loading,setLoading]=useState(true),[profileMember,setProfileMember]=useState(null),[progressMember,setProgressMember]=useState(null),[fetchError,setFetchError]=useState(""),[rosterSearch,setRosterSearch]=useState("");
-  useEffect(()=>{setLoading(true);trainerApi.get('/me/roster').then(r=>setMembers(r.data.data||[])).catch(err=>{console.error(err);setFetchError(err.response?.data?.message||"Couldn't load your trainer dashboard.")}).finally(()=>setLoading(false))},[]);
+  useEffect(()=>{setLoading(true);trainerApi.get('/me/roster').then(r=>setMembers((r.data.data||[]).map(member=>({...member,fitness_goal:formatFitnessGoal(member.fitness_goal)})))).catch(err=>{console.error(err);setFetchError(err.response?.data?.message||"Couldn't load your trainer dashboard.")}).finally(()=>setLoading(false))},[]);
   const assignedTotal=members.reduce((total,member)=>total+Number(member.assigned_workouts||0),0);
   const completedTotal=members.reduce((total,member)=>total+Number(member.completed_workouts||0),0);
   const remainingTotal=Math.max(assignedTotal-completedTotal,0);

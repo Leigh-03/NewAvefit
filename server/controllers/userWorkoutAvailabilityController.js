@@ -10,7 +10,6 @@ const TIME_WINDOWS = {
   Evening: { start: "17:00", end: "22:00" },
   Flexible: { start: "06:00", end: "22:00" },
 };
-const DURATIONS = new Set([30, 45, 60, 75, 90]);
 const EXPERIENCE_DAYS = {
   beginner: [2, 3],
   intermediate: [3, 5],
@@ -102,13 +101,9 @@ const saveAvailability = async (req, res) => {
   }
 
   const frequency = Number(req.body?.workout_days_per_week);
-  const duration = Number(req.body?.workout_duration);
   const requestedLevel = req.body?.activity_level;
   if (!Number.isInteger(frequency)) {
     return res.status(400).json({ success: false, message: "Choose a valid number of workout days per week." });
-  }
-  if (!DURATIONS.has(duration)) {
-    return res.status(400).json({ success: false, message: "Choose a session duration from 30 to 90 minutes." });
   }
   if (requestedLevel !== undefined && !["Beginner", "Intermediate", "Advanced"].includes(requestedLevel)) {
     return res.status(400).json({ success: false, message: "Choose Beginner, Intermediate, or Advanced as your experience level." });
@@ -155,7 +150,6 @@ const saveAvailability = async (req, res) => {
       const payload = {
         weekly_availability: {
           workout_days_per_week: frequency,
-          workout_duration: duration,
           activity_level: activityLevel,
           availability: normalized.availability,
         },
@@ -180,7 +174,6 @@ const saveAvailability = async (req, res) => {
       const currentValues = {
         weekly_availability: {
           workout_days_per_week: user.workout_days_per_week,
-          workout_duration: user.workout_duration,
           activity_level: user.activity_level,
           availability: previousAvailability,
         },
@@ -252,15 +245,13 @@ const saveAvailability = async (req, res) => {
     await client.query(
       `UPDATE users
        SET workout_days_per_week = $1,
-           workout_duration = $2,
-           preferred_days = $3,
-           activity_level = COALESCE($4, activity_level),
+           preferred_days = $2,
+           activity_level = COALESCE($3, activity_level),
            preferred_workout_time = NULL,
            updated_at = NOW()
-       WHERE user_id = $5`,
+       WHERE user_id = $4`,
       [
         frequency,
-        duration,
         normalized.availability.map((slot) => slot.day_of_week),
         requestedLevel || null,
         req.user.user_id,
@@ -272,7 +263,6 @@ const saveAvailability = async (req, res) => {
       message: "Weekly workout availability saved.",
       data: {
         workout_days_per_week: frequency,
-        workout_duration: duration,
         activity_level: activityLevel,
         availability: normalized.availability.map(({ day_of_week, time_preference, start, end }) => ({
           day_of_week,

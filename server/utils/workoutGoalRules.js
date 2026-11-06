@@ -4,7 +4,7 @@ const getWorkoutGoalRules = (goal) => {
     return { sets: [3, 4], reps: [10, 15], label: "Maintain Weight" };
   }
   if (normalized.includes("muscle") || normalized.includes("gain")) {
-    return { sets: [3, 4], reps: [8, 12], label: "Muscle Gain" };
+    return { sets: [3, 4], reps: [8, 12], label: "Gain Weight" };
   }
   if (normalized.includes("lose") || normalized.includes("loss")) {
     return { sets: [3, 4], reps: [12, 15], label: "Weight Loss" };

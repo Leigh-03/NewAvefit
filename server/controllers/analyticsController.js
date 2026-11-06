@@ -440,11 +440,24 @@ const getAnalytics = async (req, res) => {
 
     // Fitness goal distribution
     const goalDistribution = await pool.query(`
-      SELECT fitness_goal AS goal, COUNT(*) AS count
+      SELECT
+        CASE
+          WHEN LOWER(fitness_goal) LIKE '%lose%' THEN 'Lose Weight'
+          WHEN LOWER(fitness_goal) LIKE '%gain%'
+            OR LOWER(fitness_goal) LIKE '%muscle%'
+            OR LOWER(fitness_goal) LIKE '%strength%' THEN 'Gain Weight'
+          ELSE 'Maintain Weight'
+        END AS goal,
+        COUNT(*)::int AS count
       FROM users
       WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
         AND fitness_goal IS NOT NULL
-      GROUP BY fitness_goal ORDER BY count DESC
+      GROUP BY goal
+      ORDER BY CASE goal
+        WHEN 'Maintain Weight' THEN 1
+        WHEN 'Lose Weight' THEN 2
+        ELSE 3
+      END
     `);
 
     // BMI distribution

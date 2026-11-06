@@ -15,6 +15,7 @@ const getBmiCategory = (value) => {
   if (bmiValue < 30) return { label: "Overweight", style: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" };
   return { label: "Obese", style: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" };
 };
+const normalizeFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -59,7 +60,7 @@ export default function ProfilePage() {
           birth_date: d.birth_date ? d.birth_date.split("T")[0] : "",
           height: d.height || "",
           weight: d.weight || "",
-          fitness_goal: d.fitness_goal || "",
+          fitness_goal: normalizeFitnessGoal(d.fitness_goal || ""),
           activity_level: d.activity_level || "",
         };
         originalFormRef.current = profileForm;
@@ -69,7 +70,7 @@ export default function ProfilePage() {
           first_name: d.first_name,
           last_name: d.last_name,
           email: d.email,
-          fitness_goal: d.fitness_goal,
+          fitness_goal: normalizeFitnessGoal(d.fitness_goal),
           height: d.height,
           weight: d.weight,
           profile_image: d.profile_image || null,
@@ -458,7 +459,7 @@ export default function ProfilePage() {
             <select id="profile-fitness-goal" value={form.fitness_goal} onChange={(e) => handleChange("fitness_goal", e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white">
               <option value="">Select goal...</option>
-              {["Weight Loss", "Muscle Gain", "General Fitness", "Endurance", "Maintain Weight"].map((g) => (
+              {["Weight Loss", "Gain Weight", "General Fitness", "Endurance", "Maintain Weight"].map((g) => (
                 <option key={g}>{g}</option>
               ))}
             </select>

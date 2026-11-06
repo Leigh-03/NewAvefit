@@ -1,144 +1,239 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import OnboardingShell from "../components/layout/OnboardingShell";
 import { useNavigate } from "react-router-dom";
 import userApi from "../userApi";
 
-const goals = [
-  { key: "Weight Loss", icon: "⬇️", desc: "Lose weight and burn fat" },
-  { key: "Maintain Weight", icon: "⚖️", desc: "Stay at current weight" },
-  { key: "Muscle Gain", icon: "💪", desc: "Build muscle and strength" },
+const GOALS = [
+  { key: "Weight Loss", icon: "⬇️", desc: "Lose weight while staying within the healthy BMI range." },
+  { key: "Maintain Weight", icon: "⚖️", desc: "Stay close to your current weight." },
+  { key: "Gain Weight", icon: "💪", desc: "Gain weight while staying within the healthy BMI range." },
 ];
 
-// Given the goal + the user's current weight, figure out the valid slider range.
-function getRange(goal, currentWeight) {
-  const cw = Math.round(currentWeight || 65);
+const getNormalWeightRange = (heightCm) => {
+  const heightMeters = Number(heightCm) / 100;
+  if (!Number.isFinite(heightMeters) || heightMeters <= 0) return null;
+  const minimum = 18.5 * heightMeters ** 2;
+  const maximum = 24.9 * heightMeters ** 2;
+  return {
+    min: Math.ceil(minimum * 10) / 10,
+    max: Math.floor(maximum * 10) / 10,
+  };
+};
+
+const roundToTenth = (value) => Math.round(value * 10) / 10;
+
+const getRange = (goal, currentWeight, normalRange) => {
+  const currentTenths = Math.round(currentWeight * 10);
+  const normalMin = Math.round(normalRange.min * 10);
+  const normalMax = Math.round(normalRange.max * 10);
+
   if (goal === "Weight Loss") {
-    return { min: 40, max: Math.max(40, cw - 1) }; // must end up lighter than now
+    const max = Math.min(normalMax, currentTenths - 1);
+    const boundedMax = Math.max(normalMin, max);
+    return { min: normalMin, max: boundedMax };
   }
-  if (goal === "Muscle Gain") {
-    return { min: Math.min(150, cw + 1), max: 150 }; // must end up heavier than now
+  if (goal === "Gain Weight") {
+    const min = Math.max(normalMin, currentTenths + 1);
+    const boundedMin = Math.min(min, normalMax);
+    return { min: boundedMin, max: normalMax };
   }
-  return { min: cw, max: cw }; // Maintain Weight — locked to current weight
-}
+  return { min: currentTenths, max: currentTenths };
+};
+
+const getBmiCategory = (bmi) => {
+  if (bmi < 18.5) return "Underweight";
+  if (bmi < 25) return "Normal";
+  if (bmi < 30) return "Overweight";
+  return "Obese";
+};
 
 export default function GoalSetup() {
   const navigate = useNavigate();
-  const [goal, setGoal] = useState("Weight Loss");
+  const [goal, setGoal] = useState("");
   const [currentWeight, setCurrentWeight] = useState(null);
-  const [targetWeight, setTargetWeight] = useState(65);
+  const [height, setHeight] = useState(null);
+  const [targetWeight, setTargetWeight] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [profileError, setProfileError] = useState("");
 
-  // Pull the weight the user entered during Body Assessment.
   useEffect(() => {
     userApi.get("/profile")
-      .then((res) => {
-        const w = parseFloat(res.data.data?.weight) || 65;
-        setCurrentWeight(w);
-        const range = getRange("Weight Loss", w);
-        setTargetWeight(range.max);
+      .then((response) => {
+        const profile = response.data.data;
+        const weight = Number(profile?.weight);
+        const heightCm = Number(profile?.height);
+        if (!Number.isFinite(weight) || weight <= 0 || !Number.isFinite(heightCm) || heightCm <= 0) {
+          setProfileError("Complete your weight and height in the body assessment before choosing a goal.");
+          return;
+        }
+
+        const bmi = weight / ((heightCm / 100) ** 2);
+        const recommendedGoal = bmi < 18.5
+          ? "Gain Weight"
+          : bmi >= 25
+            ? "Weight Loss"
+            : "Maintain Weight";
+        const normalRange = getNormalWeightRange(heightCm);
+        if (!normalRange || normalRange.min > normalRange.max) {
+          setProfileError("Your height does not allow us to calculate a healthy target-weight range.");
+          return;
+        }
+        const range = getRange(recommendedGoal, weight, normalRange);
+        setCurrentWeight(weight);
+        setHeight(heightCm);
+        setGoal(recommendedGoal);
+        setTargetWeight(roundToTenth(recommendedGoal === "Maintain Weight" ? weight : range.max));
       })
-      .catch((err) => {
-        console.error(err);
-        setCurrentWeight(65);
+      .catch((error) => {
+        console.error("Goal setup profile load failed:", error);
+        setProfileError(error.response?.data?.message || "Unable to load your body assessment.");
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const { min, max } = getRange(goal, currentWeight);
+  const bmi = useMemo(() => (
+    currentWeight && height
+      ? currentWeight / ((height / 100) ** 2)
+      : null
+  ), [currentWeight, height]);
+  const bmiCategory = bmi === null ? "" : getBmiCategory(bmi);
+  const recommendedGoal = bmiCategory === "Underweight"
+    ? "Gain Weight"
+    : bmiCategory === "Overweight" || bmiCategory === "Obese"
+      ? "Weight Loss"
+      : "";
+  const normalRange = height ? getNormalWeightRange(height) : null;
+  const availableGoals = bmiCategory === "Underweight"
+    ? new Set(["Gain Weight", "Maintain Weight"])
+    : bmiCategory === "Overweight" || bmiCategory === "Obese"
+      ? new Set(["Weight Loss"])
+      : new Set(GOALS.map(({ key }) => key));
+  const range = normalRange && currentWeight
+    ? getRange(goal, currentWeight, normalRange)
+    : { min: 0, max: 0 };
   const isLocked = goal === "Maintain Weight";
+  const goalOptions = [...GOALS].sort((a, b) => (
+    Number(b.key === recommendedGoal) - Number(a.key === recommendedGoal)
+  ));
 
-  const handleSelectGoal = (key) => {
-    setGoal(key);
-    const range = getRange(key, currentWeight);
-    // Snap target weight into whatever range the new goal allows.
-    setTargetWeight((prev) => Math.min(Math.max(prev, range.min), range.max));
+  const handleSelectGoal = (nextGoal) => {
+    if (!availableGoals.has(nextGoal) || !normalRange || !currentWeight) return;
+    setGoal(nextGoal);
+    const nextRange = getRange(nextGoal, currentWeight, normalRange);
+    setTargetWeight((previous) => roundToTenth(
+      Math.min(Math.max(previous, nextRange.min / 10), nextRange.max / 10)
+    ));
   };
 
   const handleContinue = () => {
-    const finalTarget = isLocked ? Math.round(currentWeight) : targetWeight;
+    if (!goal || !availableGoals.has(goal)) return;
+    const finalTarget = isLocked ? currentWeight : targetWeight;
     sessionStorage.setItem("avefit_goal", JSON.stringify({ goal, targetWeight: finalTarget }));
     navigate("/user/health");
   };
 
   return (
     <OnboardingShell step={2}>
-    <button onClick={() => navigate("/user/assessment")} className="text-slate-500 hover:text-slate-900 text-sm mb-4 flex items-center gap-1">
-      ← Back
-    </button>
+      <button onClick={() => navigate("/user/assessment")} className="mb-4 flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900">
+        ← Back
+      </button>
 
-    <h2 className="text-2xl font-bold text-slate-900 mb-1">Set Your Goal</h2>
-    <p className="text-slate-500 text-sm mb-6">What do you want to achieve?</p>
+      <h2 className="mb-1 text-2xl font-bold text-slate-900">Set Your Goal</h2>
+      <p className="mb-6 text-sm text-slate-500">Your BMI helps us recommend an appropriate weight goal.</p>
 
-    {/* Goal Toggle */}
-    <div className="space-y-3 mb-8">
-      {goals.map((g) => (
-        <button
-          key={g.key}
-          onClick={() => handleSelectGoal(g.key)}
-          className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 transition text-left ${
-            goal === g.key
-              ? "border-orange-500 bg-orange-500/10 text-slate-900"
-              : "border-slate-200 text-slate-500 hover:border-slate-300"
-          }`}
-        >
-          <span className="text-2xl">{g.icon}</span>
-          <div>
-            <p className="font-semibold">{g.key}</p>
-            <p className="text-xs opacity-70">{g.desc}</p>
-          </div>
-          {goal === g.key && (
-            <div className="ml-auto w-5 h-5 bg-orange-500 rounded-full flex items-center justify-center">
-              <div className="w-2 h-2 bg-white rounded-full" />
-            </div>
-          )}
-        </button>
-      ))}
-    </div>
-
-    {/* Target Weight */}
-    <div className="mb-8">
-      <div className="flex items-center justify-between mb-3">
-        <label className="text-sm font-medium text-slate-600">Target Weight</label>
-        <span className="text-2xl font-bold text-orange-500">
-          {loading ? "—" : isLocked ? Math.round(currentWeight) : targetWeight} kg
-        </span>
-      </div>
-
-      {isLocked ? (
-        <p className="text-xs text-slate-500 bg-slate-50 rounded-xl px-4 py-3">
-          Your goal is to stay at your current weight ({Math.round(currentWeight || 0)} kg) — no need to set a target.
-        </p>
+      {profileError ? (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{profileError}</p>
       ) : (
         <>
-          <input
-            type="range"
-            min={min}
-            max={max}
-            value={targetWeight}
-            disabled={loading}
-            onChange={(e) => setTargetWeight(parseInt(e.target.value))}
-            className="w-full h-2 bg-slate-100 rounded-full appearance-none cursor-pointer accent-orange-500 disabled:opacity-50"
-          />
-          <div className="flex justify-between text-xs text-slate-500 mt-1">
-            <span>{min} kg</span>
-            <span>{max} kg</span>
+          <div className="mb-5 rounded-xl bg-slate-50 p-4 text-center">
+            <p className="text-sm text-slate-500">Your BMI</p>
+            <p className="mt-1 text-2xl font-bold text-slate-900">{bmi === null ? "—" : bmi.toFixed(2)}</p>
+            <p className={`text-sm font-semibold ${bmiCategory === "Normal" ? "text-green-600" : "text-orange-600"}`}>{bmiCategory}</p>
           </div>
-          <p className="text-xs text-slate-500 mt-2">
-            {goal === "Weight Loss"
-              ? `Must be lower than your current weight (${Math.round(currentWeight || 0)} kg).`
-              : `Must be higher than your current weight (${Math.round(currentWeight || 0)} kg).`}
-          </p>
+
+          <div className="mb-8 space-y-3">
+            {goalOptions.map((option) => {
+              const isAvailable = availableGoals.has(option.key);
+              const isRecommended = option.key === recommendedGoal;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  disabled={!isAvailable || loading}
+                  onClick={() => handleSelectGoal(option.key)}
+                  aria-pressed={goal === option.key}
+                  className={`flex w-full items-center gap-4 rounded-2xl border-2 p-4 text-left transition ${
+                    goal === option.key
+                      ? "border-orange-500 bg-orange-500/10 text-slate-900"
+                      : isAvailable
+                        ? "border-slate-200 text-slate-600 hover:border-slate-300"
+                        : "cursor-not-allowed border-slate-100 bg-slate-50 text-slate-400 opacity-70"
+                  }`}
+                >
+                  <span className="text-2xl">{option.icon}</span>
+                  <span className="flex-1">
+                    <span className="flex flex-wrap items-center gap-2 font-semibold">
+                      {option.key}
+                      {isRecommended && <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold uppercase text-green-700">Recommend for you</span>}
+                      {!isAvailable && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-500">Locked for your BMI</span>}
+                    </span>
+                    <span className="mt-1 block text-xs opacity-70">{option.desc}</span>
+                  </span>
+                  {goal === option.key && (
+                    <span className="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-orange-500">
+                      <span className="h-2 w-2 rounded-full bg-white" />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mb-8">
+            <div className="mb-3 flex items-center justify-between">
+              <label htmlFor="target-weight" className="text-sm font-medium text-slate-600">Target Weight</label>
+              <span className="text-2xl font-bold text-orange-500">
+                {loading || !currentWeight ? "—" : `${(isLocked ? currentWeight : targetWeight).toFixed(1)} kg`}
+              </span>
+            </div>
+            {isLocked ? (
+              <p className="rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                Your target stays at your current weight ({currentWeight?.toFixed(1)} kg).
+              </p>
+            ) : (
+              <>
+                <input
+                  id="target-weight"
+                  type="range"
+                  min={range.min}
+                  max={range.max}
+                  step="1"
+                  value={Math.round(targetWeight * 10)}
+                  disabled={loading || !currentWeight}
+                  onChange={(event) => setTargetWeight(Number(event.target.value) / 10)}
+                  className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-100 accent-orange-500 disabled:opacity-50"
+                />
+                <div className="mt-1 flex justify-between text-xs text-slate-500">
+                  <span>{(range.min / 10).toFixed(1)} kg</span>
+                  <span>{(range.max / 10).toFixed(1)} kg</span>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Target choices stay between BMI 18.5 and 24.9.
+                </p>
+              </>
+            )}
+          </div>
         </>
       )}
-    </div>
 
-    <button
-      onClick={handleContinue}
-      disabled={loading}
-      className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition"
-    >
-      Continue to Health Assessment →
-    </button>
+      <button
+        type="button"
+        onClick={handleContinue}
+        disabled={loading || Boolean(profileError) || !goal || !availableGoals.has(goal)}
+        className="w-full rounded-xl bg-orange-500 py-3 font-bold text-white transition hover:bg-orange-600 disabled:opacity-50"
+      >
+        Continue to Health Assessment →
+      </button>
     </OnboardingShell>
   );
 }

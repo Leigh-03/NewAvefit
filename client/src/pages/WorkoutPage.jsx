@@ -61,6 +61,8 @@ export default function WorkoutPage() {
   const [workoutDays, setWorkoutDays] = useState([]); // days the user picked as their availability
   const [workoutFrequency, setWorkoutFrequency] = useState(0);
   const [fitnessGoal, setFitnessGoal] = useState("");
+  const [targetWeight, setTargetWeight] = useState(null);
+  const [membershipEndDate, setMembershipEndDate] = useState("");
   const [injuries, setInjuries] = useState([]);
   const [healthConditions, setHealthConditions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -104,6 +106,8 @@ export default function WorkoutPage() {
       setWorkoutDays(days);
       setWorkoutFrequency(Number(profile.workout_days_per_week) || 0);
       setFitnessGoal(profile.fitness_goal || "");
+      setTargetWeight(profile.target_weight ?? null);
+      setMembershipEndDate(profile.membership_end_date ? String(profile.membership_end_date).slice(0, 10) : "");
       setInjuries(Array.isArray(profile.injuries) ? profile.injuries.filter((injury) => injury && injury !== "None") : []);
       setHealthConditions(Array.isArray(profile.health_conditions) ? profile.health_conditions.filter((condition) => condition && condition !== "None") : []);
       setHasAssignedCoach(Boolean(profile.trainer_id));
@@ -245,6 +249,19 @@ export default function WorkoutPage() {
     const scheduledDate = philippinesDateKey(plan.session_date);
     return scheduledDate === activeDay && plan.deletion_request_status === "Pending";
   });
+  const hasRequestedOrApprovedPlanForActiveDay = userPlans.some((plan) => (
+    philippinesDateKey(plan.session_date) === activeDay &&
+    ["Pending", "Approved"].includes(plan.approval_status)
+  ));
+  const activeDayIsPast = activeDay < today;
+  const membershipExpired = membershipEndDate && membershipEndDate < today;
+  const canRequestWorkout = hasAssignedCoach
+    && !activeDayIsPast
+    && !membershipExpired
+    && isWorkoutDay(activeDay)
+    && Boolean(activeDayProgram)
+    && daySessions.length === 0
+    && !hasRequestedOrApprovedPlanForActiveDay;
 
   useEffect(() => {
     if (loading || !requestedPlanId || !hasRequestedPlanChange) return;
@@ -260,6 +277,7 @@ export default function WorkoutPage() {
         <MemberWorkoutPlanRequestModal
           initialDate={activeDay}
           initialGoal={fitnessGoal}
+          initialTargetWeight={targetWeight}
           workoutDays={Array.isArray(workoutDays) ? workoutDays : []}
           workoutFrequency={workoutFrequency}
           injuries={injuries}
@@ -453,10 +471,24 @@ export default function WorkoutPage() {
             <h2 className="mt-0.5 font-bold text-slate-900 dark:text-white">{activeDayLabel}&apos;s workouts</h2>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {!hasAssignedCoach && <span className="text-xs text-slate-500">Select a coach before requesting a plan.</span>}
-            <button type="button" onClick={() => { setPlanRequestNotice(""); setShowPlanRequest(true); }} disabled={!hasAssignedCoach} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
-              <Plus size={16} /> Create workout plan
-            </button>
+            {activeDayIsPast
+              ? <span role="status" className="text-sm font-medium text-slate-500">This workout date has passed. You can no longer request a workout for it.</span>
+              : membershipExpired
+                ? <span role="status" className="text-sm font-medium text-amber-700 dark:text-amber-300">Your membership has ended. Renew it to request a workout plan.</span>
+                : !hasAssignedCoach
+                  ? <span className="text-xs text-slate-500">Select a coach before requesting a workout.</span>
+                  : hasRequestedOrApprovedPlanForActiveDay || daySessions.length > 0
+                    ? <span role="status" className="text-sm font-medium text-slate-500">A workout is already scheduled or awaiting approval for this date.</span>
+                    : !isWorkoutDay(activeDay)
+                      ? <span role="status" className="text-sm font-medium text-slate-500">Choose one of your preferred workout days to request a workout.</span>
+                      : !activeDayProgram
+                        ? <span role="status" className="text-sm font-medium text-slate-500">Set your preferred workout days in your profile before requesting a workout.</span>
+                      : null}
+            {canRequestWorkout && (
+              <button type="button" onClick={() => { setPlanRequestNotice(""); setShowPlanRequest(true); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700">
+                <Plus size={16} /> Request workout from your coach
+              </button>
+            )}
             {dayWorkoutStatus && (
               <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${WORKOUT_STATUS_STYLES[dayWorkoutStatus]}`}>
                 {dayWorkoutStatus}

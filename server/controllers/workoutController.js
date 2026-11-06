@@ -13,8 +13,13 @@ const getWorkouts = async (req, res) => {
   }
 };
 
-const equipmentConditions = ["Not assessed", "Good", "Rusty", "Worn", "Damaged", "Poor", "Other"];
-const equipmentStatuses = ["Needs inspection", "In service", "Under repair", "Repaired", "Replaced", "Retired"];
+const EQUIPMENT_CONDITIONS_BY_STATUS = {
+  "Needs inspection": ["Not assessed"],
+  "Under repair": ["Damaged"],
+  "In service": ["Good", "Rusty"],
+  "Needs replacement": ["Poor", "Damaged", "Worn"],
+};
+const equipmentStatuses = Object.keys(EQUIPMENT_CONDITIONS_BY_STATUS);
 
 const validateEquipmentInput = (body) => {
   const equipmentName = typeof body.equipment_name === "string" ? body.equipment_name.trim() : "";
@@ -28,17 +33,14 @@ const validateEquipmentInput = (body) => {
   if (!Number.isInteger(quantity) || quantity < 0 || quantity > 100000) {
     return { error: "Quantity must be a whole number from 0 to 100000." };
   }
-  if (!equipmentConditions.includes(condition)) {
-    return { error: "Choose a valid equipment condition." };
-  }
   if (!equipmentStatuses.includes(status)) {
     return { error: "Choose a valid equipment status." };
   }
+  if (!EQUIPMENT_CONDITIONS_BY_STATUS[status].includes(condition)) {
+    return { error: `Choose a condition available for the ${status.toLowerCase()} status.` };
+  }
   if (conditionNotes.length > 500) {
     return { error: "Condition details must be 500 characters or fewer." };
-  }
-  if (condition === "Other" && !conditionNotes) {
-    return { error: "Describe the equipment condition when selecting Other." };
   }
   return {
     value: {

@@ -44,7 +44,9 @@ const TRAINER_STATUS_OPTIONS = ["Active", "Inactive"];
 function TrainerModal({ trainer, onClose, onSave }) {
   const fileInputRef = useRef(null);
   const [form, setForm] = useState(
-    trainer || { full_name: "", email: "", phone: "09", specializations: [], goal_specialty: "" }
+    trainer
+      ? { ...trainer, goal_specialty: trainer.goal_specialty === "Muscle Gain" ? "Gain Weight" : trainer.goal_specialty }
+      : { full_name: "", email: "", phone: "09", specializations: [], goal_specialty: "" }
   );
   const [selectedSpecializations, setSelectedSpecializations] = useState(normalizeSpecializations(trainer));
   const [photo, setPhoto] = useState(trainer?.photo_url || null);
@@ -330,7 +332,7 @@ function TrainerModal({ trainer, onClose, onSave }) {
             >
               <option value="">No specific match</option>
               <option value="Weight Loss">Weight Loss</option>
-              <option value="Muscle Gain">Muscle Gain</option>
+              <option value="Gain Weight">Gain Weight</option>
               <option value="Maintain Weight">Maintain Weight</option>
               <option value="General Fitness">General Fitness</option>
             </select>
@@ -491,7 +493,7 @@ function TrainerProfileModal({ trainer, onClose, onEdit }) {
             <header className="border-b border-slate-200 pb-5 pr-12 dark:border-white/10">
               <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Trainer profile</p>
               <h2 id="trainer-profile-title" className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">{trainer.full_name}</h2>
-              <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{trainer.goal_specialty || "General Fitness Coach"}</p>
+              <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{trainer.goal_specialty === "Muscle Gain" ? "Gain Weight" : trainer.goal_specialty || "General Fitness Coach"}</p>
               <span className={`mt-3 inline-flex rounded-full px-3 py-1.5 text-xs font-bold ${statusColors[trainer.status] || statusColors.Active}`}>
                 {trainer.status || "Active"}
               </span>

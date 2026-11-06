@@ -38,7 +38,7 @@ const getMemberSlots = (member, weekday) => {
 
 export function getCompatibleWorkoutStartTimes(member, coachAvailability, sessionDate) {
   if (!member || !sessionDate || !Array.isArray(coachAvailability)) return [];
-  const duration = Number(member.workout_duration);
+  const duration = Number(member.workout_duration) || 60;
   if (!Number.isInteger(duration) || duration < 1) return [];
 
   const date = new Date(`${sessionDate}T00:00:00.000Z`);
