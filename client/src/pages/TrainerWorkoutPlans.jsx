@@ -31,6 +31,9 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApprov
                   : `Program: ${plan.training_program}`}
               </p>
             )}
+            {plan.request_type === "coach_created" && (
+              <p className="mt-1 text-xs font-semibold text-violet-600 dark:text-violet-400">Member asked you to create this workout.</p>
+            )}
             <p className="mt-1 text-xs text-slate-500">
               {plan.scheduled_date ? new Date(`${String(plan.scheduled_date).slice(0, 10)}T00:00:00`).toLocaleDateString() : "Workout date not set"}
               {plan.deletion_request_status === "Pending"
@@ -76,7 +79,11 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApprov
               </p>
             </article>
           )) : (
-            <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-white/5">No exercises are attached to this plan.</p>
+            <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-white/5">
+              {plan.request_type === "coach_created"
+                ? "No exercises yet. Edit this request to create the workout; add at least 3 exercises before approval."
+                : "No exercises are attached to this plan."}
+            </p>
           )}
         </div>
         <footer className="flex flex-wrap justify-between gap-3 border-t border-slate-200 p-4 dark:border-slate-800">
@@ -85,7 +92,7 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApprov
               <>
               <button type="button" onClick={onEdit} className="rounded-lg border border-orange-500/30 px-3 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-500/10 dark:text-orange-400">Edit request</button>
               <button type="button" onClick={onReject} className="rounded-lg border border-red-500/30 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Reject</button>
-              <button type="button" onClick={onApprove} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700">Approve</button>
+              <button type="button" onClick={onApprove} disabled={sessions.length < 3} title={sessions.length < 3 ? "Create at least 3 exercises before approval." : undefined} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50">Approve</button>
               </>
             )}
             {plan.deletion_request_status === "Pending" && (
@@ -218,6 +225,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   const [fieldErrors, setFieldErrors] = useState({});
   const [changeReason, setChangeReason] = useState("");
   const selectedMember = members.find((member) => String(member.user_id) === form.user_id);
+  const isInitialCoachRequest = plan?.request_type === "coach_created" && !(plan.sessions?.length);
   const doseRules = getWorkoutGoalRules(selectedMember?.fitness_goal);
   const keepingExistingDate = plan
     && String(plan.scheduled_date || "").slice(0, 10) === form.session_date;
@@ -288,7 +296,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
     const nextErrors = {};
     if (!form.user_id) nextErrors.user_id = "Choose a member.";
     if (!form.session_date) nextErrors.session_date = "Workout date is required.";
-    if (plan && changeReason.trim().length < 5) {
+    if (plan && !isInitialCoachRequest && changeReason.trim().length < 5) {
       nextErrors.change_reason = "Explain why you're changing this plan (at least 5 characters).";
     }
     if (plan && changeReason.trim().length > 1000) {
@@ -514,11 +522,11 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
               {plan && (
                 <div>
                   <label htmlFor="trainer-plan-change-reason" className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
-                    Reason for changing this plan *
+                    {isInitialCoachRequest ? "Notes for the member (optional)" : "Reason for changing this plan *"}
                   </label>
                   <textarea
                     id="trainer-plan-change-reason"
-                    required
+                    required={!isInitialCoachRequest}
                     rows={3}
                     maxLength={1000}
                     value={changeReason}
@@ -1085,6 +1093,9 @@ export default function TrainerWorkoutPlans() {
                         {plan.is_program_switch && (
                           <span className="inline-flex rounded-full border border-orange-300 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300">Program switch: {plan.training_program}</span>
                         )}
+                        {plan.request_type === "coach_created" && (
+                          <span className="inline-flex rounded-full border border-violet-300 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">Coach workout requested</span>
+                        )}
                       </div>
                     </td>
                     <td className="px-5 py-4">
@@ -1113,7 +1124,7 @@ export default function TrainerWorkoutPlans() {
                         )}
                         {pendingApproval && (
                           <>
-                            <button type="button" onClick={() => handleReviewRequest(plan, "approve")} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Approve ${plan.plan_name}`} title="Approve member workout plan" className="rounded-lg p-2 text-green-600 transition hover:bg-green-500/10 disabled:opacity-50">
+                            <button type="button" onClick={() => handleReviewRequest(plan, "approve")} disabled={reviewingPlanId === plan.workout_plan_id || Number(plan.exercise_count) < 3} aria-label={`Approve ${plan.plan_name}`} title={Number(plan.exercise_count) < 3 ? "Create at least 3 exercises before approval." : "Approve member workout plan"} className="rounded-lg p-2 text-green-600 transition hover:bg-green-500/10 disabled:opacity-50">
                               <Check size={17} />
                             </button>
                             <button type="button" onClick={() => { setRejectingPlan(plan); setRejectionType("plan"); setRejectionReason(""); setRejectionError(""); }} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Reject ${plan.plan_name}`} title="Reject member workout plan" className="rounded-lg p-2 text-red-500 transition hover:bg-red-500/10 disabled:opacity-50">

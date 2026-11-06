@@ -63,9 +63,12 @@ const getUserPlans = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT wp.*,
-              (SELECT MIN(ws.session_date)
+              COALESCE(
+                (SELECT MIN(ws.session_date)::text
                FROM workout_sessions ws
-               WHERE ws.workout_plan_id = wp.workout_plan_id) AS session_date,
+               WHERE ws.workout_plan_id = wp.workout_plan_id),
+                wp.requested_session_date::text
+              ) AS session_date,
               (SELECT COALESCE(BOOL_OR(ws.started_at IS NOT NULL OR ws.completed = TRUE), FALSE)
                FROM workout_sessions ws
                WHERE ws.workout_plan_id = wp.workout_plan_id) AS has_started
@@ -83,15 +86,22 @@ const getUserPlans = async (req, res) => {
 
 const requestWorkoutPlan = async (req, res) => {
   const sessionDate = req.body.session_date;
-  const sessions = req.body.sessions;
+  const requestType = req.body.request_type || "member_plan";
+  if (!["member_plan", "coach_created"].includes(requestType)) {
+    return res.status(400).json({ success: false, message: "Choose a valid workout request type." });
+  }
+  const sessions = Array.isArray(req.body.sessions) ? req.body.sessions : [];
   const parsedDate = typeof sessionDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sessionDate)
     ? new Date(`${sessionDate}T00:00:00.000Z`)
     : null;
   if (!parsedDate || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== sessionDate) {
     return res.status(400).json({ success: false, message: "Choose a valid workout date." });
   }
-  if (!Array.isArray(sessions) || sessions.length < 3 || sessions.length > 30) {
+  if (requestType === "member_plan" && (sessions.length < 3 || sessions.length > 30)) {
     return res.status(400).json({ success: false, message: "A workout plan must contain between 3 and 30 exercises." });
+  }
+  if (requestType === "coach_created" && sessions.length !== 0) {
+    return res.status(400).json({ success: false, message: "A coach-created workout request must not include member-selected exercises." });
   }
   if (sessions.some((session) =>
     !session ||
@@ -202,8 +212,16 @@ const requestWorkoutPlan = async (req, res) => {
          WHERE wp.user_id = $1
            AND wp.is_program_switch = TRUE
            AND wp.training_program = $2
-           AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $3::date), 'YYYY-MM-DD')
-           AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $3::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+           AND (
+             (wp.requested_session_date >= DATE_TRUNC('week', $3::date)::date
+               AND wp.requested_session_date < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date)
+             OR EXISTS (
+               SELECT 1 FROM workout_sessions ws
+               WHERE ws.workout_plan_id = wp.workout_plan_id
+                 AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $3::date), 'YYYY-MM-DD')
+                 AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $3::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+             )
+           )
          LIMIT 1`,
         [member.user_id, trainingProgram, sessionDate]
       );
@@ -294,10 +312,16 @@ const requestWorkoutPlan = async (req, res) => {
     const duplicateDate = await client.query(
       `SELECT 1
        FROM workout_plans wp
-       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
        WHERE wp.user_id = $1
-         AND ws.session_date = $2
          AND wp.approval_status IN ('Approved', 'Pending')
+         AND (
+           wp.requested_session_date = $2::date
+           OR EXISTS (
+             SELECT 1 FROM workout_sessions ws
+             WHERE ws.workout_plan_id = wp.workout_plan_id
+               AND ws.session_date = $2
+           )
+         )
        LIMIT 1`,
       [member.user_id, sessionDate]
     );
@@ -310,11 +334,18 @@ const requestWorkoutPlan = async (req, res) => {
     const weeklyPlanCount = await client.query(
       `SELECT COUNT(DISTINCT wp.workout_plan_id)::int AS count
        FROM workout_plans wp
-       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
        WHERE wp.user_id = $1
          AND wp.approval_status IN ('Approved', 'Pending')
-         AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
-         AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')`,
+         AND (
+           wp.requested_session_date >= DATE_TRUNC('week', $2::date)::date
+           AND wp.requested_session_date < (DATE_TRUNC('week', $2::date) + INTERVAL '7 days')::date
+           OR EXISTS (
+             SELECT 1 FROM workout_sessions ws
+             WHERE ws.workout_plan_id = wp.workout_plan_id
+               AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
+               AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+           )
+         )`,
       [member.user_id, sessionDate]
     );
     if (Number(weeklyPlanCount.rows[0].count) >= workoutFrequency) {
@@ -332,10 +363,10 @@ const requestWorkoutPlan = async (req, res) => {
       : member.fitness_goal || "Fitness goal not set";
     const planResult = await client.query(
       `INSERT INTO workout_plans
-         (user_id, trainer_id, plan_name, goal, scheduled_duration_minutes, approval_status, training_program, previous_training_program, is_program_switch)
-       VALUES ($1, $2, $3, $4, $5, 'Pending', $6, $7, $8)
-       RETURNING workout_plan_id, plan_name, goal, approval_status, training_program, previous_training_program, is_program_switch`,
-      [member.user_id, member.trainer_id, planName, goal, sessionDuration, trainingProgram, isProgramSwitch ? defaultProgram : null, isProgramSwitch]
+         (user_id, trainer_id, plan_name, goal, scheduled_duration_minutes, approval_status, training_program, previous_training_program, is_program_switch, request_type, requested_session_date)
+       VALUES ($1, $2, $3, $4, $5, 'Pending', $6, $7, $8, $9, $10)
+       RETURNING workout_plan_id, plan_name, goal, approval_status, training_program, previous_training_program, is_program_switch, request_type`,
+      [member.user_id, member.trainer_id, planName, goal, sessionDuration, trainingProgram, isProgramSwitch ? defaultProgram : null, isProgramSwitch, requestType, sessionDate]
     );
     const planId = planResult.rows[0].workout_plan_id;
     for (const session of sessions) {
@@ -355,8 +386,12 @@ const requestWorkoutPlan = async (req, res) => {
       audience: "trainer",
       recipientId: member.trainer_id,
       message: isProgramSwitch
-        ? `${memberName} requested a switch from ${defaultProgram} to ${trainingProgram}. Goal weight: ${member.target_weight == null ? "not set" : `${member.target_weight} kg`}. Review the workout request.`
-        : `${memberName} requested a ${trainingProgram} workout. Goal weight: ${member.target_weight == null ? "not set" : `${member.target_weight} kg`}.`,
+        ? requestType === "coach_created"
+          ? `${memberName} requested you to create a ${trainingProgram} workout for ${sessionDate}, switching from ${defaultProgram}. Review the request.`
+          : `${memberName} requested a switch from ${defaultProgram} to ${trainingProgram}. Goal weight: ${member.target_weight == null ? "not set" : `${member.target_weight} kg`}. Review the workout request.`
+        : requestType === "coach_created"
+          ? `${memberName} requested a ${trainingProgram} workout from you for ${sessionDate}. Please create the plan.`
+          : `${memberName} requested a ${trainingProgram} workout. Goal weight: ${member.target_weight == null ? "not set" : `${member.target_weight} kg`}.`,
       notificationType: "workout",
       userName: memberName,
       targetUrl: `/trainer/workout-plans?planId=${planId}`,
@@ -376,6 +411,8 @@ const requestWorkoutPlan = async (req, res) => {
           targetWeight: member.target_weight,
           isProgramSwitch,
           previousProgram: defaultProgram,
+          requestType,
+          sessionDate,
         });
         emailSent = delivery.delivered;
       } catch (emailError) {
@@ -389,11 +426,15 @@ const requestWorkoutPlan = async (req, res) => {
       email_sent: emailSent,
       message: isProgramSwitch
         ? emailSent
-          ? "Program switch submitted. Your coach has been notified by email and must approve the workout."
-          : "Program switch submitted, but your coach's email could not be delivered. Please contact your coach."
+          ? requestType === "coach_created"
+            ? "Your request for a coach-created program switch was sent. Your coach has been notified by email."
+            : "Program switch submitted. Your coach has been notified by email and must approve the workout."
+          : "Your request was submitted, but your coach's email could not be delivered. Please contact your coach."
         : emailSent
-          ? "Workout plan submitted. Your coach has been notified by email."
-          : "Workout plan submitted, but the coach email could not be delivered. Please contact your coach.",
+          ? requestType === "coach_created"
+            ? "Workout request sent. Your coach has been notified by email and will create the plan."
+            : "Workout plan submitted. Your coach has been notified by email."
+          : "Your request was submitted, but the coach email could not be delivered. Please contact your coach.",
     });
   } catch (err) {
     if (transactionStarted) await client.query("ROLLBACK");

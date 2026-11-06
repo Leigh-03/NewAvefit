@@ -511,6 +511,11 @@ const initializeDatabase = async () => {
       ADD COLUMN IF NOT EXISTS is_program_switch BOOLEAN NOT NULL DEFAULT FALSE
     `);
     await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS request_type VARCHAR(30) NOT NULL DEFAULT 'member_plan',
+      ADD COLUMN IF NOT EXISTS requested_session_date DATE
+    `);
+    await client.query(`
       CREATE INDEX IF NOT EXISTS workout_plans_user_program_switch_idx
       ON workout_plans (user_id, training_program)
       WHERE is_program_switch = TRUE
