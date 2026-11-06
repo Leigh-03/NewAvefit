@@ -1,10 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Boxes, ChevronDown, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import api from "../services/api";
 
+const normalizeEquipmentStatus = (status) => {
+  const cleaned = String(status || "").trim();
+  if (!cleaned || cleaned.toLowerCase() === "all" || cleaned.toLowerCase() === "all statuses") return "";
+  return {
+    "Under repair": "Under Maintenance",
+    "Under Maintenance": "Under Maintenance",
+    "Needs replacement": "Needs replacement",
+    "In service": "In service",
+    "Needs inspection": "Needs inspection",
+  }[cleaned] || cleaned;
+};
+
+const displayEquipmentStatus = (status) => normalizeEquipmentStatus(status);
+
 const CONDITIONS_BY_STATUS = {
   "Needs inspection": ["Not assessed"],
-  "Under repair": ["Damaged"],
+  "Under Maintenance": ["Damaged"],
   "In service": ["Good", "Rusty"],
   "Needs replacement": ["Poor", "Damaged", "Worn"],
 };
@@ -36,7 +51,7 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
     setSaving(true);
     setError("");
     try {
-      const payload = { ...form, quantity: Number(form.quantity) };
+      const payload = { ...form, quantity: Number(form.quantity), status: normalizeEquipmentStatus(form.status) };
       if (equipment) {
         await api.put(`/workouts/equipment/${equipment.equipment_id}`, payload);
       } else {
@@ -151,9 +166,9 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
 const statusClass = (status) => ({
   "In service": "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300",
   "Needs replacement": "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
-  "Under repair": "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+  "Under Maintenance": "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
   "Needs inspection": "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
-}[status] || "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300");
+}[normalizeEquipmentStatus(status)] || "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300");
 
 export default function EquipmentInventory() {
   const [equipment, setEquipment] = useState([]);
@@ -169,6 +184,8 @@ export default function EquipmentInventory() {
   const [usageRows, setUsageRows] = useState([]);
   const [usageLoading, setUsageLoading] = useState(true);
   const [usageError, setUsageError] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedStatusFilter = normalizeEquipmentStatus(searchParams.get("status") || "");
 
   const fetchEquipment = async () => {
     setError("");
@@ -192,13 +209,17 @@ export default function EquipmentInventory() {
     api.get("/analytics", { params: { equipment_period: usagePeriod } })
       .then(({ data }) => {
         if (active) {
-          setUsageRows(data.data?.mostUsedEquipment || []);
+          const nextRows = Array.isArray(data?.data?.mostUsedEquipment) ? data.data.mostUsedEquipment : [];
+          setUsageRows(nextRows);
           setUsageError("");
         }
       })
       .catch((requestError) => {
         console.error(requestError);
-        if (active) setUsageError(requestError.response?.data?.message || "Unable to load equipment usage.");
+        if (active) {
+          setUsageRows([]);
+          setUsageError(requestError.response?.data?.message || "Unable to load equipment usage.");
+        }
       })
       .finally(() => active && setUsageLoading(false));
     return () => { active = false; };
@@ -206,10 +227,15 @@ export default function EquipmentInventory() {
 
   const filteredEquipment = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return equipment.filter((item) => item.equipment_name.toLowerCase().includes(query));
-  }, [equipment, search]);
+    return equipment.filter((item) => {
+      const matchesQuery = item.equipment_name.toLowerCase().includes(query);
+      const matchesStatus = !selectedStatusFilter || normalizeEquipmentStatus(item.status) === selectedStatusFilter;
+      return matchesQuery && matchesStatus;
+    });
+  }, [equipment, search, selectedStatusFilter]);
   const totalQuantity = equipment.reduce((total, item) => total + Number(item.quantity || 0), 0);
-  const underMaintenanceCount = equipment.filter((item) => item.status === "Under repair").length;
+  const needReplacementCount = equipment.filter((item) => normalizeEquipmentStatus(item.status) === "Needs replacement").length;
+  const underMaintenanceCount = equipment.filter((item) => normalizeEquipmentStatus(item.status) === "Under Maintenance").length;
 
   const handleDelete = async (item) => {
     if (!window.confirm(`Remove "${item.equipment_name}" from the inventory? The record will be hidden but preserved for existing workout references.`)) return;
@@ -255,8 +281,13 @@ export default function EquipmentInventory() {
       </header>
 
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
+      {selectedStatusFilter && (
+        <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-200">
+          Showing equipment with status: <span className="font-bold">{selectedStatusFilter}</span>
+        </div>
+      )}
 
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Equipment items</p>
           <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading ? "—" : equipment.length}</p>
@@ -265,52 +296,82 @@ export default function EquipmentInventory() {
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total quantity</p>
           <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading ? "—" : totalQuantity}</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Under Maintenance Equipment</p>
-          <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading ? "—" : underMaintenanceCount}</p>
-        </div>
       </section>
 
-      <section aria-labelledby="equipment-usage-heading" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 id="equipment-usage-heading" className="text-base font-bold text-slate-900 dark:text-white">Most used equipment</h2>
-            <p className="mt-1 text-xs text-slate-500">Ranked from exercises in approved workout plans for the selected period.</p>
-          </div>
-          <label className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Period
-            <select value={usagePeriod} onChange={(event) => setUsagePeriod(event.target.value)} className="ml-2 min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200">
+      <details className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-white/10 dark:bg-[#111]">
+        <summary className="cursor-pointer list-none text-sm font-bold text-slate-900 marker:hidden dark:text-white">
+          <span className="inline-flex items-center gap-2"><Boxes size={16} className="text-orange-500" /> Most used equipment</span>
+          <span className="mt-1 block text-xs font-normal text-slate-600 dark:text-slate-400">Open to see the equipment most used in this period.</span>
+        </summary>
+
+        <section aria-labelledby="equipment-usage-heading" className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-white/10">
+          <div className="flex items-center justify-end gap-2">
+            <label htmlFor="equipment-usage-period" className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Period
+            </label>
+            <select
+              id="equipment-usage-period"
+              name="equipment-usage-period"
+              value={usagePeriod}
+              onChange={(event) => setUsagePeriod(event.target.value)}
+              className="min-h-9 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+            >
               <option value="today">Today</option>
               <option value="week">This week</option>
               <option value="month">This month</option>
             </select>
-          </label>
-        </div>
-        {usageError ? <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{usageError}</p> : usageLoading ? <p className="py-8 text-center text-sm text-slate-500">Loading workout-plan usage...</p> : usageRows.length ? (
-          <div className="mt-5 space-y-3">
-            {usageRows.slice(0, 8).map((row, index) => {
-              const maximum = Math.max(0, ...usageRows.map((item) => Number(item.count) || 0));
-              const count = Number(row.count) || 0;
-              return (
-                <div key={row.equipment} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5">
-                  <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">{index + 1}. {row.equipment}</p>
-                  <p className="text-sm font-bold text-slate-900 dark:text-white">{count} planned {count === 1 ? "use" : "uses"}</p>
-                  <div className="col-span-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
-                    <div className="h-full rounded-full bg-orange-500" style={{ width: `${maximum ? (count / maximum) * 100 : 0}%` }} />
-                  </div>
-                </div>
-              );
-            })}
           </div>
-        ) : <p className="py-8 text-center text-sm text-slate-500">No equipment has been scheduled in approved workout plans for this period.</p>}
-      </section>
+
+          {usageError ? (
+            <p role="alert" className="rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">{usageError}</p>
+          ) : usageLoading ? (
+            <p className="py-3 text-center text-xs text-slate-500">Loading equipment usage...</p>
+          ) : usageRows.length ? (
+            <div className="grid gap-2">
+              {usageRows.slice(0, 10).map((row, index) => (
+                <div key={row.equipment} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-white/10">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{index + 1}. {row.equipment}</p>
+                    <p className="text-xs text-slate-500">Used {Number(row.count) || 0} times</p>
+                  </div>
+                  <span className="inline-flex items-center justify-center rounded-full bg-orange-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">
+                    {Number(row.count) || 0}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="py-3 text-center text-xs text-slate-500">No equipment has been scheduled for this period.</p>
+          )}
+        </section>
+      </details>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
         <div className="border-b border-slate-200 p-4 dark:border-white/10 sm:p-5">
-          <label className="flex max-w-md items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 dark:border-white/10">
-            <Search size={17} className="text-slate-400" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search equipment..." className="w-full border-0 bg-transparent text-sm outline-none focus:ring-0 dark:text-white" aria-label="Search equipment inventory" />
-          </label>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <label className="flex max-w-md flex-1 items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 dark:border-white/10">
+              <Search size={17} className="text-slate-400" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search equipment..." className="w-full border-0 bg-transparent text-sm outline-none focus:ring-0 dark:text-white" aria-label="Search equipment inventory" />
+            </label>
+            <label htmlFor="equipment-status-filter" className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+              Filter by status
+              <select
+                id="equipment-status-filter"
+                name="equipment-status-filter"
+                value={selectedStatusFilter || "All"}
+                onChange={(event) => {
+                  const nextStatus = event.target.value === "All" ? "" : event.target.value;
+                  setSearchParams(nextStatus ? { status: nextStatus } : {});
+                }}
+                className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+              >
+                <option value="All">All statuses</option>
+                {STATUSES.map((status) => (
+                  <option key={status} value={status}>{displayEquipmentStatus(status)}</option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
         {loading ? <p className="p-8 text-center text-sm text-slate-500">Loading equipment...</p> : filteredEquipment.length ? (
           <div className="divide-y divide-slate-100 dark:divide-white/5">
@@ -329,14 +390,14 @@ export default function EquipmentInventory() {
                       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Boxes size={18} /></span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-bold text-slate-900 dark:text-white">{item.equipment_name}</span>
-                        <span className="mt-1 block text-xs text-slate-500">Status: {item.status} · Condition: {item.condition}{item.condition_notes ? ` · ${item.condition_notes}` : ""}</span>
+                        <span className="mt-1 block text-xs text-slate-500">Status: {displayEquipmentStatus(item.status)} · Condition: {item.condition}{item.condition_notes ? ` · ${item.condition_notes}` : ""}</span>
                       </span>
                     </button>
                     <div className="flex flex-wrap items-center justify-end gap-3">
                       <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Qty: {item.quantity}</span>
                       <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(item.status)}`}>
-                        {item.status === "Under repair" ? "Under Maintenance" : item.status}
-                        {item.status === "Needs inspection" && <span aria-label="Needs attention" title="Needs inspection" className="ml-1 inline-block h-2 w-2 rounded-full bg-red-500 align-middle" />}
+                        {displayEquipmentStatus(item.status)}
+                        {normalizeEquipmentStatus(item.status) === "Needs inspection" && <span aria-label="Needs attention" title="Needs inspection" className="ml-1 inline-block h-2 w-2 rounded-full bg-red-500 align-middle" />}
                       </span>
                       <button type="button" onClick={() => setEditingEquipment(item)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-orange-500 hover:text-orange-600 dark:border-white/10 dark:text-slate-200" aria-label={`Edit ${item.equipment_name} details`}>
                         <Pencil size={14} /> Details
@@ -351,7 +412,7 @@ export default function EquipmentInventory() {
                       <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-3 dark:border-white/10 dark:bg-[#111]">
                         <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Quantity:</strong> {item.quantity}</p>
                         <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Condition:</strong> {item.condition}</p>
-                        <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Status:</strong> {item.status}</p>
+                        <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Status:</strong> {displayEquipmentStatus(item.status)}</p>
                         {item.condition_notes && <p className="text-sm text-slate-600 dark:text-slate-300 sm:col-span-3"><strong>Condition details:</strong> {item.condition_notes}</p>}
                         <p className="text-xs text-slate-500 sm:col-span-3">Last updated: {item.updated_at ? new Date(item.updated_at).toLocaleString() : "—"}</p>
                       </div>

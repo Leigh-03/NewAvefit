@@ -97,11 +97,13 @@ export default function MemberWorkoutPlanRequestModal({
     program !== defaultProgram && !completedPrograms.has(program) && !usedSwitchPrograms.has(program)
   ));
   const availableCoachRequestPrograms = scheduledPrograms;
+  const hasAvailableSwitchPrograms = availableSwitchPrograms.length > 0;
 
   useEffect(() => {
     if (requestType === "program_change") {
-      if (!availableSwitchPrograms.length) {
-        setSelectedProgram(defaultProgram);
+      if (!hasAvailableSwitchPrograms) {
+        setRequestType("coach_created");
+        setSelectedProgram(defaultProgram || availableCoachRequestPrograms[0] || "");
         return;
       }
       if (!availableSwitchPrograms.includes(selectedProgram)) {
@@ -113,7 +115,7 @@ export default function MemberWorkoutPlanRequestModal({
     if (!availableCoachRequestPrograms.includes(selectedProgram)) {
       setSelectedProgram(defaultProgram || availableCoachRequestPrograms[0] || "");
     }
-  }, [availableCoachRequestPrograms, availableSwitchPrograms, defaultProgram, requestType, selectedProgram]);
+  }, [availableCoachRequestPrograms, availableSwitchPrograms, defaultProgram, hasAvailableSwitchPrograms, requestType, selectedProgram]);
   const isProgramChange = requestType === "program_change";
   const isProgramSwitch = selectedProgram !== defaultProgram;
   const visibleExercises = exercises.filter((exercise) => (
@@ -163,9 +165,13 @@ export default function MemberWorkoutPlanRequestModal({
 
   const handleRequestTypeChange = (nextType) => {
     setRequestType(nextType);
-    handleProgramChange(nextType === "program_change"
-      ? availableSwitchPrograms[0] || defaultProgram
-      : defaultProgram);
+    if (nextType === "program_change") {
+      const nextProgram = availableSwitchPrograms[0] || defaultProgram || availableCoachRequestPrograms[0] || "";
+      handleProgramChange(nextProgram);
+      return;
+    }
+
+    handleProgramChange(defaultProgram || availableCoachRequestPrograms[0] || "");
   };
 
   const handleExerciseSelection = (index, exerciseId) => {
@@ -265,7 +271,7 @@ export default function MemberWorkoutPlanRequestModal({
                     name="workout-request-type"
                     value="program_change"
                     checked={isProgramChange}
-                    disabled={!availableSwitchPrograms.length}
+                    disabled={!hasAvailableSwitchPrograms}
                     onChange={() => handleRequestTypeChange("program_change")}
                   />
                   Would you like to change program?
@@ -275,7 +281,7 @@ export default function MemberWorkoutPlanRequestModal({
                   <select
                     aria-label="Program to switch to"
                     value={isProgramChange ? selectedProgram : ""}
-                    disabled={!isProgramChange || !availableSwitchPrograms.length}
+                    disabled={!isProgramChange || !hasAvailableSwitchPrograms}
                     onChange={(event) => handleProgramChange(event.target.value)}
                     className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-[#171717] dark:text-white"
                   >
@@ -315,7 +321,7 @@ export default function MemberWorkoutPlanRequestModal({
                 {`Program change: ${programLabel(defaultProgram) || "Not set"} → ${programLabel(selectedProgram) || "Select a program"}. Your coach must approve it.`}
               </label>
             )}
-            {!availableSwitchPrograms.length && <p className="mt-2 text-xs text-slate-500">There are no unfinished alternative programs available to change to this week.</p>}
+            {!hasAvailableSwitchPrograms && <p className="mt-2 text-xs text-slate-500">There are no unfinished alternative programs available to change to this week. You can still create a workout plan for your current split.</p>}
             {(injuries.length > 0 || healthConditions.length > 0) && (
               <p className="mt-3 rounded-lg border border-amber-300/50 bg-amber-100/60 p-3 text-xs leading-relaxed text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
                 Injury-related exercises and workouts for members with recorded health conditions use a conservative beginner starting range for coach review. This is not medical advice; consult a healthcare professional about exercise restrictions.

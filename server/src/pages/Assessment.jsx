@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
@@ -17,6 +17,17 @@ export default function Assessment() {
   const [calculated, setCalculated] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setGender(user.gender || "Male");
+    setAge(user.age != null ? String(user.age) : "");
+    setWeight(user.weight != null ? String(user.weight) : "");
+    setHeight(user.height != null ? String(user.height) : "");
+    setCalculated(false);
+    setBmi(null);
+    setError("");
+  }, [user]);
 
   const getBMICategory = (value) => {
     if (value < 18.5) {
