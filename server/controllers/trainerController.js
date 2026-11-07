@@ -75,7 +75,7 @@ const getCoachCompatibleStartTimes = async (client, trainerId, dayOfWeek, member
     const end = Math.min(timeToMinutes(memberSlot.end_time), timeToMinutes(trainerSlot.end_time));
     const firstQuarterHour = Math.ceil(start / 15) * 15;
     for (let candidate = firstQuarterHour; candidate + duration <= end; candidate += 15) {
-     startTimes.add(minutesToTime(candidate));
+      startTimes.add(minutesToTime(candidate));
     }
   }
   return [...startTimes].sort();
@@ -1700,13 +1700,16 @@ const createMyWorkoutPlan = async (req, res) => {
        WHERE wp.user_id = $1
          AND wp.approval_status IN ('Approved', 'Pending')
          AND (
-           (wp.requested_session_date >= DATE_TRUNC('week', $2::date)::date
-             AND wp.requested_session_date < (DATE_TRUNC('week', $2::date) + INTERVAL '7 days')::date)
+           (
+             COALESCE(wp.requested_session_date::text, '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+             AND wp.requested_session_date::date >= DATE_TRUNC('week', $2::date)::date
+             AND wp.requested_session_date::date < (DATE_TRUNC('week', $2::date) + INTERVAL '7 days')::date
+           )
            OR EXISTS (
              SELECT 1 FROM workout_sessions ws
              WHERE ws.workout_plan_id = wp.workout_plan_id
-               AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
-               AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+               AND COALESCE(ws.session_date::text, '') >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
+               AND COALESCE(ws.session_date::text, '') < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')
            )
          )`,
       [userId, sessionDate]
@@ -1727,11 +1730,14 @@ const createMyWorkoutPlan = async (req, res) => {
       WHERE wp.user_id = $1
         AND wp.approval_status IN ('Approved', 'Pending')
         AND (
-          wp.requested_session_date = $2::date
+          (
+            COALESCE(wp.requested_session_date::text, '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            AND wp.requested_session_date::date = $2::date
+          )
           OR EXISTS (
             SELECT 1 FROM workout_sessions ws
             WHERE ws.workout_plan_id = wp.workout_plan_id
-              AND ws.session_date = $2
+              AND COALESCE(ws.session_date::text, '') = $2
           )
         )
       LIMIT 1
@@ -1972,7 +1978,7 @@ const reviewMemberWorkoutPlan = async (req, res) => {
          WHERE wp.user_id = $1
            AND wp.workout_plan_id <> $2
            AND wp.approval_status = 'Approved'
-           AND ws.session_date = $3
+           AND COALESCE(ws.session_date::text, '') = $3
          LIMIT 1`,
         [plan.user_id, planId, sessionDate]
       );
@@ -2427,11 +2433,15 @@ const updateMyWorkoutPlan = async (req, res) => {
         AND wp.approval_status IN ('Approved', 'Pending')
         AND wp.workout_plan_id <> $3
         AND (
-          wp.requested_session_date = $2::date
+          (
+            COALESCE(wp.requested_session_date::text, '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            AND wp.requested_session_date::date = $2::date
+          )
           OR EXISTS (
-            SELECT 1 FROM workout_sessions ws
+            SELECT 1
+            FROM workout_sessions ws
             WHERE ws.workout_plan_id = wp.workout_plan_id
-              AND ws.session_date = $2
+              AND COALESCE(ws.session_date::text, '') = $2
           )
         )
       LIMIT 1
@@ -2454,13 +2464,16 @@ const updateMyWorkoutPlan = async (req, res) => {
          AND wp.workout_plan_id <> $3
          AND wp.approval_status IN ('Approved', 'Pending')
          AND (
-           (wp.requested_session_date >= DATE_TRUNC('week', $2::date)::date
-             AND wp.requested_session_date < (DATE_TRUNC('week', $2::date) + INTERVAL '7 days')::date)
+           (
+             COALESCE(wp.requested_session_date::text, '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+             AND wp.requested_session_date::date >= DATE_TRUNC('week', $2::date)::date
+             AND wp.requested_session_date::date < (DATE_TRUNC('week', $2::date) + INTERVAL '7 days')::date
+           )
            OR EXISTS (
              SELECT 1 FROM workout_sessions ws
              WHERE ws.workout_plan_id = wp.workout_plan_id
-               AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
-               AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')
+               AND COALESCE(ws.session_date::text, '') >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
+               AND COALESCE(ws.session_date::text, '') < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')
            )
          )`,
       [plan.rows[0].user_id, sessionDate, planId]
@@ -2551,6 +2564,12 @@ const updateMyWorkoutPlan = async (req, res) => {
       });
     }
 
+    // FIX: define planName once so it is in scope for both the UPDATE and the email below.
+    const planName = formatWorkoutPlanName(
+      member.rows[0].first_name,
+      plan.rows[0].training_program || "Workout"
+    );
+
     await client.query(
       `UPDATE workout_plans
        SET plan_name = $1, goal = $2,
@@ -2559,7 +2578,7 @@ const updateMyWorkoutPlan = async (req, res) => {
            trainer_change_reason = $5,
            approval_status = CASE WHEN approval_status = 'Rejected' THEN 'Pending' ELSE approval_status END
        WHERE workout_plan_id = $6`,
-      [formatWorkoutPlanName(member.rows[0].first_name, plan.rows[0].training_program || "Workout"), plan.rows[0].goal, scheduledStartTime, sessionDuration, changeReason, planId]
+      [planName, plan.rows[0].goal, scheduledStartTime, sessionDuration, changeReason, planId]
     );
     await client.query("DELETE FROM workout_sessions WHERE workout_plan_id = $1", [planId]);
     for (const session of sessions) {
@@ -3121,8 +3140,8 @@ const assignSessionAsTrainer = async (req, res) => {
        FROM workout_plans wp
        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
        WHERE wp.user_id = $1
-         AND ws.session_date >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
-         AND ws.session_date < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')`,
+         AND COALESCE(ws.session_date::text, '') >= TO_CHAR(DATE_TRUNC('week', $2::date), 'YYYY-MM-DD')
+         AND COALESCE(ws.session_date::text, '') < TO_CHAR(DATE_TRUNC('week', $2::date) + INTERVAL '7 days', 'YYYY-MM-DD')`,
       [user_id, session_date]
     );
     if (Number(weeklyPlanCount.rows[0].count) >= workoutFrequency) {
@@ -3141,7 +3160,7 @@ const assignSessionAsTrainer = async (req, res) => {
       FROM workout_plans wp
       JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
       WHERE wp.user_id = $1
-        AND ws.session_date = $2
+        AND COALESCE(ws.session_date::text, '') = $2
       GROUP BY wp.workout_plan_id
       LIMIT 1
       `,

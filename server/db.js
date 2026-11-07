@@ -127,7 +127,7 @@ const expireMemberships = async (userId = null) => {
       console.error(`Membership notification failed for user ${member.user_id}:`, error.message);
       await pool.query(
         `UPDATE users SET ${marker} = NULL
-         WHERE user_id = $1 AND ${marker} = $2::date`,
+         WHERE user_id = $1 AND COALESCE(${marker}::text, '') = COALESCE($2::text, '')`,
         [member.user_id, dateText]
       );
       continue;

@@ -34,17 +34,23 @@ const emptyForm = {
 };
 
 function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, deleteError }) {
+  const normalizedEquipmentStatus = equipment ? normalizeEquipmentStatus(equipment.status) : "";
+  const fallbackStatus = normalizedEquipmentStatus && CONDITIONS_BY_STATUS[normalizedEquipmentStatus]
+    ? normalizedEquipmentStatus
+    : "Needs inspection";
   const [form, setForm] = useState(() => equipment ? {
     equipment_name: equipment.equipment_name,
     quantity: String(equipment.quantity),
-    condition: CONDITIONS_BY_STATUS[equipment.status]?.includes(equipment.condition)
+    condition: CONDITIONS_BY_STATUS[fallbackStatus]?.includes(equipment.condition)
       ? equipment.condition
-      : CONDITIONS_BY_STATUS[equipment.status]?.[0] || "Not assessed",
+      : CONDITIONS_BY_STATUS[fallbackStatus]?.[0] || "Not assessed",
     condition_notes: equipment.condition_notes || "",
-    status: equipment.status,
+    status: fallbackStatus,
   } : emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const availableConditions = CONDITIONS_BY_STATUS[form.status] || ["Not assessed"];
 
   const submit = async (event) => {
     event.preventDefault();
@@ -110,7 +116,8 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
             Status *
             <select value={form.status} onChange={(event) => {
               const status = event.target.value;
-              setForm({ ...form, status, condition: CONDITIONS_BY_STATUS[status][0] });
+              const nextConditions = CONDITIONS_BY_STATUS[status] || ["Not assessed"];
+              setForm({ ...form, status, condition: nextConditions[0] || "Not assessed" });
             }} className={fieldClass}>
               {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
             </select>
@@ -119,11 +126,11 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
             Condition *
             <select
               value={form.condition}
-              disabled={CONDITIONS_BY_STATUS[form.status].length === 1}
+              disabled={availableConditions.length === 1}
               onChange={(event) => setForm({ ...form, condition: event.target.value })}
               className={fieldClass}
             >
-              {CONDITIONS_BY_STATUS[form.status].map((condition) => <option key={condition} value={condition}>{condition}</option>)}
+              {availableConditions.map((condition) => <option key={condition} value={condition}>{condition}</option>)}
             </select>
           </label>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">

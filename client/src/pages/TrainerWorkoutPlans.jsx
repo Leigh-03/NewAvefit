@@ -1101,8 +1101,8 @@ export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
                   const pendingApproval = plan.approval_status === "Pending" && plan.deletion_request_status !== "Pending";
                   const rejectedPlan = plan.approval_status === "Rejected";
                   const planLocked = Boolean(pendingApproval || rejectedPlan || plan.deletion_request_status === "Pending" || plan.has_started || pastWorkoutDate);
-                  const canEditPlan = Boolean(
-                    plan.user_id &&
+                  const requestNeedsPlanCreation = String(plan.request_type || "").toLowerCase() === "coach_created" && Number(plan.exercise_count || 0) === 0;
+                  const canEditPlan = Boolean(                    plan.user_id &&
                     plan.deletion_request_status !== "Pending" &&
                     !plan.has_started &&
                     (pendingApproval || rejectedPlan || !pastWorkoutDate)
@@ -1123,18 +1123,34 @@ export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
                       {Number(plan.completed_count) || 0} / {Number(plan.exercise_count) || 0} completed
                     </td>
                     <td className="px-5 py-4">
-                      <div className="flex flex-col items-start gap-1">
-                        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusColors[plan.activity_status] || statusColors.Active}`}>
-                          {plan.activity_status || "Active"}
-                        </span>
+                      <div className="flex min-w-[130px] flex-col items-start gap-1.5">
+                        {plan.approval_status === "Pending" && plan.deletion_request_status !== "Pending" && (
+                          <span className="inline-flex min-h-9 items-center justify-center rounded-full border border-amber-300/80 bg-amber-500/15 px-3 py-1.5 text-[11px] font-black leading-tight text-amber-200 shadow-sm">
+                            Pending<br />Approval
+                          </span>
+                        )}
                         {plan.deletion_request_status === "Pending" && (
-                          <span className="inline-flex rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">Deletion requested</span>
+                          <span className="inline-flex rounded-full border border-red-300 bg-red-50 px-3 py-1 text-[11px] font-semibold text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">Rejected</span>
                         )}
                         {plan.is_program_switch && (
-                          <span className="inline-flex rounded-full border border-orange-300 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300">Program switch: {plan.training_program}</span>
+                          <span className="inline-flex rounded-full border border-orange-300 bg-orange-50 px-3 py-1 text-[11px] font-semibold text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300">Program switch: {plan.training_program}</span>
                         )}
-                        {plan.request_type === "coach_created" && (
-                          <span className="inline-flex rounded-full border border-violet-300 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">Coach workout requested</span>
+                        {plan.request_type === "coach_created" && plan.deletion_request_status !== "Pending" && (
+                          <span className="inline-flex items-center justify-center rounded-full border border-violet-300/70 bg-violet-500/10 px-2.5 py-1.5 text-[11px] font-semibold leading-tight text-violet-200">
+                            Coach
+                            <br />workout
+                            <br />requested
+                          </span>
+                        )}
+                        {plan.approval_status === "Rejected" && plan.deletion_request_status !== "Pending" && (
+                          <span className="inline-flex items-center justify-center rounded-full border border-red-300 bg-red-500/15 px-3 py-1.5 text-[11px] font-bold leading-tight text-red-200">
+                            Rejected
+                          </span>
+                        )}
+                        {!plan.approval_status && !plan.deletion_request_status && (
+                          <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${statusColors[plan.activity_status] || statusColors.Active}`}>
+                            {plan.activity_status || "Active"}
+                          </span>
                         )}
                       </div>
                     </td>
@@ -1172,7 +1188,23 @@ export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
                             </button>
                           </>
                         )}
-                        {canEditPlan && (
+                        {requestNeedsPlanCreation && (
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(plan)}
+                            aria-label={`Create workout plan for ${plan.plan_name}`}
+                            title="Create workout plan"
+                            className="inline-flex h-14 w-[92px] flex-col items-center justify-center gap-0.5 rounded-xl bg-orange-500 px-2 py-1.5 text-center text-[11px] font-bold leading-[1.1] text-white shadow-sm transition hover:bg-orange-600"
+                          >
+                            <span className="flex items-center justify-center gap-1 whitespace-nowrap">
+                              <Plus size={11} />
+                              <span>Create</span>
+                            </span>
+                            <span className="whitespace-nowrap">Workout</span>
+                            <span className="whitespace-nowrap">Plan</span>
+                          </button>
+                        )}
+                        {canEditPlan && !pendingApproval && !requestNeedsPlanCreation && (
                           <button
                             type="button"
                             onClick={() => handleEdit(plan)}
