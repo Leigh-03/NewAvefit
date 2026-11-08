@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ArrowLeft, CalendarDays, Scale, Target, TrendingUp } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import userApi from "../userApi";
 
@@ -9,24 +9,21 @@ const isValidWeight = (value) => {
 };
 
 export default function WeightPredictionPage() {
-  const [form, setForm] = useState({ current_weight: "", goal_weight: "" });
+  const [profile, setProfile] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [targetWeight, setTargetWeight] = useState("");
   const [loading, setLoading] = useState(true);
-  const [calculating, setCalculating] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState(null);
 
   useEffect(() => {
     let active = true;
     Promise.all([userApi.get("/profile"), userApi.get("/progress")])
       .then(([profileResponse, progressResponse]) => {
         if (!active) return;
-        const profile = profileResponse.data.data || {};
-        const logs = progressResponse.data.data || [];
-        const latestWeight = [...logs].reverse().find((log) => log.weight != null)?.weight;
-        setForm({
-          current_weight: latestWeight ?? profile.weight ?? "",
-          goal_weight: profile.target_weight ?? "",
-        });
+        const nextProfile = profileResponse.data.data || {};
+        setProfile(nextProfile);
+        setLogs(Array.isArray(progressResponse.data.data) ? progressResponse.data.data : []);
+        setTargetWeight(nextProfile.target_weight == null ? "" : String(nextProfile.target_weight));
       })
       .catch((loadError) => {
         console.error(loadError);
@@ -36,39 +33,71 @@ export default function WeightPredictionPage() {
     return () => { active = false; };
   }, []);
 
-  const calculatePrediction = async (event) => {
-    event.preventDefault();
-    setError("");
-    if (!isValidWeight(form.current_weight)) {
-      setError("Current weight must be between 20 kg and 200 kg.");
-      return;
-    }
-    if (!isValidWeight(form.goal_weight)) {
-      setError("Goal weight must be between 20 kg and 200 kg.");
-      return;
-    }
+  useEffect(() => {
+    let active = true;
+    const refreshProgress = async () => {
+      try {
+        const response = await userApi.get("/progress");
+        if (active) setLogs(Array.isArray(response.data.data) ? response.data.data : []);
+      } catch (refreshError) {
+        console.error(refreshError);
+        if (active) setError(refreshError.response?.data?.message || "Unable to refresh your current weight.");
+      }
+    };
+    const intervalId = window.setInterval(refreshProgress, 15000);
+    window.addEventListener("focus", refreshProgress);
+    document.addEventListener("visibilitychange", refreshProgress);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshProgress);
+      document.removeEventListener("visibilitychange", refreshProgress);
+    };
+  }, []);
 
-    setCalculating(true);
-    try {
-      const response = await userApi.post("/progress/predict", {
-        current_weight: Number(form.current_weight),
-        goal_weight: Number(form.goal_weight),
-      });
-      setResult(response.data.data);
-    } catch (requestError) {
-      console.error(requestError);
-      setError(requestError.response?.data?.message || "Unable to calculate your prediction. Please try again.");
-    } finally {
-      setCalculating(false);
-    }
+  const forecast = useMemo(() => {
+    const weightedLogs = logs
+      .filter((entry) => entry.log_date && Number(entry.weight) > 0)
+      .sort((left, right) => new Date(left.log_date) - new Date(right.log_date));
+    const latestWeight = weightedLogs.length
+      ? Number(weightedLogs[weightedLogs.length - 1].weight)
+      : Number(profile?.weight) || null;
+    const firstWeight = weightedLogs.length ? Number(weightedLogs[0].weight) : latestWeight;
+    const firstDate = weightedLogs[0]?.log_date;
+    const lastDate = weightedLogs[weightedLogs.length - 1]?.log_date;
+    const elapsedWeeks = firstDate && lastDate
+      ? (new Date(lastDate) - new Date(firstDate)) / (7 * 24 * 60 * 60 * 1000)
+      : 0;
+    const fitnessGoal = String(profile?.fitness_goal || "").toLowerCase();
+    const lossGoal = fitnessGoal.includes("loss");
+    const gainGoal = fitnessGoal.includes("gain");
+    const observedRate = elapsedWeeks >= 1 && weightedLogs.length >= 2
+      ? (lossGoal
+        ? (firstWeight - latestWeight) / elapsedWeeks
+        : (latestWeight - firstWeight) / elapsedWeeks)
+      : 0;
+    const fallbackRate = lossGoal ? 0.4 : gainGoal ? 0.2 : 0.25;
+    const weeklyRate = Math.min(1, Math.max(0.1, observedRate > 0 ? observedRate : fallbackRate));
+    const target = Number(targetWeight);
+    const hasTarget = Number.isFinite(target) && target >= 20 && target <= 200;
+    const directionMatches = lossGoal ? latestWeight > target : gainGoal ? latestWeight < target : true;
+    const difference = latestWeight && hasTarget && directionMatches ? Math.abs(latestWeight - target) : 0;
+    const weeksFor = (rate) => difference <= 0 ? 0 : Math.max(1, Math.ceil(difference / rate));
+    return {
+      latestWeight,
+      weeklyRate,
+      observedRate,
+      target: hasTarget && directionMatches ? target : null,
+      consistentWeeks: weeksFor(weeklyRate),
+      irregularWeeks: weeksFor(weeklyRate * 0.45),
+    };
+  }, [logs, profile, targetWeight]);
+
+  const getTargetDate = (weeks) => {
+    const date = new Date();
+    date.setDate(date.getDate() + weeks * 7);
+    return new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(date);
   };
-
-  const resultItems = result ? [
-    { label: "Estimated time", value: `${result.weeks_needed} ${result.weeks_needed === 1 ? "week" : "weeks"}`, icon: CalendarDays },
-    { label: "Estimated target date", value: result.target_date, icon: Target },
-    { label: "Goal weight", value: `${result.goal_weight} kg`, icon: Scale },
-    { label: "Predicted BMI", value: result.predicted_bmi || "Not available", icon: TrendingUp },
-  ] : [];
 
   return (
     <main className="min-h-screen bg-[#fffaf5] px-4 py-6 text-slate-900 dark:bg-[#080808] dark:text-white sm:px-6 sm:py-8">
@@ -84,9 +113,9 @@ export default function WeightPredictionPage() {
             </span>
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Weight goals</p>
-              <h1 className="mt-1 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl">Weight prediction</h1>
+              <h1 className="mt-1 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl">Goal forecast scenarios</h1>
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                Estimate how long it may take to reach your goal weight.
+                See estimated timelines based on your recent progress and target weight.
               </p>
             </div>
           </div>
@@ -96,63 +125,70 @@ export default function WeightPredictionPage() {
           {loading ? (
             <p className="py-8 text-center text-sm text-slate-500">Loading your weight details...</p>
           ) : (
-            <form onSubmit={calculatePrediction} className="space-y-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                {[
-                  { label: "Current weight (kg)", key: "current_weight" },
-                  { label: "Goal weight (kg)", key: "goal_weight" },
-                ].map((field) => (
-                  <label key={field.key} htmlFor={`prediction-${field.key}`} className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
-                    {field.label}
-                    <input
-                      id={`prediction-${field.key}`}
-                      type="number"
-                      min="20"
-                      max="200"
-                      step="0.1"
-                      value={form[field.key]}
-                      onChange={(event) => {
-                        setForm((current) => ({ ...current, [field.key]: event.target.value }));
-                        setResult(null);
-                      }}
-                      required
-                      aria-invalid={Boolean(form[field.key] && !isValidWeight(form[field.key]))}
-                      className="mt-1.5 min-h-12 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 dark:border-slate-700 dark:bg-white/5 dark:text-white"
-                    />
-                    <span className="mt-1 block text-xs font-normal text-slate-500">Enter a value from 20 to 200 kg.</span>
-                  </label>
-                ))}
-              </div>
-
-              {error && <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</p>}
-
-              <button type="submit" disabled={calculating || loading} className="min-h-12 w-full rounded-xl bg-orange-600 px-5 text-sm font-bold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
-                {calculating ? "Calculating..." : "Calculate prediction"}
-              </button>
-            </form>
+            <div className="space-y-4">
+              <label htmlFor="prediction-current-weight" className="block max-w-md text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Your Current Weight (kg)
+                <input
+                  id="prediction-current-weight"
+                  type="text"
+                  value={forecast.latestWeight == null ? "" : forecast.latestWeight.toFixed(2)}
+                  placeholder="No weight logged yet"
+                  readOnly
+                  className="mt-1.5 min-h-12 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 text-sm text-slate-900 outline-none dark:border-slate-700 dark:bg-white/[0.03] dark:text-white"
+                />
+              </label>
+              <label htmlFor="prediction-target-weight" className="block max-w-md text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Target weight (kg)
+                <input
+                  id="prediction-target-weight"
+                  type="number"
+                  min="20"
+                  max="200"
+                  step="1"
+                  value={targetWeight}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === "" || Number.isInteger(Number(value))) {
+                      setTargetWeight(value);
+                      setError("");
+                    }
+                  }}
+                  aria-invalid={Boolean(targetWeight && !isValidWeight(targetWeight))}
+                  className="mt-1.5 min-h-12 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 dark:border-slate-700 dark:bg-white/5 dark:text-white"
+                />
+              </label>
+              {targetWeight && !isValidWeight(targetWeight) && (
+                <p role="alert" className="text-sm text-red-600 dark:text-red-300">Target weight must be between 20 kg and 200 kg.</p>
+              )}
+              {forecast.observedRate > 0
+                ? <p className="text-sm text-slate-600 dark:text-slate-300">Estimated progress rate: {forecast.weeklyRate.toFixed(2)} kg/week based on your records.</p>
+                : <p className="text-sm text-slate-600 dark:text-slate-300">Estimated progress rate: {forecast.weeklyRate.toFixed(2)} kg/week planning assumption until more records are available.</p>}
+              {!forecast.latestWeight && <p className="text-sm text-amber-700 dark:text-amber-300">Add a current weight in your profile to estimate your goal timeline.</p>}
+              {forecast.latestWeight && !forecast.target && (
+                <p className="text-sm text-slate-500">Enter a target in the correct direction for your goal to view an estimate.</p>
+              )}
+              {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
+              {forecast.latestWeight && forecast.target && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    { label: "Consistent progress", weeks: forecast.consistentWeeks, note: "Assumes your recent or baseline pace continues." },
+                    { label: "Irregular updates", weeks: forecast.irregularWeeks, note: "Assumes approximately 45% of that pace." },
+                  ].map((scenario) => (
+                    <article key={scenario.label} className="rounded-2xl bg-slate-50 p-5 dark:bg-white/[0.04]">
+                      <p className="font-bold text-slate-900 dark:text-white">{scenario.label}</p>
+                      <p className="mt-2 text-2xl font-black text-orange-600 dark:text-orange-400">{scenario.weeks} {scenario.weeks === 1 ? "week" : "weeks"}</p>
+                      <p className="mt-1 text-xs text-slate-500">Estimated target date: {getTargetDate(scenario.weeks)}</p>
+                      <p className="mt-2 text-xs text-slate-500">{scenario.note}</p>
+                    </article>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs leading-relaxed text-slate-500">
+                These are rough, non-medical estimates. Weight changes vary; the estimate recalculates from actual logged progress. Ask your coach or healthcare professional about a safe target and pace.
+              </p>
+            </div>
           )}
         </section>
-
-        {result && (
-          <section aria-label="Weight prediction results" className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-7">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Your estimated results</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              From {result.current_weight} kg to {result.goal_weight} kg
-            </p>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              {resultItems.map(({ label, value, icon: Icon }) => (
-                <div key={label} className="rounded-xl bg-slate-50 p-4 text-center dark:bg-white/5">
-                  <Icon size={20} className="mx-auto mb-2 text-orange-500" />
-                  <p className="font-bold text-slate-900 dark:text-white">{value}</p>
-                  <p className="mt-1 text-xs text-slate-500">{label}</p>
-                </div>
-              ))}
-            </div>
-            <p className="mt-4 text-xs leading-relaxed text-slate-500">
-              This is an estimate based on the app&apos;s current prediction model, not a medical assessment. Actual results vary; consult your coach or a health professional about a safe target and pace.
-            </p>
-          </section>
-        )}
       </div>
     </main>
   );

@@ -11,7 +11,7 @@ import {
   Filler,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
-import { Activity, CalendarDays, HeartPulse, Scale, Target, TrendingUp } from "lucide-react";
+import { Activity, CalendarDays, HeartPulse, Scale, TrendingUp } from "lucide-react";
 import userApi from "../userApi";
 import TrainingPulse from "../components/TrainingPulse";
 
@@ -32,15 +32,10 @@ const formatDate = (date) => {
   return new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(new Date(date));
 };
 
-const estimateWeeks = (weightDifference, weeklyRate) => (
-  weightDifference <= 0 ? 0 : Math.max(1, Math.ceil(weightDifference / weeklyRate))
-);
-
 export default function UserAnalytics() {
   const [profile, setProfile] = useState(null);
   const [logs, setLogs] = useState([]);
   const [sessions, setSessions] = useState([]);
-  const [targetWeight, setTargetWeight] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -53,7 +48,6 @@ export default function UserAnalytics() {
         setProfile(nextProfile);
         setLogs(Array.isArray(progressResponse.data.data) ? progressResponse.data.data : []);
         setSessions(Array.isArray(workoutResponse.data.data) ? workoutResponse.data.data : []);
-        setTargetWeight(nextProfile.target_weight == null ? "" : String(nextProfile.target_weight));
       })
       .catch((requestError) => {
         console.error(requestError);
@@ -79,26 +73,6 @@ export default function UserAnalytics() {
     const baselineBmi = baselineWeight && heightMeters > 0
       ? baselineWeight / (heightMeters ** 2)
       : Number(datedLogs[0]?.bmi) || null;
-    const firstDate = weightedLogs[0]?.log_date;
-    const lastDate = weightedLogs[weightedLogs.length - 1]?.log_date;
-    const elapsedWeeks = firstDate && lastDate
-      ? (new Date(lastDate) - new Date(firstDate)) / (7 * 24 * 60 * 60 * 1000)
-      : 0;
-    const lossGoal = String(profile?.fitness_goal || "").toLowerCase().includes("loss");
-    const gainGoal = String(profile?.fitness_goal || "").toLowerCase().includes("gain");
-    const observedRate = elapsedWeeks >= 1 && weightedLogs.length >= 2
-      ? (lossGoal
-        ? (Number(weightedLogs[0].weight) - latestWeight) / elapsedWeeks
-        : (latestWeight - Number(weightedLogs[0].weight)) / elapsedWeeks)
-      : 0;
-    const fallbackRate = lossGoal ? 0.4 : gainGoal ? 0.2 : 0.25;
-    const weeklyRate = Math.min(1, Math.max(0.1, observedRate > 0 ? observedRate : fallbackRate));
-    const parsedTarget = Number(targetWeight);
-    const hasTarget = Number.isFinite(parsedTarget) && parsedTarget >= 20 && parsedTarget <= 200;
-    const directionMatches = lossGoal ? latestWeight > parsedTarget : gainGoal ? latestWeight < parsedTarget : true;
-    const difference = latestWeight && hasTarget && directionMatches ? Math.abs(latestWeight - parsedTarget) : 0;
-    const consistentWeeks = estimateWeeks(difference, weeklyRate);
-    const irregularWeeks = estimateWeeks(difference, weeklyRate * 0.45);
     const completed = sessions.filter((session) => session.completed).length;
     const workoutCompletionRate = sessions.length ? Math.round((completed / sessions.length) * 100) : null;
 
@@ -109,15 +83,10 @@ export default function UserAnalytics() {
       baselineWeight,
       currentBmi,
       baselineBmi,
-      weeklyRate,
-      observedRate,
-      consistentWeeks,
-      irregularWeeks,
       workoutCompletionRate,
       completedWorkouts: completed,
-      target: hasTarget && directionMatches ? parsedTarget : null,
     };
-  }, [logs, profile, sessions, targetWeight]);
+  }, [logs, profile, sessions]);
 
   const injuries = parseList(profile?.injuries);
   const healthConditions = parseList(profile?.health_conditions);
@@ -223,42 +192,6 @@ export default function UserAnalytics() {
             {metrics.baselineBmi != null && metrics.currentBmi != null && (
               <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">BMI comparison: baseline {metrics.baselineBmi.toFixed(1)} → current {metrics.currentBmi.toFixed(1)}.</p>
             )}
-          </section>
-
-          <section aria-labelledby="forecast-title" className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-            <div className="flex items-center gap-2"><Target size={20} className="text-orange-500" /><h2 id="forecast-title" className="text-lg font-bold">Goal forecast scenarios</h2></div>
-            <label className="mt-4 block max-w-xs text-sm font-semibold text-slate-700 dark:text-slate-200">
-              Target weight (kg)
-              <input type="number" min="20" max="200" step="1" value={targetWeight} onChange={(event) => {
-                const value = event.target.value;
-                if (value === "" || Number.isInteger(Number(value))) setTargetWeight(value);
-              }} className="mt-1.5 min-h-11 w-full rounded-xl border border-slate-300 bg-slate-50 px-3 text-sm text-slate-900 outline-none focus:border-orange-500 dark:border-slate-700 dark:bg-white/5 dark:text-white" />
-            </label>
-            {metrics.target == null ? <p className="mt-3 text-sm text-slate-500">Enter a target in the correct direction for your goal to view an estimate.</p> : (
-              <>
-                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                  Estimated progress rate: {metrics.observedRate > 0 ? `${metrics.weeklyRate.toFixed(2)} kg/week based on your records` : `${metrics.weeklyRate.toFixed(2)} kg/week planning assumption until more records are available`}.
-                </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {[
-                    { label: "Consistent progress", weeks: metrics.consistentWeeks, note: "Assumes your recent or baseline pace continues." },
-                    { label: "Irregular updates", weeks: metrics.irregularWeeks, note: "Assumes approximately 45% of that pace." },
-                  ].map((scenario) => {
-                    const targetDate = new Date();
-                    targetDate.setDate(targetDate.getDate() + scenario.weeks * 7);
-                    return (
-                      <article key={scenario.label} className="rounded-xl bg-slate-50 p-4 dark:bg-white/[0.04]">
-                        <p className="font-bold">{scenario.label}</p>
-                        <p className="mt-2 text-xl font-black text-orange-600 dark:text-orange-400">{scenario.weeks} {scenario.weeks === 1 ? "week" : "weeks"}</p>
-                        <p className="text-xs text-slate-500">Estimated target date: {formatDate(targetDate)}</p>
-                        <p className="mt-2 text-xs text-slate-500">{scenario.note}</p>
-                      </article>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-            <p className="mt-4 text-xs leading-relaxed text-slate-500">These are rough, non-medical estimates. Weight changes vary; the estimate recalculates from actual logged progress. Ask your coach or healthcare professional about a safe target and pace.</p>
           </section>
 
           <section aria-labelledby="recommendations-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">

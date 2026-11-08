@@ -11,7 +11,7 @@ import { getProgramForDate } from "../utils/trainingPrograms";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const WORKOUT_STATUS_STYLES = {
-  Active: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300",
+  Active: "border-green-200 bg-green-50 text-green-700 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300",
   Complete: "border-green-200 bg-green-50 text-green-700 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300",
   Incomplete: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300",
   Absent: "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300",
@@ -61,7 +61,9 @@ export default function WorkoutPage() {
   const [workoutDays, setWorkoutDays] = useState([]); // days the user picked as their availability
   const [workoutFrequency, setWorkoutFrequency] = useState(0);
   const [fitnessGoal, setFitnessGoal] = useState("");
+  const [experienceLevel, setExperienceLevel] = useState("Beginner");
   const [targetWeight, setTargetWeight] = useState(null);
+  const [membershipStartDate, setMembershipStartDate] = useState("");
   const [membershipEndDate, setMembershipEndDate] = useState("");
   const [injuries, setInjuries] = useState([]);
   const [healthConditions, setHealthConditions] = useState([]);
@@ -106,7 +108,9 @@ export default function WorkoutPage() {
       setWorkoutDays(days);
       setWorkoutFrequency(Number(profile.workout_days_per_week) || 0);
       setFitnessGoal(profile.fitness_goal || "");
+      setExperienceLevel(profile.activity_level || "Beginner");
       setTargetWeight(profile.target_weight ?? null);
+      setMembershipStartDate(profile.membership_start_date ? String(profile.membership_start_date).slice(0, 10) : "");
       setMembershipEndDate(profile.membership_end_date ? String(profile.membership_end_date).slice(0, 10) : "");
       setInjuries(Array.isArray(profile.injuries) ? profile.injuries.filter((injury) => injury && injury !== "None") : []);
       setHealthConditions(Array.isArray(profile.health_conditions) ? profile.health_conditions.filter((condition) => condition && condition !== "None") : []);
@@ -255,9 +259,14 @@ export default function WorkoutPage() {
   ));
   const activeDayIsNotFuture = activeDay <= today;
   const membershipExpired = membershipEndDate && membershipEndDate < today;
+  const activeDayOutsideMembership = Boolean(
+    (membershipStartDate && activeDay < membershipStartDate)
+    || (membershipEndDate && activeDay > membershipEndDate)
+  );
   const canRequestWorkout = hasAssignedCoach
     && !activeDayIsNotFuture
     && !membershipExpired
+    && !activeDayOutsideMembership
     && isWorkoutDay(activeDay)
     && Boolean(activeDayProgram)
     && daySessions.length === 0
@@ -278,6 +287,7 @@ export default function WorkoutPage() {
           initialDate={activeDay}
           initialGoal={fitnessGoal}
           initialTargetWeight={targetWeight}
+          experienceLevel={experienceLevel}
           workoutDays={Array.isArray(workoutDays) ? workoutDays : []}
           workoutFrequency={workoutFrequency}
           injuries={injuries}
@@ -315,7 +325,7 @@ export default function WorkoutPage() {
           </div>
 
           <div className="mx-5 mt-5 sm:mx-8">
-            <TrainingPulse audience="user" />
+            <TrainingPulse audience="user" date={activeDay} />
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]">
@@ -471,25 +481,25 @@ export default function WorkoutPage() {
             </p>
           </section>
         ))}
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:px-5">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Training plan</p>
-            <h2 className="mt-0.5 font-bold text-slate-900 dark:text-white">{activeDayLabel}&apos;s workouts</h2>
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Training plan</p>
+            <h2 className="mt-1 text-lg font-black tracking-tight text-slate-900 dark:text-white">{activeDayLabel}&apos;s workouts</h2>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {activeDayIsNotFuture
-              ? <span role="status" className="text-sm font-medium text-slate-500">Workout requests are only available for future dates. Choose a day after today.</span>
-              : membershipExpired
+            {!activeDayIsNotFuture && (membershipExpired
                 ? <span role="status" className="text-sm font-medium text-amber-700 dark:text-amber-300">Your membership has ended. Renew it to request a workout plan.</span>
+                : activeDayOutsideMembership
+                  ? <span role="status" className="text-sm font-medium text-amber-700 dark:text-amber-300">Choose a date within your membership period to request a workout plan.</span>
                 : !hasAssignedCoach
                   ? <span className="text-xs text-slate-500">Select a coach before requesting a workout.</span>
                   : hasRequestedOrApprovedPlanForActiveDay || daySessions.length > 0
-                    ? <span role="status" className="text-sm font-medium text-slate-500">A workout is already scheduled or awaiting approval for this date.</span>
+                    ? <span role="status" className="text-sm font-medium text-slate-500">{dayWorkoutStatus === "Active" ? "A workout is already scheduled" : "A workout is already scheduled or awaiting approval for this date."}</span>
                     : !isWorkoutDay(activeDay)
                       ? <span role="status" className="text-sm font-medium text-slate-500">Choose one of your preferred workout days to request a workout.</span>
                       : !activeDayProgram
                         ? <span role="status" className="text-sm font-medium text-slate-500">Set your preferred workout days in your profile before requesting a workout.</span>
-                      : null}
+                      : null)}
             {canRequestWorkout && (
               <button type="button" onClick={() => { setPlanRequestNotice(""); setShowPlanRequest(true); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700">
                 <Plus size={16} /> Create workout plan
@@ -533,33 +543,35 @@ export default function WorkoutPage() {
         ) : (
           daySessions.map((session) => (
             <div key={session.session_id}
-              className={`rounded-2xl border bg-white p-4 shadow-sm dark:bg-[#111] ${Number(session.workout_plan_id) === requestedPlanId ? "border-2 border-orange-500 ring-2 ring-orange-500/20" : session.completed ? "border-green-500/30" : "border-orange-100 dark:border-white/5"}`}>
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <p className={`font-semibold ${session.completed ? "text-slate-500" : "text-slate-900 dark:text-white"}`}>
-                    {session.exercise_name || "Workout"}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-0.5">{session.muscle_group || ""}</p>
-                  {session.training_program && (
-                    <span className="mt-1 inline-flex rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">
-                      {session.is_program_switch
-                        ? `Switched program: ${session.previous_training_program || "scheduled"} → ${session.training_program}`
-                        : `${session.training_program} program`}
-                    </span>
-                  )}
-                  {session.scheduled_duration_minutes && (
-                    <p className="mt-1 text-xs font-medium text-orange-600 dark:text-orange-300">
-                      {session.scheduled_duration_minutes}-minute session
+              className={`group relative overflow-hidden rounded-2xl border bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md dark:bg-[#111] sm:p-5 ${Number(session.workout_plan_id) === requestedPlanId ? "border-orange-400 ring-2 ring-orange-500/20" : session.completed ? "border-green-500/30" : "border-slate-200 dark:border-white/10"}`}>
+              <div className={`absolute inset-y-0 left-0 w-1 ${session.completed ? "bg-green-500" : "bg-gradient-to-b from-orange-400 to-orange-600"}`} />
+              <div className="flex flex-col gap-4 pl-1 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <span className={`mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl ${session.completed ? "bg-green-50 text-green-600 dark:bg-green-500/10 dark:text-green-400" : "bg-orange-50 text-orange-600 dark:bg-orange-500/10 dark:text-orange-400"}`}>
+                    <Dumbbell size={18} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-base font-bold tracking-tight ${session.completed ? "text-slate-500" : "text-slate-900 dark:text-white"}`}>
+                      {session.exercise_name || "Workout"}
                     </p>
-                  )}
-                  <div className="flex gap-3 mt-2 text-xs text-slate-500">
-                    {session.sets && <span>💪 {session.sets} sets</span>}
-                    {session.reps && <span>🔁 {session.reps} reps</span>}
-                    {session.duration_minutes && <span>⏱ {session.duration_minutes} min</span>}
+                    {session.muscle_group && <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{session.muscle_group}</p>}
+                    {session.training_program && (
+                      <span className="mt-2 inline-flex max-w-full items-center rounded-full border border-orange-200/80 bg-orange-50 px-2.5 py-1 text-[11px] font-semibold leading-snug text-orange-800 dark:border-orange-400/20 dark:bg-orange-500/10 dark:text-orange-300">
+                        {session.is_program_switch
+                          ? `Switched program: ${session.previous_training_program || "scheduled"} → ${session.training_program}`
+                          : `${session.training_program} program`}
+                      </span>
+                    )}
+                    {(session.sets || session.reps) && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {session.sets && <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:bg-white/[0.06] dark:text-slate-300">💪 {session.sets} sets</span>}
+                        {session.reps && <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:bg-white/[0.06] dark:text-slate-300">🔁 {session.reps} reps</span>}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${WORKOUT_STATUS_STYLES[session.completed ? "Complete" : dayWorkoutStatus]}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
+                  <span className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1.5 text-[11px] font-bold ${WORKOUT_STATUS_STYLES[session.completed ? "Complete" : dayWorkoutStatus]}`}>
                     {session.completed ? "Complete" : dayWorkoutStatus}
                   </span>
                   {session.deletion_request_status === "Pending" ? (

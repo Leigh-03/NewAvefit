@@ -1,7 +1,7 @@
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const pool = require("../db");
-const { normalizeEmail } = require("../utils/security");
+const { normalizeEmail, validatePhilippinePhone } = require("../utils/security");
 const {
   hashVerificationCode,
 } = require("../utils/emailVerification");
@@ -69,6 +69,13 @@ const buildProfileChangePayload = (current, body) => {
       value = String(value).trim();
     } else if (field === "email") {
       value = normalizeEmail(value);
+    } else if (field === "phone") {
+      value = String(value).trim();
+      if (!validatePhilippinePhone(value)) {
+        const error = new Error("Phone number must start with 09 and contain exactly 11 digits.");
+        error.status = 400;
+        throw error;
+      }
     } else if (field === "preferred_days") {
       if (!Array.isArray(value) || value.some((day) => !DAY_NAMES.has(String(day).toLowerCase()))) {
         const error = new Error("Choose valid preferred workout days.");

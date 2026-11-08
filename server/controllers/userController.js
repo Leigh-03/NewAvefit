@@ -9,7 +9,7 @@ const {
   validateEmail,
   validatePassword,
   validateName,
-  validatePhone,
+  validatePhilippinePhone,
   validateAge,
   validateProfileImage,
   validateGoogleProfileImageUrl,
@@ -1413,11 +1413,11 @@ const updateProfile = async (req, res) => {
 
     if (
       phone !== undefined &&
-      !validatePhone(phone)
+      !validatePhilippinePhone(phone)
     ) {
       return res.status(400).json({
         success: false,
-        message: "Please provide a valid phone number.",
+        message: "Phone number must start with 09 and contain exactly 11 digits.",
       });
     }
 
@@ -1868,6 +1868,56 @@ const updateProfile = async (req, res) => {
   }
 };
 
+const updateHealthAssessment = async (req, res) => {
+  const { injuries, health_conditions } = req.body;
+  const allowedInjuries = new Set(["Knee", "Back", "Shoulder", "Hip", "Ankle", "Wrist", "Neck", "None"]);
+  const allowedConditions = new Set(["Heart Condition", "Diabetes", "Asthma", "High Blood Pressure", "Arthritis", "None"]);
+  const hasInjuries = Object.prototype.hasOwnProperty.call(req.body, "injuries");
+  const hasHealthConditions = Object.prototype.hasOwnProperty.call(req.body, "health_conditions");
+  if (!hasInjuries && !hasHealthConditions) {
+    return res.status(400).json({ success: false, message: "Choose an injury or health condition update to save." });
+  }
+  const normalizeSelection = (value, allowed, label) => {
+    if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== "string" || !allowed.has(item))) {
+      throw Object.assign(new Error(`Choose valid ${label}.`), { status: 400 });
+    }
+    const selection = [...new Set(value)];
+    if (selection.includes("None") && selection.length > 1) {
+      return ["None"];
+    }
+    return selection;
+  };
+
+  let normalizedInjuries = null;
+  let normalizedConditions = null;
+  try {
+    if (hasInjuries) normalizedInjuries = normalizeSelection(injuries, allowedInjuries, "injury or pain areas");
+    if (hasHealthConditions) normalizedConditions = normalizeSelection(health_conditions, allowedConditions, "health conditions");
+  } catch (error) {
+    return res.status(error.status || 400).json({ success: false, message: error.message });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE users
+       SET injuries = CASE WHEN $1::boolean THEN $2::text ELSE injuries END,
+           health_conditions = CASE WHEN $3::boolean THEN $4::text ELSE health_conditions END,
+           updated_at = NOW()
+       WHERE user_id = $5
+         AND LOWER(COALESCE(account_status, 'pending')) = 'active'
+       RETURNING injuries, health_conditions`,
+      [hasInjuries, normalizedInjuries, hasHealthConditions, normalizedConditions, req.user.user_id]
+    );
+    if (!result.rowCount) {
+      return res.status(403).json({ success: false, message: "An active member account is required to update health information." });
+    }
+    return res.json({ success: true, data: result.rows[0], message: "Health information saved." });
+  } catch (error) {
+    console.error("updateHealthAssessment error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to save health information." });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -1881,6 +1931,7 @@ module.exports = {
   getVerificationStatus,
   getProfile,
   updateProfile,
+  updateHealthAssessment,
   updatePhoto,
   getUserChangeRequests,
 };

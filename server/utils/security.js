@@ -33,6 +33,10 @@ function validatePhone(value) {
   return digits.length >= 10 && digits.length <= 15;
 }
 
+function validatePhilippinePhone(value) {
+  return typeof value === "string" && /^09\d{9}$/.test(value);
+}
+
 function validateAge(value) {
   const age = typeof value === 'number' ? value : Number(value);
   return Number.isInteger(age) && age >= 12 && age <= 90;
@@ -122,7 +126,7 @@ function publicUser(row) {
 }
 
 module.exports = {
-  normalizeEmail, validateEmail, validatePassword, validateName, validatePhone,
+  normalizeEmail, validateEmail, validatePassword, validateName, validatePhone, validatePhilippinePhone,
   validateAge, validateRegistration, validateImageDataUrl,
   validateGoogleProfileImageUrl, validateProfileImage, publicUser,
 };

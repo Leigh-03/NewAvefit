@@ -16,6 +16,44 @@ const getBmiCategory = (value) => {
   return { label: "Obese", style: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" };
 };
 const normalizeFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
+const isValidPhoneNumber = (phone) => /^09\d{9}$/.test(phone);
+const normalizePhoneNumber = (phone) => {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits.startsWith("09") ? digits.slice(0, 11) : `09${digits.slice(-9)}`;
+};
+const injuryOptions = ["Knee", "Back", "Shoulder", "Hip", "Ankle", "Wrist", "Neck", "None"];
+const healthConditionOptions = ["Heart Condition", "Diabetes", "Asthma", "High Blood Pressure", "Arthritis", "None"];
+
+const toSelectionList = (value) => {
+  let items = value;
+  if (typeof items === "string") {
+    const trimmed = items.trim();
+    if (!trimmed) return ["None"];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) items = parsed;
+    } catch {
+      items = trimmed.replace(/^\{|\}$/g, "").split(",");
+    }
+  }
+  if (!Array.isArray(items)) return ["None"];
+  const selected = [...new Set(items
+    .map((item) => String(item).trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean))];
+  if (!selected.length) return ["None"];
+  return selected.includes("None") && selected.length > 1
+    ? selected.filter((item) => item !== "None")
+    : selected;
+};
+
+const toggleHealthSelection = (selection, value) => {
+  if (value === "None") return ["None"];
+  const selected = selection.filter((item) => item !== "None");
+  const updated = selected.includes(value)
+    ? selected.filter((item) => item !== value)
+    : [...selected, value];
+  return updated.length ? updated : ["None"];
+};
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -26,6 +64,7 @@ export default function ProfilePage() {
     first_name: "", last_name: "", email: "", phone: "",
     gender: "", birth_date: "", height: "", weight: "",
     fitness_goal: "", activity_level: "",
+    injuries: ["None"], health_conditions: ["None"],
   });
   const [photo, setPhoto] = useState(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -33,6 +72,8 @@ export default function ProfilePage() {
   const [savingBmi, setSavingBmi] = useState(false);
   const [bmiLogFeedback, setBmiLogFeedback] = useState({ message: "", isError: false });
   const [saving, setSaving] = useState(false);
+  const [savingHealth, setSavingHealth] = useState(false);
+  const [healthSaveMessage, setHealthSaveMessage] = useState("");
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -55,13 +96,15 @@ export default function ProfilePage() {
           first_name: d.first_name || "",
           last_name: d.last_name || "",
           email: d.email || "",
-          phone: d.phone || "",
+          phone: normalizePhoneNumber(d.phone),
           gender: d.gender || "",
           birth_date: d.birth_date ? d.birth_date.split("T")[0] : "",
           height: d.height || "",
           weight: d.weight || "",
           fitness_goal: normalizeFitnessGoal(d.fitness_goal || ""),
           activity_level: d.activity_level || "",
+          injuries: toSelectionList(d.injuries),
+          health_conditions: toSelectionList(d.health_conditions),
         };
         originalFormRef.current = profileForm;
         setForm(profileForm);
@@ -126,6 +169,52 @@ export default function ProfilePage() {
     });
   };
 
+  const handleHealthSelection = async (key, value) => {
+    if (savingHealth) return;
+    const previousInjuries = form.injuries;
+    const previousConditions = form.health_conditions;
+    const nextInjuries = key === "injuries"
+      ? toggleHealthSelection(previousInjuries, value)
+      : previousInjuries;
+    const nextConditions = key === "health_conditions"
+      ? toggleHealthSelection(previousConditions, value)
+      : previousConditions;
+    const updatedSelection = key === "injuries" ? nextInjuries : nextConditions;
+    setForm((current) => ({
+      ...current,
+      injuries: nextInjuries,
+      health_conditions: nextConditions,
+    }));
+    setSavingHealth(true);
+    setHealthSaveMessage("Saving...");
+
+    try {
+      const response = await userApi.put("/profile/health", { [key]: updatedSelection });
+      setForm((current) => ({
+        ...current,
+        injuries: key === "injuries" ? toSelectionList(response.data.data.injuries) : current.injuries,
+        health_conditions: key === "health_conditions" ? toSelectionList(response.data.data.health_conditions) : current.health_conditions,
+      }));
+      if (originalFormRef.current) {
+        originalFormRef.current = {
+          ...originalFormRef.current,
+          [key]: updatedSelection,
+        };
+      }
+      setHealthSaveMessage("Saved");
+    } catch (error) {
+      console.error("Health assessment save failed:", error);
+      setForm((current) => ({
+        ...current,
+        injuries: previousInjuries,
+        health_conditions: previousConditions,
+      }));
+      setHealthSaveMessage(error.response?.data?.message || "Unable to save health information. Please try again.");
+    } finally {
+      setSavingHealth(false);
+    }
+  };
+
   const handleCalculateBmi = async () => {
     const heightCm = Number(form.height);
     const weightKg = Number(form.weight);
@@ -154,10 +243,16 @@ export default function ProfilePage() {
   };
 
   const handleSave = async () => {
+    if (!isValidPhoneNumber(form.phone)) {
+      setMsg("Phone number must start with 09 and contain exactly 11 digits.");
+      return;
+    }
     setSaving(true);
     setMsg("");
     try {
-      const profileChanges = { ...form };
+      const profileChanges = Object.fromEntries(
+        Object.entries(form).filter(([key]) => !["injuries", "health_conditions"].includes(key))
+      );
       const res = await userApi.put("/profile", profileChanges);
       if (res.data.request) {
         setChangeRequests((current) => [res.data.request, ...current]);
@@ -342,9 +437,6 @@ export default function ProfilePage() {
                 ? `${user.membership_months === 12 ? "1 year" : `${user.membership_months} ${user.membership_months === 1 ? "month" : "months"}`} · ${user.membership_start_date ? String(user.membership_start_date).slice(0, 10) : "Start date pending"} to ${user.membership_end_date ? String(user.membership_end_date).slice(0, 10) : "End date pending"}`
                 : "No membership period has been set."}
             </p>
-            <button type="button" onClick={() => navigate("/user/membership")} className="mt-2 text-xs font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400">
-              Request a membership term change
-            </button>
           </div>
         </section>
 
@@ -374,7 +466,6 @@ export default function ProfilePage() {
 
           {[
             { label: "Email Address", key: "email", type: "email", span: true },
-            { label: "Phone Number", key: "phone", type: "text", span: true },
           ].map((f) => (
             <div key={f.key} className={f.span ? "" : "grid grid-cols-2 gap-3"}>
               <div>
@@ -388,17 +479,31 @@ export default function ProfilePage() {
           ))}
 
           <div>
-            <p className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">Gender</p>
-            <div className="flex rounded-xl bg-slate-50 p-1 dark:bg-white/5" role="group" aria-label="Gender">
-              {["Male", "Female"].map((g) => (
-                <button key={g} type="button" aria-pressed={form.gender === g} onClick={() => handleChange("gender", g)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${
-                    form.gender === g ? "bg-orange-500 text-white shadow-sm" : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
-                  }`}>
-                  {g}
-                </button>
-              ))}
+            <label htmlFor="profile-phone" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Phone Number</label>
+            <div className="flex min-h-12 w-full items-stretch overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm transition hover:border-slate-300 focus-within:border-orange-500 focus-within:ring-4 focus-within:ring-orange-500/15 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:focus-within:border-orange-500">
+              <span aria-hidden="true" className="flex select-none items-center border-r border-slate-200 bg-slate-100 px-4 text-sm font-semibold tracking-wide text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200">09</span>
+              <input
+                id="profile-phone"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
+                maxLength={9}
+                pattern="[0-9]{9}"
+                required
+                aria-invalid={Boolean(form.phone.slice(2)) && !isValidPhoneNumber(form.phone)}
+                value={form.phone.startsWith("09") ? form.phone.slice(2) : ""}
+                onChange={(event) => handleChange("phone", `09${event.target.value.replace(/\D/g, "").slice(0, 9)}`)}
+                placeholder="000 000 000"
+                className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm font-medium tracking-wide text-slate-900 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-slate-500"
+              />
             </div>
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">Gender</p>
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+              {form.gender || "Not set"}
+            </p>
           </div>
         </section>
 
@@ -472,6 +577,51 @@ export default function ProfilePage() {
                 </select>
                 <p className="mt-1 text-xs text-slate-500">Experience-level changes are sent to the gym administrator for approval.</p>
           </div>
+        </section>
+
+        <section className="space-y-5 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
+          <div>
+            <h2 className="font-bold text-slate-900 dark:text-white">Injury &amp; health conditions</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Changes save immediately and are shared with your coach and gym administrator.
+            </p>
+          </div>
+          {[
+            { label: "Injury or pain areas", key: "injuries", options: injuryOptions },
+            { label: "Health conditions", key: "health_conditions", options: healthConditionOptions },
+          ].map(({ label, key, options }) => (
+            <fieldset key={key}>
+              <legend className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</legend>
+              <div className="flex flex-wrap gap-2">
+                {options.map((option) => {
+                  const selected = form[key].includes(option);
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-pressed={selected}
+                      disabled={savingHealth}
+                      onClick={() => handleHealthSelection(key, option)}
+                      className={`rounded-xl border px-3.5 py-2 text-sm font-medium transition disabled:cursor-wait disabled:opacity-60 ${
+                        selected
+                          ? "border-orange-500 bg-orange-500/10 text-orange-700 dark:text-orange-300"
+                          : "border-slate-200 text-slate-600 hover:border-orange-300 dark:border-white/10 dark:text-slate-300 dark:hover:border-orange-500/50"
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          ))}
+          {healthSaveMessage && (
+            <p role={healthSaveMessage === "Saved" ? "status" : "alert"} className={`text-xs ${
+              healthSaveMessage === "Saved" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-300"
+            }`}>
+              {savingHealth ? "Saving..." : healthSaveMessage}
+            </p>
+          )}
         </section>
 
         <section className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">

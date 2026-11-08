@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const daysPerWeekOptions = ["1", "2", "3", "4", "5", "6", "7"];
-const durationOptions = ["30 mins", "45 mins", "60 mins", "90 mins"];
 const preferredDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 function Chip({ label, selected, onClick }) {
@@ -22,9 +21,8 @@ function Chip({ label, selected, onClick }) {
 
 export default function Availability() {
   const navigate = useNavigate();
-  // Single-select: only one "days per week" value and one "duration" value can be chosen.
+  // Single-select: only one "days per week" value can be chosen.
   const [daysPerWeek, setDaysPerWeek] = useState("3");
-  const [duration, setDuration] = useState("45 mins");
   // Multi-select: which specific days of the week the user will actually train.
   const [days, setDays] = useState([]);
   const [error, setError] = useState("");
@@ -61,7 +59,7 @@ export default function Availability() {
 
     sessionStorage.setItem(
       "avefit_availability",
-      JSON.stringify({ daysPerWeek, duration, days })
+      JSON.stringify({ daysPerWeek, days })
     );
 
     navigate("/user/coach");
@@ -92,17 +90,6 @@ export default function Availability() {
               {daysPerWeekOptions.map((d) => (
                 <Chip key={d} label={`${d} day${d !== "1" ? "s" : ""}`} selected={daysPerWeek === d}
                   onClick={() => handleDaysPerWeekChange(d)} />
-              ))}
-            </div>
-          </div>
-
-          {/* Workout Duration — single select */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-slate-300 mb-3">Workout Duration</label>
-            <div className="flex flex-wrap gap-2">
-              {durationOptions.map((d) => (
-                <Chip key={d} label={d} selected={duration === d}
-                  onClick={() => setDuration(d)} />
               ))}
             </div>
           </div>

@@ -5,7 +5,7 @@ const {
   register, login, googleLogin, forgotPassword, resetPassword,
   requestPasswordChangeCode, changePasswordWithCode,
   verifyEmail, resendVerification, getVerificationStatus,
-  getProfile, updateProfile, updatePhoto, getUserChangeRequests,
+  getProfile, updateProfile, updateHealthAssessment, updatePhoto, getUserChangeRequests,
 } = require("../controllers/userController");
 const { submitMembershipTermRequest, getMembershipTermRequest } = require("../controllers/memberController");
 const { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
@@ -39,6 +39,7 @@ router.get("/profile/change-requests", verifyUser, getUserChangeRequests);
 router.get("/profile/membership-request", verifyUser, getMembershipTermRequest);
 router.post("/profile/membership-request", verifyUser, submitMembershipTermRequest);
 router.put("/profile", verifyUser, updateProfile);
+router.put("/profile/health", verifyUser, updateHealthAssessment);
 router.put("/profile/photo", verifyUser, updatePhoto);
 router.get("/profile/availability", verifyUser, workoutAvailabilityController.getAvailability);
 router.put("/profile/availability", verifyUser, workoutAvailabilityController.saveAvailability);

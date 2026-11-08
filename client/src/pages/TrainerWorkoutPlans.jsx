@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Check, ChevronDown, ClipboardList, Eye, LockKeyhole, Pencil, Plus, Search, Trash2, X, XCircle } from "lucide-react";
+import { CalendarDays, ChevronDown, ClipboardList, Dumbbell, Eye, LockKeyhole, Pencil, Plus, Search, Target, Trash2, UserRound, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 import { getWorkoutGoalRules } from "../utils/workoutGoalRules";
 import {
@@ -10,38 +10,76 @@ import {
 } from "../utils/trainingPrograms";
 
 const formatFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
+const formatPlanName = (firstName, lastName, trainingProgram) => {
+  const memberName = `${firstName || ""} ${lastName || ""}`.trim() || "Member";
+  return `${memberName}'s ${trainingProgram || "Workout"} day Workout Routine`;
+};
+const getPlanDisplayName = (plan) => (
+  /^Program:/i.test(String(plan.plan_name || ""))
+    ? formatPlanName(plan.member_name, "", plan.training_program || String(plan.plan_name).replace(/^Program:\s*/i, ""))
+    : plan.plan_name
+);
 
-function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApproveDeletion, onRejectDeletion }) {
+function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onApproveDeletion, onRejectDeletion }) {
   const sessions = Array.isArray(plan.sessions) ? plan.sessions : [];
+  const isInitialCoachRequest = plan.request_type === "coach_created" && sessions.length === 0;
+  const hasPendingApproval = plan.approval_status === "Pending" && !isInitialCoachRequest;
   const injuries = toList(plan.injuries).filter((item) => item !== "None");
   const healthConditions = toList(plan.health_conditions).filter((item) => item !== "None");
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
       <section role="dialog" aria-modal="true" aria-labelledby="trainer-plan-details-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]" onClick={(event) => event.stopPropagation()}>
-        <header className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 dark:border-slate-800 sm:p-6">
-          <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Workout plan details</p>
-            <h2 id="trainer-plan-details-title" className="mt-1 text-xl font-black text-slate-900 dark:text-white">{plan.plan_name}</h2>
-            <p className="mt-1 text-sm text-slate-500">{plan.member_name || "Member"} · {plan.goal || "Goal not set"}</p>
-            <p className="mt-1 text-xs font-medium text-slate-500">Goal weight: {plan.target_weight == null ? "Not set" : `${plan.target_weight} kg`}</p>
-            {plan.training_program && (
-              <p className="mt-1 text-xs font-semibold text-orange-600 dark:text-orange-400">
-                {plan.is_program_switch
-                  ? `Program switch: ${plan.previous_training_program || "scheduled"} → ${plan.training_program}`
-                  : `Program: ${plan.training_program}`}
-              </p>
-            )}
-            {plan.request_type === "coach_created" && (
-              <p className="mt-1 text-xs font-semibold text-violet-600 dark:text-violet-400">Member asked you to create this workout.</p>
-            )}
-            <p className="mt-1 text-xs text-slate-500">
-              {plan.scheduled_date ? new Date(`${String(plan.scheduled_date).slice(0, 10)}T00:00:00`).toLocaleDateString() : "Workout date not set"}
-              {plan.deletion_request_status === "Pending"
-                ? " · Deletion request awaiting your review"
-                : plan.approval_status === "Pending" ? " · Awaiting your approval" : ""}
-            </p>
+        <header className="relative overflow-hidden border-b border-slate-200 bg-gradient-to-br from-orange-50 via-white to-white p-5 dark:border-slate-800 dark:from-orange-500/[0.08] dark:via-[#111] dark:to-[#111] sm:p-6">
+          <div aria-hidden="true" className="pointer-events-none absolute -right-10 -top-14 h-40 w-40 rounded-full bg-orange-400/10 blur-3xl" />
+          <div className="relative flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-black uppercase tracking-[0.18em] text-orange-600 dark:text-orange-400">Workout plan details</p>
+              <h2 id="trainer-plan-details-title" className="mt-1.5 break-words text-2xl font-black leading-tight text-slate-900 dark:text-white">{getPlanDisplayName(plan)}</h2>
+              <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-600 dark:text-slate-300">
+                <span className="inline-flex items-center gap-1.5 font-semibold"><UserRound size={14} className="text-slate-400" />{plan.member_name || "Member"}</span>
+                <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
+                <span>{formatFitnessGoal(plan.fitness_goal) || "Goal not set"}</span>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-white/[0.04] dark:text-slate-200">
+                  <Target size={14} className="text-orange-500" />
+                  Target weight: {plan.target_weight == null ? "Not set" : `${plan.target_weight} kg`}
+                </span>
+                {plan.training_program && (
+                  <span className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-100/70 px-2.5 py-1 text-xs font-semibold text-orange-800 dark:border-orange-500/25 dark:bg-orange-500/10 dark:text-orange-300">
+                    <Dumbbell size={14} />
+                    {plan.is_program_switch
+                      ? `${plan.previous_training_program || "Scheduled"} → ${plan.training_program}`
+                      : `Program: ${plan.training_program}`}
+                  </span>
+                )}
+              </div>
+              {(plan.request_type === "coach_created" || plan.scheduled_date || hasPendingApproval || plan.deletion_request_status === "Pending") && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {plan.request_type === "coach_created" && (
+                    <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-100/70 px-2.5 py-1 text-[11px] font-semibold text-violet-800 dark:border-violet-500/25 dark:bg-violet-500/10 dark:text-violet-300">
+                      {sessions.length ? "Member submitted for review" : "Coach workout requested"}
+                    </span>
+                  )}
+                  {plan.scheduled_date && (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <CalendarDays size={14} />
+                      {new Date(`${String(plan.scheduled_date).slice(0, 10)}T00:00:00`).toLocaleDateString()}
+                    </span>
+                  )}
+                  {(hasPendingApproval || plan.deletion_request_status === "Pending") && (
+                    <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+                      {plan.deletion_request_status === "Pending" ? "Deletion request awaiting review" : "Awaiting approval"}
+                    </span>
+                  )}
+                </div>
+              )}
+              {!plan.scheduled_date && <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Workout date not set</p>}
+            </div>
+            <button type="button" onClick={onClose} aria-label="Close plan details" className="relative shrink-0 rounded-xl border border-slate-200 bg-white/80 p-2 text-slate-500 shadow-sm transition hover:border-orange-300 hover:bg-orange-50 hover:text-slate-800 dark:border-slate-700 dark:bg-white/[0.04] dark:hover:border-orange-500/40 dark:hover:bg-orange-500/10 dark:hover:text-white">
+              <X size={19} />
+            </button>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close plan details" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10"><X size={20} /></button>
         </header>
         <div className="space-y-3 p-5 sm:p-6">
           {plan.deletion_request_status === "Pending" && (
@@ -81,17 +119,16 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApprov
           )) : (
             <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-white/5">
               {plan.request_type === "coach_created"
-                ? "No exercises yet. Edit this request to create the workout; add at least 3 exercises before approval."
+                ? "No exercises yet. Create the workout by adding at least 3 exercises."
                 : "No exercises are attached to this plan."}
             </p>
           )}
         </div>
-        <footer className="flex flex-wrap justify-between gap-3 border-t border-slate-200 p-4 dark:border-slate-800">
+        <footer className="flex flex-wrap justify-end gap-3 border-t border-slate-200 p-4 dark:border-slate-800">
           <div className="flex flex-wrap gap-2">
-            {plan.approval_status === "Pending" && plan.deletion_request_status !== "Pending" && (
+            {hasPendingApproval && (
               <>
               <button type="button" onClick={onEdit} className="rounded-lg border border-orange-500/30 px-3 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-500/10 dark:text-orange-400">Edit request</button>
-              <button type="button" onClick={onReject} className="rounded-lg border border-red-500/30 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Reject</button>
               <button type="button" onClick={onApprove} disabled={sessions.length < 3} title={sessions.length < 3 ? "Create at least 3 exercises before approval." : undefined} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50">Approve</button>
               </>
             )}
@@ -102,7 +139,6 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onReject, onApprov
               </>
             )}
           </div>
-          <button type="button" onClick={onClose} className="min-h-10 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">Close</button>
         </footer>
       </section>
     </div>
@@ -116,6 +152,36 @@ const statusColors = {
   Incomplete: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300",
   Complete: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   Absent: "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300",
+};
+
+const statusFilterOptions = [
+  "Pending Approval",
+  "Active",
+  "Complete",
+  "Incomplete",
+  "Absent",
+  "Coach workout requested",
+];
+const isInitialCoachWorkoutRequest = (plan) => (
+  String(plan.request_type || "").toLowerCase() === "coach_created" &&
+  Number(plan.exercise_count || 0) === 0
+);
+const getPlanDisplayStatuses = (plan) => {
+  const statuses = [];
+  if (
+    plan.approval_status === "Pending" &&
+    plan.deletion_request_status !== "Pending" &&
+    !isInitialCoachWorkoutRequest(plan)
+  ) {
+    statuses.push("Pending Approval");
+  }
+  if (plan.request_type === "coach_created" && plan.deletion_request_status !== "Pending") {
+    statuses.push(Number(plan.exercise_count) > 0 ? "Active" : "Coach workout requested");
+  }
+  if (!plan.approval_status && !plan.deletion_request_status) {
+    statuses.push(plan.activity_status || "Active");
+  }
+  return statuses;
 };
 
 const INTENSITY_LABELS = ["", "Light", "Easy", "Moderate", "Intense", "Very Intense"];
@@ -165,13 +231,6 @@ const toList = (value) => {
   return value.replace(/^\{|\}$/g, "").split(",").map((item) => item.trim()).filter(Boolean);
 };
 
-const formatPreferredWorkoutTime = (value) => ({
-  Morning: "Morning (6:00 AM – 12:00 PM)",
-  Afternoon: "Afternoon (12:00 PM – 5:00 PM)",
-  Evening: "Evening (5:00 PM – 10:00 PM)",
-  Flexible: "Flexible (6:00 AM – 10:00 PM)",
-}[value] || "Not specified");
-
 const calculateBmi = (member) => {
   const weight = Number(member.latest_weight ?? member.weight);
   const height = Number(member.height);
@@ -203,29 +262,36 @@ const isPreferredWorkoutDate = (date, preferredDays) => {
 };
 
 function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
-  const [form, setForm] = useState(() => plan ? {
-    user_id: String(plan.user_id),
-    plan_name: plan.plan_name || "",
-    goal: plan.goal || "",
-    session_date: plan.scheduled_date || "",
-    sessions: (plan.sessions || []).map((session) => ({
+  const [form, setForm] = useState(() => {
+    const userId = plan ? String(plan.user_id) : "";
+    const member = members.find((item) => String(item.user_id) === userId);
+    const doseRules = getWorkoutGoalRules(member?.fitness_goal);
+    const sessions = (plan?.sessions || []).map((session) => ({
       exercise_id: String(session.exercise_id || ""),
       sets: String(session.sets ?? ""),
       reps: String(session.reps ?? ""),
-    })),
-  } : {
-    user_id: "",
-    plan_name: "",
-    goal: "",
-    session_date: "",
-    sessions: [],
+    }));
+    while (sessions.length < 3) {
+      sessions.push({
+        exercise_id: "",
+        sets: String(doseRules.sets[0]),
+        reps: String(doseRules.reps[0]),
+      });
+    }
+
+    return {
+      user_id: userId,
+      plan_name: plan?.plan_name || "",
+      goal: plan?.fitness_goal || plan?.goal || "",
+      session_date: plan?.scheduled_date || "",
+      sessions,
+    };
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
-  const [changeReason, setChangeReason] = useState("");
   const selectedMember = members.find((member) => String(member.user_id) === form.user_id);
-  const isInitialCoachRequest = plan?.request_type === "coach_created" && !(plan.sessions?.length);
+  const isMemberRequestedWorkout = plan?.request_type === "coach_created";
   const doseRules = getWorkoutGoalRules(selectedMember?.fitness_goal);
   const keepingExistingDate = plan
     && String(plan.scheduled_date || "").slice(0, 10) === form.session_date;
@@ -236,6 +302,12 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
     && String(item.workout_plan_id) !== String(plan?.workout_plan_id)
   );
   const availableDays = toList(selectedMember?.preferred_days);
+  const memberAvailabilityDays = toList(selectedMember?.weekly_availability)
+    .map((availability) => typeof availability === "string" ? availability : availability.day_of_week)
+    .filter(Boolean);
+  const preferredWorkoutDays = memberAvailabilityDays.length
+    ? [...new Set(memberAvailabilityDays)]
+    : availableDays;
   const trainingProgram = plan?.training_program || getProgramForDate(form.session_date, availableDays);
   const preferredDifficulty = EXERCISE_DIFFICULTIES.find(
     (difficulty) => difficultyRank(difficulty) === allowedDifficultyRank(selectedMember?.activity_level)
@@ -291,17 +363,11 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
 
   const handleSubmit = async () => {
     const planName = trainingProgram && selectedMember
-      ? `${selectedMember.first_name}'s ${trainingProgram} day Workout Routine`
+      ? formatPlanName(selectedMember.first_name, selectedMember.last_name, trainingProgram)
       : "";
     const nextErrors = {};
     if (!form.user_id) nextErrors.user_id = "Choose a member.";
     if (!form.session_date) nextErrors.session_date = "Workout date is required.";
-    if (plan && !isInitialCoachRequest && changeReason.trim().length < 5) {
-      nextErrors.change_reason = "Explain why you're changing this plan (at least 5 characters).";
-    }
-    if (plan && changeReason.trim().length > 1000) {
-      nextErrors.change_reason = "The change reason can't exceed 1000 characters.";
-    }
     if (existingPlanOnDate) {
       nextErrors.session_date = "A workout plan already exists for this member on that date. Edit the existing plan instead.";
     }
@@ -323,7 +389,6 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
       const payload = {
         ...form,
         plan_name: planName,
-        change_reason: changeReason.trim(),
         training_program: trainingProgram,
         sessions: form.sessions.map(({ exercise_id, sets, reps }) => ({
           exercise_id,
@@ -404,7 +469,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
         <div className="space-y-4 p-6">
           <div>
             <label htmlFor="trainer-plan-member" className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
-              Member *
+              Member
             </label>
             <div className="relative">
               <select
@@ -422,16 +487,23 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                   setForm({
                     ...form,
                     user_id: event.target.value,
-                    goal: member?.target_weight != null
-                      ? `Target weight: ${member.target_weight} kg`
-                      : goal,
+                    goal,
                     session_date: sessionDate,
-                    plan_name: form.plan_name || (member ? `${member.first_name}'s Workout Routine` : ""),
+                    plan_name: form.plan_name || (member ? formatPlanName(member.first_name, member.last_name, trainingProgram) : ""),
                     sessions: form.sessions.map((session) => {
                       const exercise = exercises.find((item) => String(item.exercise_id) === String(session.exercise_id));
-                      return !exercise || isExerciseAllowedForMember(exercise, memberDifficulty)
-                        ? session
-                        : { ...session, exercise_id: "" };
+                      if (exercise && !isExerciseAllowedForMember(exercise, memberDifficulty)) {
+                        return { ...session, exercise_id: "" };
+                      }
+                      if (!session.exercise_id && member) {
+                        const memberDoseRules = getWorkoutGoalRules(member.fitness_goal);
+                        return {
+                          ...session,
+                          sets: String(memberDoseRules.sets[0]),
+                          reps: String(memberDoseRules.reps[0]),
+                        };
+                      }
+                      return session;
                     }),
                   });
                   setFieldErrors((current) => ({
@@ -444,7 +516,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                 }}
                 required
                 aria-invalid={Boolean(fieldErrors.user_id)}
-                className="trainer-field w-full appearance-none rounded-lg px-4 py-2.5 pr-10 text-sm"
+                className="trainer-field w-full appearance-none rounded-lg px-4 py-2.5 text-sm"
               >
                 <option value="">Select a roster member...</option>
                 {members.map((member) => (
@@ -453,11 +525,6 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                   </option>
                 ))}
               </select>
-              <ChevronDown
-                aria-hidden="true"
-                size={18}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500"
-              />
             </div>
             {renderFieldError("user_id")}
           </div>
@@ -471,14 +538,14 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
           </div>
           <div>
             <label htmlFor="trainer-plan-goal" className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
-              Member goal weight (read-only)
+              Member fitness goal (read-only)
             </label>
             <input
               id="trainer-plan-goal"
               type="text"
-              value={form.goal || (selectedMember?.target_weight != null ? `Target weight: ${selectedMember.target_weight} kg` : formatFitnessGoal(selectedMember?.fitness_goal) || "")}
+              value={formatFitnessGoal(selectedMember?.fitness_goal) || ""}
               readOnly
-              placeholder="Select a member to view their goal weight"
+              placeholder="Select a member to view their fitness goal"
               className={inputClass("goal")}
             />
           </div>
@@ -492,8 +559,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                   ["BMI", calculateBmi(selectedMember)],
                   ["Activity", selectedMember.activity_level || "Not specified"],
                   ["Height / weight", `${selectedMember.height ? `${selectedMember.height} cm` : "Height not set"} · ${selectedMember.latest_weight || selectedMember.weight ? `${selectedMember.latest_weight || selectedMember.weight} kg` : "Weight not set"}`],
-                  ["Preferred days", toList(selectedMember.preferred_days).join(", ") || "Not specified"],
-                  ["Preferred time", formatPreferredWorkoutTime(selectedMember.preferred_workout_time)],
+                  ["Preferred Workout Day", preferredWorkoutDays.join(", ") || "Not specified"],
                   ["Weekly frequency", selectedMember.workout_days_per_week ? `${selectedMember.workout_days_per_week} days` : "Not specified"],
                   ["Preferred intensity", INTENSITY_LABELS[Number(selectedMember.intensity)] || "Not specified"],
                 ].map(([label, value]) => (
@@ -519,28 +585,6 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                   </div>
                 </div>
               )}
-              {plan && (
-                <div>
-                  <label htmlFor="trainer-plan-change-reason" className="mb-1 block text-sm font-medium text-slate-600 dark:text-slate-300">
-                    {isInitialCoachRequest ? "Notes for the member (optional)" : "Reason for changing this plan *"}
-                  </label>
-                  <textarea
-                    id="trainer-plan-change-reason"
-                    required={!isInitialCoachRequest}
-                    rows={3}
-                    maxLength={1000}
-                    value={changeReason}
-                    onChange={(event) => {
-                      setChangeReason(event.target.value);
-                      setFieldError("change_reason", "");
-                    }}
-                    aria-invalid={Boolean(fieldErrors.change_reason)}
-                    placeholder="Explain the changes so the member understands why the plan was adjusted."
-                    className={inputClass("change_reason")}
-                  />
-                  {renderFieldError("change_reason")}
-                </div>
-              )}
             </div>
           )}
           <div>
@@ -553,6 +597,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
               required
               min={manilaDateString()}
               value={form.session_date}
+              disabled={isMemberRequestedWorkout}
               onChange={(event) => {
                 const sessionDate = event.target.value;
                 if (!isPreferredWorkoutDate(sessionDate, availableDays)) {
@@ -571,6 +616,9 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
               className={inputClass("session_date")}
             />
             {renderFieldError("session_date")}
+            {isMemberRequestedWorkout && (
+              <p className="mt-1 text-xs text-slate-500">This date was requested by the member and cannot be changed.</p>
+            )}
             {existingPlanOnDate && (
               <p role="alert" className="mt-1 text-xs text-red-500">
                 This member already has a plan on this date. Edit that plan instead.
@@ -718,6 +766,7 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                   </div>
                   <button
                     type="button"
+                    disabled={form.sessions.length <= 3}
                     onClick={() => {
                       setForm({ ...form, sessions: form.sessions.filter((_, itemIndex) => itemIndex !== index) });
                       setFieldErrors((current) => Object.fromEntries(
@@ -725,7 +774,8 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
                       ));
                     }}
                     aria-label={`Remove exercise ${index + 1}`}
-                    className="col-span-2 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-500/10 sm:col-span-1"
+                    title={form.sessions.length <= 3 ? "At least 3 exercises are required." : "Remove exercise"}
+                    className="col-span-2 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent sm:col-span-1"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -883,9 +933,10 @@ export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
   const query = search.trim().toLowerCase();
   const filtered = plans.filter((plan) =>
     plan.plan_name?.toLowerCase().includes(query) ||
+    plan.fitness_goal?.toLowerCase().includes(query) ||
     plan.goal?.toLowerCase().includes(query) ||
     plan.member_name?.toLowerCase().includes(query)
-  ).filter((plan) => statusFilter === "All" || plan.activity_status === statusFilter)
+  ).filter((plan) => statusFilter === "All" || getPlanDisplayStatuses(plan).includes(statusFilter))
     .filter((plan) => rosterFilter === "All" || String(plan.user_id) === rosterFilter);
 
   const showCreatePlanButton = !hideCreatePlanButton && (
@@ -949,13 +1000,6 @@ export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
           onEdit={() => { handleEdit(viewingPlan); setViewingPlan(null); }}
           onApprove={async () => {
             if (await handleReviewRequest(viewingPlan, "approve")) setViewingPlan(null);
-          }}
-          onReject={() => {
-            setRejectingPlan(viewingPlan);
-            setRejectionType("plan");
-            setRejectionReason("");
-            setRejectionError("");
-            setViewingPlan(null);
           }}
           onApproveDeletion={async () => {
             if (await approveDeletionRequest(viewingPlan)) setViewingPlan(null);
@@ -1057,7 +1101,7 @@ export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
       </label>
       <label className="sr-only" htmlFor="trainer-plan-status">Filter plans by status</label>
       <select id="trainer-plan-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
-        {["All", "Pending Approval", "Active", "Complete", "Incomplete", "Absent", "Rejected"].map((status) => <option key={status} value={status}>{status === "All" ? "All Status" : status}</option>)}
+        {["All", ...statusFilterOptions].map((status) => <option key={status} value={status}>{status === "All" ? "All Status" : status}</option>)}
       </select>
       <label className="sr-only" htmlFor="trainer-plan-roster">Filter by My Roster</label>
       <select id="trainer-plan-roster" value={rosterFilter} onChange={(event) => setRosterFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
@@ -1098,19 +1142,23 @@ export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
                   </tr>
                 ) : filtered.map((plan) => {
                   const pastWorkoutDate = isPastWorkoutPlan(plan);
-                  const pendingApproval = plan.approval_status === "Pending" && plan.deletion_request_status !== "Pending";
+                  const pendingApproval = plan.approval_status === "Pending"
+                    && plan.deletion_request_status !== "Pending"
+                    && !isInitialCoachWorkoutRequest(plan);
                   const rejectedPlan = plan.approval_status === "Rejected";
                   const planLocked = Boolean(pendingApproval || rejectedPlan || plan.deletion_request_status === "Pending" || plan.has_started || pastWorkoutDate);
-                  const canEditPlan = Boolean(
-                    plan.user_id &&
+                  const memberRequestedWorkoutNeedsCreation = plan.user_id != null &&
+                    String(plan.request_type || "").toLowerCase() === "coach_created" &&
+                    Number(plan.exercise_count || 0) === 0;
+                  const canEditPlan = Boolean(                    plan.user_id &&
                     plan.deletion_request_status !== "Pending" &&
                     !plan.has_started &&
                     (pendingApproval || rejectedPlan || !pastWorkoutDate)
                   );
                   return (
                   <tr key={plan.workout_plan_id} className="hover:bg-orange-500/5">
-                    <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-800 dark:text-white">{plan.plan_name}</td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.goal || "—"}</td>
+                    <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-800 dark:text-white">{getPlanDisplayName(plan)}</td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{formatFitnessGoal(plan.fitness_goal) || "—"}</td>
                     <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.member_name || "Template"}</td>
                     <td className="whitespace-nowrap px-5 py-4 text-slate-500">
                       {plan.scheduled_date ? (
@@ -1123,22 +1171,48 @@ export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
                       {Number(plan.completed_count) || 0} / {Number(plan.exercise_count) || 0} completed
                     </td>
                     <td className="px-5 py-4">
-                      <div className="flex flex-col items-start gap-1">
-                        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusColors[plan.activity_status] || statusColors.Active}`}>
-                          {plan.activity_status || "Active"}
-                        </span>
+                      <div className="flex w-fit max-w-[240px] flex-wrap items-center gap-2">
+                        {pendingApproval && (
+                          <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-amber-300/70 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold leading-none text-amber-200">
+                            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-amber-300" />
+                            Pending approval
+                          </span>
+                        )}
                         {plan.deletion_request_status === "Pending" && (
-                          <span className="inline-flex rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">Deletion requested</span>
+                          <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-red-300/60 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold leading-none text-red-200">
+                            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-red-300" />
+                            Rejected
+                          </span>
                         )}
                         {plan.is_program_switch && (
-                          <span className="inline-flex rounded-full border border-orange-300 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300">Program switch: {plan.training_program}</span>
+                          <span className="inline-flex min-h-8 items-center rounded-full border border-orange-300/60 bg-orange-500/10 px-2.5 py-1 text-[11px] font-semibold leading-tight text-orange-200">Program switch: {plan.training_program}</span>
                         )}
-                        {plan.request_type === "coach_created" && (
-                          <span className="inline-flex rounded-full border border-violet-300 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">Coach workout requested</span>
+                        {plan.request_type === "coach_created" && plan.deletion_request_status !== "Pending" && (
+                          <span className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none ${
+                            Number(plan.exercise_count) > 0
+                              ? statusColors.Active
+                              : "border-violet-300/60 bg-violet-500/10 text-violet-200"
+                          }`}>
+                            <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${
+                              Number(plan.exercise_count) > 0 ? "bg-green-500" : "bg-violet-300"
+                            }`} />
+                            {Number(plan.exercise_count) > 0 ? "Active" : "Coach workout requested"}
+                          </span>
+                        )}
+                        {plan.approval_status === "Rejected" && plan.deletion_request_status !== "Pending" && (
+                          <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-red-300/60 bg-red-500/10 px-2.5 py-1 text-[11px] font-bold leading-none text-red-200">
+                            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-red-300" />
+                            Rejected
+                          </span>
+                        )}
+                        {!plan.approval_status && !plan.deletion_request_status && (
+                          <span className={`inline-flex min-h-8 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusColors[plan.activity_status] || statusColors.Active}`}>
+                            {plan.activity_status || "Active"}
+                          </span>
                         )}
                       </div>
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="whitespace-nowrap px-3 py-4">
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
@@ -1162,17 +1236,19 @@ export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
                             {reviewingPlanId === plan.workout_plan_id ? "Deleting..." : "Approve deletion"}
                           </button>
                         )}
-                        {pendingApproval && (
-                          <>
-                            <button type="button" onClick={() => handleReviewRequest(plan, "approve")} disabled={reviewingPlanId === plan.workout_plan_id || Number(plan.exercise_count) < 3} aria-label={`Approve ${plan.plan_name}`} title={Number(plan.exercise_count) < 3 ? "Create at least 3 exercises before approval." : "Approve member workout plan"} className="rounded-lg p-2 text-green-600 transition hover:bg-green-500/10 disabled:opacity-50">
-                              <Check size={17} />
-                            </button>
-                            <button type="button" onClick={() => { setRejectingPlan(plan); setRejectionType("plan"); setRejectionReason(""); setRejectionError(""); }} disabled={reviewingPlanId === plan.workout_plan_id} aria-label={`Reject ${plan.plan_name}`} title="Reject member workout plan" className="rounded-lg p-2 text-red-500 transition hover:bg-red-500/10 disabled:opacity-50">
-                              <XCircle size={17} />
-                            </button>
-                          </>
+                        {memberRequestedWorkoutNeedsCreation && (
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(plan)}
+                            aria-label={`Create workout plan for ${plan.plan_name}`}
+                            title="Create workout plan"
+                            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-orange-500 px-3 text-xs font-bold text-white shadow-sm transition hover:bg-orange-600"
+                          >
+                            <Plus size={14} />
+                            Create
+                          </button>
                         )}
-                        {canEditPlan && (
+                        {canEditPlan && !pendingApproval && !memberRequestedWorkoutNeedsCreation && (
                           <button
                             type="button"
                             onClick={() => handleEdit(plan)}
@@ -1186,24 +1262,25 @@ export default function TrainerWorkoutPlans({ hideCreatePlanButton = false }) {
                         {planLocked && !canEditPlan && (
                           <span
                             className="inline-flex items-center gap-1 px-2 text-xs text-slate-500"
-                            title={plan.has_started ? "This workout has started or finished and is locked." : "Workout dates in the past are locked."}
+                            title={pastWorkoutDate
+                              ? "Editing is locked because the workout date has passed."
+                              : "This workout has started or finished and is locked."}
                             aria-label="Workout plan is locked"
                           >
                             <LockKeyhole size={15} /> Locked
                           </span>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(plan)}
-                          disabled={planLocked}
-                          aria-label={`Delete ${plan.plan_name}`}
-                          title={plan.deletion_request_status === "Pending"
-                            ? "Review the member's deletion request first."
-                            : planLocked ? "Started, completed, or past workout plans are locked." : "Delete workout plan"}
-                          className="rounded-lg p-2 text-red-400 transition hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {pastWorkoutDate && plan.deletion_request_status !== "Pending" && (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(plan)}
+                            aria-label={`Delete ${plan.plan_name}`}
+                            title="Delete past workout plan"
+                            className="rounded-lg p-2 text-red-400 transition hover:bg-red-500/10 hover:text-red-500"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
