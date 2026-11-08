@@ -4,7 +4,7 @@ import {
   LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler,
 } from "chart.js";
 import { Line, Bar, Doughnut } from "react-chartjs-2";
-import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter } from "lucide-react";
+import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter, BarChart3, ChevronDown } from "lucide-react";
 import api from "../services/api";
 import TrainingPulse from "../components/TrainingPulse";
 
@@ -15,9 +15,12 @@ const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444"];
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
-  plugins: { legend: { position: "top", labels: { color: "#737373", usePointStyle: true, padding: 20 } } },
+  plugins: {
+    legend: { position: "top", labels: { color: "#737373", usePointStyle: true, boxWidth: 8, boxHeight: 8, padding: 20 } },
+    tooltip: { backgroundColor: "#111827", titleColor: "#fff", bodyColor: "#e5e7eb", padding: 12, cornerRadius: 10, displayColors: true },
+  },
   scales: {
-    y: { beginAtZero: true, grid: { color: "rgba(148,163,184,0.15)" }, ticks: { color: "#737373" } },
+    y: { beginAtZero: true, border: { display: false }, grid: { color: "rgba(148,163,184,0.15)" }, ticks: { color: "#737373", padding: 8 } },
     x: { grid: { display: false }, ticks: { color: "#737373" } },
   },
 };
@@ -57,6 +60,7 @@ export default function Analytics() {
   const [equipmentDay, setEquipmentDay] = useState("");
   const [equipmentTimePeriod, setEquipmentTimePeriod] = useState("");
   const [equipmentPeriod, setEquipmentPeriod] = useState("today");
+  const [showAllEquipment, setShowAllEquipment] = useState(false);
   const [appliedEquipmentFilters, setAppliedEquipmentFilters] = useState({ day: "", timePeriod: "", period: "today" });
 
   useEffect(() => {
@@ -93,11 +97,19 @@ export default function Analytics() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Gym performance</p>
-          <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Analytics</h1>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">A clear view of member growth, training activity, and fitness trends.</p>
+      <div className="space-y-8">
+        <header className="ave-page-hero relative overflow-hidden rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
+          <div className="absolute -right-10 -top-14 h-48 w-48 rounded-full bg-orange-500/10 blur-3xl" />
+          <div className="relative flex items-start gap-4">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-orange-500/10 text-orange-600 dark:text-orange-400">
+              <BarChart3 size={24} />
+            </span>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Gym performance</p>
+              <h1 className="mt-1 text-3xl font-black text-slate-900 dark:text-white">Analytics</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">A clear view of member growth, training activity, and fitness trends.</p>
+            </div>
+          </div>
         </header>
         {fetchError && (
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
@@ -185,43 +197,53 @@ export default function Analytics() {
   const maxEquipmentUsage = Math.max(0, ...mostUsedEquipment.map((item) => Number(item.count) || 0));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {fetchError && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           ⚠️ {fetchError}
         </div>
       )}
-      <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Gym performance</p>
-        <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Analytics</h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">A clear view of member growth, training activity, and fitness trends.</p>
+      <header className="ave-page-hero relative overflow-hidden rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
+        <div className="absolute -right-10 -top-14 h-48 w-48 rounded-full bg-orange-500/10 blur-3xl" />
+        <div className="relative flex items-start gap-4">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-orange-500/10 text-orange-600 dark:text-orange-400">
+            <BarChart3 size={24} />
+          </span>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Gym performance</p>
+            <h1 className="mt-1 text-3xl font-black text-slate-900 dark:text-white">Analytics</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">A clear view of member growth, training activity, and fitness trends.</p>
+          </div>
+        </div>
       </header>
       <TrainingPulse audience="admin" />
 
       {/* Summary */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <section aria-label="Analytics summary" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {[
           { label: "Total members", value: data?.summary?.totalMembers, icon: <Users size={22} />, color: "text-orange-600 dark:text-orange-400", surface: "bg-orange-500/10" },
           { label: "Average BMI", value: data?.summary?.avgBmi, icon: <TrendingUp size={22} />, color: "text-green-600 dark:text-green-400", surface: "bg-green-500/10" },
           { label: "Workout plans", value: data?.summary?.totalWorkoutPlans, icon: <Dumbbell size={22} />, color: "text-violet-600 dark:text-violet-400", surface: "bg-violet-500/10" },
         ].map((s) => (
-          <div key={s.label} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-            <div className={`${s.surface} ${s.color} flex-shrink-0 rounded-xl p-3`}>{s.icon}</div>
+          <article key={s.label} className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md dark:border-white/10 dark:bg-[#111]">
+            <div className={`mb-5 grid h-11 w-11 place-items-center rounded-xl ${s.surface} ${s.color}`}>{s.icon}</div>
             <div>
-              <p className="text-2xl font-black text-slate-900 dark:text-white">{s.value ?? "—"}</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400">{s.label}</p>
+              <p className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{s.value ?? "—"}</p>
+              <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">{s.label}</p>
             </div>
-          </div>
+            <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-orange-500/70 to-transparent opacity-0 transition group-hover:opacity-100" />
+          </article>
         ))}
-      </div>
+      </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]" aria-labelledby="equipment-heading">
-        <div className="mb-4">
-          <h2 id="equipment-heading" className="text-base font-bold text-slate-900 dark:text-white">Most used equipment</h2>
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6" aria-labelledby="equipment-heading">
+        <div className="mb-5">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Equipment insights</p>
+          <h2 id="equipment-heading" className="mt-1 text-lg font-black text-slate-900 dark:text-white">Most used equipment</h2>
           <p className="mt-1 text-xs text-slate-500">Equipment listed on exercises is ranked by its appearances in approved workout plans for the selected period.</p>
         </div>
         <form
-          className="mb-5 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/[0.03]"
+          className="mb-6 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-white/10 dark:bg-white/[0.03]"
           onSubmit={(event) => {
             event.preventDefault();
             setAppliedEquipmentFilters({ day: equipmentDay, timePeriod: equipmentTimePeriod, period: equipmentPeriod });
@@ -282,26 +304,40 @@ export default function Analytics() {
           )}
         </form>
         {mostUsedEquipment.length ? (
-          <div className="space-y-3">
-            {mostUsedEquipment.map((item, index) => {
-              const count = Number(item.count) || 0;
-              return (
-                <div key={item.equipment} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="w-6 shrink-0 text-xs font-bold text-slate-400">{index + 1}.</span>
-                    <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">{item.equipment}</span>
+          <>
+            <div className="space-y-3" id="equipment-usage-list">
+              {mostUsedEquipment.slice(0, showAllEquipment ? undefined : 5).map((item, index) => {
+                const count = Number(item.count) || 0;
+                return (
+                  <div key={item.equipment} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="w-6 shrink-0 text-xs font-bold text-slate-400">{index + 1}.</span>
+                      <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">{item.equipment}</span>
+                    </div>
+                    <span className="text-sm font-bold text-slate-900 dark:text-white">{count}</span>
+                    <div className="col-span-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-orange-500"
+                        style={{ width: `${maxEquipmentUsage > 0 ? (count / maxEquipmentUsage) * 100 : 0}%` }}
+                      />
+                    </div>
                   </div>
-                  <span className="text-sm font-bold text-slate-900 dark:text-white">{count}</span>
-                  <div className="col-span-2 h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-orange-500"
-                      style={{ width: `${maxEquipmentUsage > 0 ? (count / maxEquipmentUsage) * 100 : 0}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            {mostUsedEquipment.length > 5 && (
+              <button
+                type="button"
+                aria-expanded={showAllEquipment}
+                aria-controls="equipment-usage-list"
+                onClick={() => setShowAllEquipment((expanded) => !expanded)}
+                className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 dark:border-white/10 dark:text-slate-200 dark:hover:border-orange-400/40 dark:hover:bg-orange-500/10 dark:hover:text-orange-300"
+              >
+                {showAllEquipment ? "Show top 5" : `See all ${mostUsedEquipment.length} equipment`}
+                <ChevronDown size={16} className={`transition-transform ${showAllEquipment ? "rotate-180" : ""}`} />
+              </button>
+            )}
+          </>
         ) : (
           <p className="py-8 text-center text-sm text-slate-500">No equipment has been added to the exercise catalog yet.</p>
         )}
@@ -322,7 +358,7 @@ export default function Analytics() {
             { label: "Busiest day", value: peakDayValue, icon: CalendarDays },
             { label: "Busiest month", value: peakMonthValue, icon: TrendingUp },
           ].map(({ label, value, icon: Icon }) => (
-            <div key={label} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
+            <div key={label} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111]">
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Icon size={20} /></span>
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
@@ -333,22 +369,22 @@ export default function Analytics() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Workout starts by hour</h3>
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+            <h3 className="text-base font-black text-slate-900 dark:text-white">Workout starts by hour</h3>
             <p className="mb-4 mt-1 text-xs text-slate-500">Member time-in / start time · Philippines time</p>
             {peakHours.some((row) => Number(row.count) > 0)
               ? <div className="h-72"><Bar data={peakHoursChart} options={chartOptions} /></div>
               : <p className="py-12 text-center text-sm text-slate-500">No workout starts have been recorded yet. Members can record time-in by starting a workout.</p>}
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">New active members by month</h3>
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+            <h3 className="text-base font-black text-slate-900 dark:text-white">New active members by month</h3>
             <p className="mb-4 mt-1 text-xs text-slate-500">Monthly member growth · latest six calendar months</p>
             {peakMonths.some((row) => Number(row.count) > 0)
               ? <div className="h-72"><Bar data={peakMonthsChart} options={chartOptions} /></div>
               : <p className="py-12 text-center text-sm text-slate-500">No new active-member sign-ups have been recorded in this period.</p>}
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white">Member availability by weekday</h3>
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+            <h3 className="text-base font-black text-slate-900 dark:text-white">Member availability by weekday</h3>
             <p className="mb-4 mt-1 text-xs text-slate-500">Number of active members who selected each preferred workout day</p>
             {dayAvailability.some((row) => Number(row.count) > 0)
               ? <div className="h-72"><Bar data={dayAvailabilityChart} options={chartOptions} /></div>
@@ -359,14 +395,14 @@ export default function Analytics() {
 
       {/* Charts Row 1 */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] xl:col-span-2">
-          <h3 className="mb-4 text-base font-bold text-slate-900 dark:text-white">Member growth</h3>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6 xl:col-span-2">
+          <h3 className="mb-4 text-base font-black text-slate-900 dark:text-white">Member growth</h3>
           {memberGrowthChart.labels.length > 0
             ? <div className="h-72"><Line data={memberGrowthChart} options={chartOptions} /></div>
             : <p className="py-12 text-center text-sm text-slate-500">No member growth data available yet.</p>}
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-          <h3 className="mb-4 text-base font-bold text-slate-900 dark:text-white">Weight goal distribution</h3>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+          <h3 className="mb-4 text-base font-black text-slate-900 dark:text-white">Weight goal distribution</h3>
           {goalChart.labels.length > 0
             ? <div className="h-72"><Doughnut data={goalChart} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { color: "#737373" } } } }} /></div>
             : <p className="py-12 text-center text-sm text-slate-500">No member goals recorded yet.</p>}
@@ -374,27 +410,28 @@ export default function Analytics() {
       </div>
 
       {/* Charts Row 2 */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-        <h3 className="mb-4 text-base font-bold text-slate-900 dark:text-white">Completed sessions by weekday</h3>
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+        <h3 className="mb-4 text-base font-black text-slate-900 dark:text-white">Completed sessions by weekday</h3>
         {attendanceChart.labels.length > 0
           ? <div className="h-72"><Bar data={attendanceChart} options={chartOptions} /></div>
           : <p className="py-12 text-center text-sm text-slate-500">No completed sessions yet.</p>}
       </div>
 
       {/* BMI Distribution */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-        <h3 className="mb-4 text-base font-bold text-slate-900 dark:text-white">BMI distribution</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Member health</p>
+        <h3 className="mb-4 mt-1 text-lg font-black text-slate-900 dark:text-white">BMI distribution</h3>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
-            { label: "Underweight", range: "< 18.5", color: "bg-orange-100 text-orange-700" },
-            { label: "Normal", range: "18.5 – 24.9", color: "bg-green-100 text-green-700" },
-            { label: "Overweight", range: "25 – 29.9", color: "bg-yellow-100 text-yellow-700" },
-            { label: "Obese", range: "≥ 30", color: "bg-red-100 text-red-700" },
+            { label: "Underweight", range: "< 18.5", color: "bg-orange-50 text-orange-800 ring-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-400/20" },
+            { label: "Normal", range: "18.5 – 24.9", color: "bg-green-50 text-green-800 ring-green-200 dark:bg-green-500/10 dark:text-green-300 dark:ring-green-400/20" },
+            { label: "Overweight", range: "25 – 29.9", color: "bg-yellow-50 text-yellow-800 ring-yellow-200 dark:bg-yellow-500/10 dark:text-yellow-300 dark:ring-yellow-400/20" },
+            { label: "Obese", range: "≥ 30", color: "bg-red-50 text-red-800 ring-red-200 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/20" },
           ].map((item) => (
-            <div key={item.label} className={`rounded-xl p-4 text-center ${item.color}`}>
-              <p className="text-3xl font-bold">{bmiMap[item.label] ?? 0}</p>
-              <p className="font-semibold text-sm mt-1">{item.label}</p>
-              <p className="text-xs opacity-70 mt-0.5">BMI {item.range}</p>
+            <div key={item.label} className={`rounded-2xl p-4 text-center ring-1 ring-inset ${item.color}`}>
+              <p className="text-3xl font-black tracking-tight">{bmiMap[item.label] ?? 0}</p>
+              <p className="mt-1 text-sm font-bold">{item.label}</p>
+              <p className="mt-0.5 text-xs opacity-70">BMI {item.range}</p>
             </div>
           ))}
         </div>

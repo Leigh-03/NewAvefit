@@ -3,12 +3,14 @@ const {
   isMailConfigured,
   sendWeeklyBmiReminderEmail,
   sendNoWorkoutReminderEmail,
+  sendMemberNoWorkoutPlanReminderEmail,
   sendNewUserRegistrationEmail,
 } = require("./mailer");
 const { getConfiguredAdminEmail } = require("./adminAccess");
 
 let bmiReminderSmtpWarningLogged = false;
 let workoutReminderSmtpWarningLogged = false;
+let memberWorkoutReminderSmtpWarningLogged = false;
 
 const createNotification = async ({
   audience,
@@ -278,10 +280,115 @@ const sendUnassignedWorkoutReminders = async () => {
   }
 };
 
+const sendMemberNoWorkoutPlanReminders = async () => {
+  if (!isMailConfigured()) {
+    if (!memberWorkoutReminderSmtpWarningLogged) {
+      console.warn("Member no-workout reminder emails are disabled because SMTP_HOST, SMTP_USER, and SMTP_PASS are not configured.");
+      memberWorkoutReminderSmtpWarningLogged = true;
+    }
+    return;
+  }
+
+  const users = await pool.query(`
+    WITH schedule AS (
+      SELECT (NOW() AT TIME ZONE 'Asia/Manila')::date + 1 AS workout_date
+    )
+    SELECT
+      u.user_id,
+      u.email,
+      u.first_name,
+      schedule.workout_date
+    FROM users u
+    CROSS JOIN schedule
+    WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+      AND u.setup_completed = TRUE
+      AND NULLIF(BTRIM(u.email), '') IS NOT NULL
+      AND COALESCE(cardinality(u.preferred_days), 0) > 0
+      AND (u.membership_start_date IS NULL OR u.membership_start_date <= schedule.workout_date)
+      AND (u.membership_end_date IS NULL OR u.membership_end_date >= schedule.workout_date)
+      AND LOWER(TO_CHAR(schedule.workout_date, 'FMDay')) = ANY (
+        SELECT LOWER(BTRIM(day_name))
+        FROM UNNEST(u.preferred_days) AS days(day_name)
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM workout_plans wp
+        WHERE wp.user_id = u.user_id
+          AND wp.approval_status IN ('Approved', 'Pending')
+          AND (
+            CASE
+              WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                THEN wp.requested_session_date::date = schedule.workout_date
+              ELSE FALSE
+            END
+            OR EXISTS (
+              SELECT 1
+              FROM workout_sessions ws
+              WHERE ws.workout_plan_id = wp.workout_plan_id
+                AND (
+                  CASE
+                    WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                      THEN ws.session_date::date = schedule.workout_date
+                    ELSE FALSE
+                  END
+                  OR (
+                    ws.session_date::text !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                    AND LOWER(BTRIM(ws.session_date::text)) = LOWER(TO_CHAR(schedule.workout_date, 'FMDay'))
+                  )
+                )
+            )
+          )
+      )
+    ORDER BY u.user_id
+  `);
+
+  for (const user of users.rows) {
+    const reservation = await pool.query(
+      `INSERT INTO user_workout_reminder_emails (user_id, workout_date)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id, workout_date) DO NOTHING
+       RETURNING user_id`,
+      [user.user_id, user.workout_date]
+    );
+    if (!reservation.rowCount) continue;
+
+    const workoutDate = new Date(user.workout_date).toLocaleDateString("en-PH", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    try {
+      const delivery = await sendMemberNoWorkoutPlanReminderEmail({
+        to: user.email,
+        firstName: user.first_name,
+        workoutDate,
+      });
+      if (!delivery.delivered) {
+        throw new Error("SMTP did not confirm delivery of the member workout reminder.");
+      }
+      await pool.query(
+        `UPDATE user_workout_reminder_emails
+         SET sent_at = NOW()
+         WHERE user_id = $1 AND workout_date = $2`,
+        [user.user_id, user.workout_date]
+      );
+    } catch (error) {
+      await pool.query(
+        `DELETE FROM user_workout_reminder_emails
+         WHERE user_id = $1 AND workout_date = $2 AND sent_at IS NULL`,
+        [user.user_id, user.workout_date]
+      );
+      console.error(`Member workout reminder email failed for user ${user.user_id}:`, error.message);
+    }
+  }
+};
+
 module.exports = {
   createNotification,
   notifyAdmins,
   notifyNewUser,
   sendWeeklyBmiReminders,
   sendUnassignedWorkoutReminders,
+  sendMemberNoWorkoutPlanReminders,
 };

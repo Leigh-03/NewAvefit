@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
-import { Dumbbell, Search, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ChevronDown, Dumbbell, Search, SlidersHorizontal, Sparkles } from "lucide-react";
 import trainerApi from "../trainerApi";
 import { ExerciseDetail } from "./ExerciseLibrary";
 import { getWorkoutGuideExercise } from "../utils/workoutGuide";
 
 const DIFFICULTIES = ["All", "Beginner", "Intermediate", "Advanced"];
+const DIFFICULTY_COLORS = {
+  Beginner: "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300",
+  Intermediate: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  Advanced: "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300",
+};
 
 export default function TrainerExercises() {
   const [exercises, setExercises] = useState([]);
@@ -12,6 +17,7 @@ export default function TrainerExercises() {
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [difficulty, setDifficulty] = useState("All");
+  const [showFilters, setShowFilters] = useState(false);
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
@@ -60,7 +66,7 @@ export default function TrainerExercises() {
       <main className="mx-auto max-w-5xl space-y-4 px-5 py-6 sm:px-8">
         {loadError && <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{loadError}</div>}
 
-        <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 shadow-sm focus-within:ring-2 focus-within:ring-orange-500 dark:border-white/10 dark:bg-[#111]">
+        <label className="flex min-h-12 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 shadow-sm dark:border-white/10 dark:bg-[#111]">
           <Search size={18} className="shrink-0 text-slate-400" />
           <input
             type="search"
@@ -72,20 +78,58 @@ export default function TrainerExercises() {
           />
         </label>
 
-        <div className="flex flex-wrap items-center gap-2" aria-label="Exercise filters">
-          <SlidersHorizontal size={16} className="mr-1 text-orange-500" aria-hidden="true" />
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by difficulty">
-            {DIFFICULTIES.map((item) => (
-              <button key={item} type="button" aria-pressed={difficulty === item} onClick={() => setDifficulty(item)}
-                className={`min-h-10 rounded-lg border px-3 text-xs font-semibold transition ${difficulty === item ? "border-orange-500 bg-orange-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-orange-300 dark:border-white/10 dark:bg-[#111] dark:text-slate-300"}`}>
-                {item}
-              </button>
-            ))}
-          </div>
-          <p aria-live="polite" className="ml-auto text-xs font-medium text-slate-500">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            aria-expanded={showFilters}
+            onClick={() => setShowFilters(!showFilters)}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-700 transition hover:border-orange-300 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+          >
+            <SlidersHorizontal size={16} className="text-orange-500" />
+            Filters
+            {difficulty !== "All" && (
+              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-orange-500 px-1 text-[11px] font-bold text-white">1</span>
+            )}
+            <ChevronDown size={15} className={`transition-transform ${showFilters ? "rotate-180" : ""}`} />
+          </button>
+          <p aria-live="polite" className="text-xs font-medium text-slate-500">
             {loading ? "Loading exercises..." : `${filtered.length} ${filtered.length === 1 ? "exercise" : "exercises"} found`}
           </p>
         </div>
+
+        {showFilters && (
+          <div className="space-y-4 rounded-2xl border border-orange-100 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
+            <div>
+              <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Difficulty</p>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by difficulty">
+                {DIFFICULTIES.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    aria-pressed={difficulty === item}
+                    onClick={() => setDifficulty(item)}
+                    className={`min-h-9 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                      difficulty === item
+                        ? "border-orange-500 bg-orange-500 text-white"
+                        : "border-slate-200 bg-slate-50 text-slate-600 hover:border-orange-300 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {difficulty !== "All" && (
+              <button
+                type="button"
+                onClick={() => setDifficulty("All")}
+                className="text-xs font-semibold text-orange-700 hover:text-orange-800 dark:text-orange-300"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
 
         {loading ? (
           <div className="grid gap-3 sm:grid-cols-2">{Array.from({ length: 6 }, (_, index) => <div key={index} className="h-32 animate-pulse rounded-2xl bg-white dark:bg-[#111]" />)}</div>
@@ -112,7 +156,9 @@ export default function TrainerExercises() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <h2 className="font-bold text-slate-900 group-hover:text-orange-700 dark:text-white dark:group-hover:text-orange-300">{exercise.exercise_name}</h2>
-                        <span className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">{exercise.difficulty || "Not specified"}</span>
+                        <span className={`shrink-0 rounded-lg border px-2 py-1 text-[11px] font-semibold ${DIFFICULTY_COLORS[exercise.difficulty] || "border-slate-200 bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"}`}>
+                          {exercise.difficulty || "Not specified"}
+                        </span>
                       </div>
                       <p className="mt-1 text-xs text-slate-500">{exercise.muscle_group || "Muscle group not specified"}</p>
                       {exercise.equipment && <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">Equipment: {exercise.equipment}</p>}

@@ -464,6 +464,36 @@ async function sendNoWorkoutReminderEmail({ to, trainerName, memberName, workout
   return sendMail({ to, subject: "A member needs a workout plan", text, html });
 }
 
+async function sendMemberNoWorkoutPlanReminderEmail({ to, firstName, workoutDate }) {
+  const safeFirstName = escapeHtml(firstName || "there");
+  const safeWorkoutDate = escapeHtml(workoutDate || "tomorrow");
+  const workoutUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/workout`;
+  const text = [
+    `Hi ${firstName || "there"},`,
+    "",
+    `Your workout day is coming up on ${workoutDate || "tomorrow"}, but your coach has not added or approved a workout plan for that date yet.`,
+    "Please check your workout page or contact your coach for an update.",
+    `View your workouts: ${workoutUrl}`,
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;"><span style="font-size:20px;font-weight:800;color:#ffffff;">AveFit</span><span style="display:block;font-size:12px;color:#ffedd5;margin-top:2px;">Avenue Power &amp; Fitness Gym</span></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 12px;font-size:15px;line-height:1.6;">Your workout day is coming up on <strong>${safeWorkoutDate}</strong>, but your coach has not added or approved a workout plan for that date yet.</p>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;">Please check your workout page or contact your coach for an update.</p>
+        <a href="${escapeHtml(workoutUrl)}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">View my workouts</a>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({ to, subject: "Your workout plan for tomorrow is not ready", text, html });
+}
+
 async function sendWorkoutPlanApprovalRequestEmail({
   to,
   trainerName,
@@ -474,6 +504,7 @@ async function sendWorkoutPlanApprovalRequestEmail({
   isProgramSwitch = false,
   previousProgram,
   requestType = "member_plan",
+  hasSubmittedWorkout = false,
   sessionDate,
 }) {
   const safeTrainerName = escapeHtml(trainerName || "Coach");
@@ -483,7 +514,10 @@ async function sendWorkoutPlanApprovalRequestEmail({
   const plansUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/trainer/workout-plans`;
   const safePlansUrl = escapeHtml(plansUrl);
   const coachCreated = requestType === "coach_created";
-  const requestDescription = coachCreated
+  const memberSubmittedWorkout = coachCreated && hasSubmittedWorkout;
+  const requestDescription = memberSubmittedWorkout
+    ? `${memberName || "A member"} submitted a ${trainingProgram || "workout"} workout for ${sessionDate || "their selected date"} for your review.`
+    : coachCreated
     ? `${memberName || "A member"} requested that you create a ${trainingProgram || "workout"} workout for ${sessionDate || "their selected date"}.${isProgramSwitch ? ` They requested a program change from ${previousProgram || "their scheduled program"}.` : ""}`
     : isProgramSwitch
       ? `${memberName || "A member"} switched today's program from ${previousProgram || "their scheduled program"} to ${trainingProgram || "a new program"} and submitted "${planName || "a workout plan"}" for your review.`
@@ -498,7 +532,9 @@ async function sendWorkoutPlanApprovalRequestEmail({
     `Program: ${trainingProgram || "Not specified"}`,
     `Workout date: ${sessionDate || "Not specified"}`,
     `Goal weight: ${safeTargetWeight}`,
-    coachCreated
+    memberSubmittedWorkout
+      ? "Please sign in to review and approve the submitted workout."
+      : coachCreated
       ? "Please sign in to create the requested workout plan."
       : "Please sign in to approve or reject the request.",
     "",
@@ -506,10 +542,12 @@ async function sendWorkoutPlanApprovalRequestEmail({
     "",
     "Avenue Power & Fitness Gym",
   ].join("\n");
-  const html = `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><tr><td style="padding:22px 28px;background:${BRAND_COLOR};color:#fff;font-size:20px;font-weight:800;">AveFit</td></tr><tr><td style="padding:28px;"><p style="margin:0 0 16px;">Hi ${safeTrainerName},</p><p style="line-height:1.6;"><strong>${safeMemberName}</strong> ${coachCreated ? `requested that you create a <strong>${escapeHtml(trainingProgram || "workout")}</strong> workout for ${escapeHtml(sessionDate || "their selected date")}.` : isProgramSwitch ? `requested a switch and submitted <strong>${safePlanName}</strong> for your review.` : `submitted <strong>${safePlanName}</strong> for your review.`} ${coachCreated ? "Please sign in to create the requested plan." : "Please sign in to approve or reject the request."}</p><p style="line-height:1.6;"><strong>Program:</strong> ${escapeHtml(trainingProgram || "Not specified")}<br><strong>Workout date:</strong> ${escapeHtml(sessionDate || "Not specified")}<br><strong>Goal weight:</strong> ${safeTargetWeight}</p>${safeProgramChange}<a href="${safePlansUrl}" style="display:inline-block;margin-top:8px;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Review workout plans</a></td></tr></table></body></html>`;
+  const html = `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><tr><td style="padding:22px 28px;background:${BRAND_COLOR};color:#fff;font-size:20px;font-weight:800;">AveFit</td></tr><tr><td style="padding:28px;"><p style="margin:0 0 16px;">Hi ${safeTrainerName},</p><p style="line-height:1.6;"><strong>${safeMemberName}</strong> ${memberSubmittedWorkout ? `submitted a <strong>${escapeHtml(trainingProgram || "workout")}</strong> workout for your review.` : coachCreated ? `requested that you create a <strong>${escapeHtml(trainingProgram || "workout")}</strong> workout for ${escapeHtml(sessionDate || "their selected date")}.` : isProgramSwitch ? `requested a switch and submitted <strong>${safePlanName}</strong> for your review.` : `submitted <strong>${safePlanName}</strong> for your review.`} ${memberSubmittedWorkout ? "Please sign in to review and approve the submitted workout." : coachCreated ? "Please sign in to create the requested plan." : "Please sign in to approve or reject the request."}</p><p style="line-height:1.6;"><strong>Program:</strong> ${escapeHtml(trainingProgram || "Not specified")}<br><strong>Workout date:</strong> ${escapeHtml(sessionDate || "Not specified")}<br><strong>Goal weight:</strong> ${safeTargetWeight}</p>${safeProgramChange}<a href="${safePlansUrl}" style="display:inline-block;margin-top:8px;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Review workout plans</a></td></tr></table></body></html>`;
   return sendMail({
     to,
-    subject: coachCreated
+    subject: memberSubmittedWorkout
+      ? "Member workout submitted for approval"
+      : coachCreated
       ? "Member requested a coach-created workout"
       : isProgramSwitch ? "Member workout program switch approval requested" : "Workout plan approval requested",
     text,
@@ -1100,6 +1138,7 @@ module.exports = {
   formatEmailTime,
   sendUserCoachAssignedEmail,
   sendNoWorkoutReminderEmail,
+  sendMemberNoWorkoutPlanReminderEmail,
   sendWorkoutPlanApprovalRequestEmail,
   sendWorkoutPlanDeletionDecisionEmail,
   sendWeeklyBmiReminderEmail,

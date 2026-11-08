@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Search, TrendingUp, Users, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
@@ -6,12 +6,6 @@ import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 const fetchTrainerProgress = (userId) => trainerApi.get(`/me/members/${userId}/progress`);
-
-function formatDuration(value) {
-  if (value === null || value === undefined || value === "") return "";
-  const text = String(value).trim();
-  return /mins?$/i.test(text) ? text : `${text} mins`;
-}
 
 function formatPreferredWorkoutTime(value) {
   const labels = {
@@ -28,6 +22,13 @@ function toList(val) {
   if (Array.isArray(val)) return val.filter(Boolean);
   if (typeof val === "string") return val.replace(/^\{|\}$/g, "").split(",").map((s) => s.trim()).filter(Boolean);
   return [];
+}
+
+function toHealthNotes(value) {
+  const noReportValues = new Set(["none", "no injury", "no injuries", "no condition", "no conditions", "n/a"]);
+  return toList(value)
+    .map((item) => String(item).trim().replace(/^["']|["']$/g, ""))
+    .filter((item) => item && !noReportValues.has(item.toLowerCase()));
 }
 
 function getManilaToday() {
@@ -59,8 +60,8 @@ function MemberProfileModal({ member, onClose, onViewProgress }) {
   if (!member) return null;
   const currentWeight = member.latest_weight ?? member.weight;
   const currentBmi = member.latest_bmi ?? calculateBmi(currentWeight, member.height);
-  const injuries = toList(member.injuries);
-  const conditions = toList(member.health_conditions);
+  const injuries = toHealthNotes(member.injuries);
+  const conditions = toHealthNotes(member.health_conditions);
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -111,22 +112,19 @@ function MemberProfileModal({ member, onClose, onViewProgress }) {
             ))}
           </div>
 
-          {(injuries.length || conditions.length) ? (
-            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
-              <p className="flex items-center gap-2 text-sm font-semibold text-amber-400"><AlertTriangle size={16} /> Health & Safety Notes</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {injuries.map((item) => <span key={`injury-${item}`} className="rounded-full bg-amber-500/15 px-2.5 py-1 text-xs text-amber-300">Injury: {item}</span>)}
-                {conditions.map((item) => <span key={`condition-${item}`} className="rounded-full bg-amber-500/15 px-2.5 py-1 text-xs text-amber-300">{item}</span>)}
-              </div>
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <p className="flex items-center gap-2 text-sm font-semibold text-amber-400"><AlertTriangle size={16} /> Health & Safety Assessment</p>
+            <div className="mt-3 space-y-1 text-sm text-amber-200">
+              <p><span className="font-semibold">Injury:</span> {injuries.join(", ") || "None reported"}</p>
+              <p><span className="font-semibold">Health Condition:</span> {conditions.join(", ") || "None reported"}</p>
             </div>
-          ) : null}
+          </div>
 
           <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Training preferences</p>
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{toList(member.preferred_days).join(", ") || "No preferred days set."}</p>
             <p className="mt-1 text-xs text-slate-500">
               {member.workout_days_per_week ? `${member.workout_days_per_week} days/week` : "Days/week not set"}
-              {member.workout_duration ? ` · ${formatDuration(member.workout_duration)}` : ""}
             </p>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400"><span className="font-semibold">Preferred time:</span> {formatPreferredWorkoutTime(member.preferred_workout_time)}</p>
             {Array.isArray(member.weekly_availability) && member.weekly_availability.length > 0 && (
@@ -195,19 +193,49 @@ export default function TrainerRosterPage() {
   const [profileMember, setProfileMember] = useState(null);
   const [progressMember, setProgressMember] = useState(null);
 
+  const refreshRoster = useCallback(async () => {
+    const response = await trainerApi.get("/me/roster");
+    const rows = Array.isArray(response.data?.data) ? response.data.data : [];
+    const formattedRows = rows.map((member) => ({ ...member, fitness_goal: formatFitnessGoal(member.fitness_goal) }));
+    setMembers(formattedRows);
+    setProfileMember((current) => current
+      ? formattedRows.find((member) => String(member.user_id) === String(current.user_id)) || current
+      : current);
+    setError("");
+  }, []);
+
   useEffect(() => {
     setLoading(true);
-    trainerApi.get("/me/roster")
-      .then((response) => {
-        const rows = Array.isArray(response.data?.data) ? response.data.data : [];
-        setMembers(rows.map((member) => ({ ...member, fitness_goal: formatFitnessGoal(member.fitness_goal) })));
-      })
+    refreshRoster()
       .catch((err) => {
         console.error(err);
         setError(err.response?.data?.message || "Couldn't load your roster.");
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshRoster]);
+
+  useEffect(() => {
+    const refreshVisibleRoster = () => {
+      if (document.visibilityState !== "visible") return;
+
+      refreshRoster().catch((err) => {
+        console.error("Couldn't refresh workout counts:", err);
+        setError(err.response?.data?.message || "Workout counts couldn't be refreshed.");
+      });
+    };
+    const refreshWhenVisible = () => {
+      refreshVisibleRoster();
+    };
+    const intervalId = window.setInterval(refreshVisibleRoster, 15000);
+    window.addEventListener("focus", refreshVisibleRoster);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshVisibleRoster);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshRoster]);
 
   const filteredMembers = members.filter((member) => {
     const query = search.trim().toLowerCase();

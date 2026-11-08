@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock, TrendingUp } from "lucide-react";
 import api from "../services/api";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
@@ -14,6 +14,13 @@ function toList(value) {
   if (Array.isArray(value)) return value.filter(Boolean);
   if (typeof value === "string") return value.replace(/^\{|\}$/g, "").split(",").map((item) => item.trim()).filter(Boolean);
   return [];
+}
+
+function toHealthNotes(value) {
+  const noReportValues = new Set(["none", "no injury", "no injuries", "no condition", "no conditions", "n/a"]);
+  return toList(value)
+    .map((item) => String(item).trim().replace(/^["']|["']$/g, ""))
+    .filter((item) => item && !noReportValues.has(item.toLowerCase()));
 }
 
 const SPECIALIZATION_OPTIONS = [
@@ -593,12 +600,11 @@ function RosterMemberProfileModal({ member, onClose, onViewProgress }) {
     ["Experience level", member.activity_level],
     ["Workout intensity", member.intensity],
     ["Workout frequency", member.workout_days_per_week ? `${member.workout_days_per_week} days/week` : null],
-    ["Session duration", member.workout_duration ? `${member.workout_duration} minutes` : null],
     ["Preferred time", member.preferred_workout_time],
   ];
   const availability = Array.isArray(member.weekly_availability) ? member.weekly_availability : [];
-  const injuries = toList(member.injuries);
-  const conditions = toList(member.health_conditions);
+  const injuries = toHealthNotes(member.injuries);
+  const conditions = toHealthNotes(member.health_conditions);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -635,7 +641,10 @@ function RosterMemberProfileModal({ member, onClose, onViewProgress }) {
           {(injuries.length || conditions.length) > 0 && (
             <section className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
               <h3 className="text-sm font-bold text-amber-300">Health and safety notes</h3>
-              <p className="mt-2 text-sm text-slate-300">{[...injuries.map((value) => `Injury: ${value}`), ...conditions].join(" · ")}</p>
+              <div className="mt-2 space-y-1 text-sm text-slate-300">
+                <p><span className="font-semibold">Injury:</span> {injuries.join(", ") || "None"}</p>
+                <p><span className="font-semibold">Health Condition:</span> {conditions.join(", ") || "None"}</p>
+              </div>
             </section>
           )}
           <section className="rounded-xl border border-white/10 p-4">
@@ -660,21 +669,50 @@ function RosterModal({ trainer, onClose }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const refreshRoster = useCallback(async () => {
+    const rosterRes = await api.get(`/trainers/${trainer.trainer_id}/roster`);
+    const rows = Array.isArray(rosterRes.data)
+      ? rosterRes.data
+      : rosterRes.data?.data;
+    if (!Array.isArray(rows)) throw new Error("The roster response was invalid.");
+    setMembers(rows);
+    setProfileMember((current) => current
+      ? rows.find((member) => String(member.user_id) === String(current.user_id)) || current
+      : current);
+    setError("");
+  }, [trainer.trainer_id]);
+
   useEffect(() => {
-    api.get(`/trainers/${trainer.trainer_id}/roster`)
-      .then((rosterRes) => {
-        const rows = Array.isArray(rosterRes.data)
-          ? rosterRes.data
-          : rosterRes.data?.data;
-        if (!Array.isArray(rows)) throw new Error("The roster response was invalid.");
-        setMembers(rows);
-      })
+    refreshRoster()
       .catch((err) => {
         console.error("Failed to load coach roster:", err);
         setError(err.response?.data?.message || "Unable to load this coach’s roster.");
       })
       .finally(() => setLoading(false));
-  }, [trainer.trainer_id]);
+  }, [refreshRoster]);
+
+  useEffect(() => {
+    const refreshVisibleRoster = () => {
+      if (document.visibilityState !== "visible") return;
+
+      refreshRoster().catch((err) => {
+        console.error("Couldn't refresh workout counts:", err);
+        setError(err.response?.data?.message || "Workout counts couldn't be refreshed.");
+      });
+    };
+    const refreshWhenVisible = () => {
+      refreshVisibleRoster();
+    };
+    const intervalId = window.setInterval(refreshVisibleRoster, 15000);
+    window.addEventListener("focus", refreshVisibleRoster);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshVisibleRoster);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshRoster]);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -929,7 +967,35 @@ export default function Trainers() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-slate-600"><div className="flex flex-wrap gap-1.5 max-w-sm">{(trainer.specializations || normalizeSpecializations(trainer)).length ? (trainer.specializations || normalizeSpecializations(trainer)).slice(0, 3).map((item) => <span key={item} className="px-2 py-1 rounded-full bg-orange-50 text-orange-700 text-xs font-medium">{item}</span>) : <span>—</span>}{(trainer.specializations || normalizeSpecializations(trainer)).length > 3 && <span className="text-xs text-slate-400">+{(trainer.specializations || normalizeSpecializations(trainer)).length - 3} more</span>}</div></td>
+                    <td className="px-6 py-4 text-slate-600">
+                      <div className="flex max-w-sm flex-wrap items-center gap-1.5">
+                        {(() => {
+                          const specializations = normalizeSpecializations(trainer);
+                          return specializations.length ? (
+                            <>
+                              {specializations.slice(0, 3).map((item) => (
+                                <span
+                                  key={item}
+                                  title={item}
+                                  className="inline-flex max-w-[180px] items-center gap-1.5 rounded-lg border border-orange-200/80 bg-gradient-to-br from-orange-50 to-white px-2.5 py-1.5 text-xs font-semibold leading-tight text-orange-800 shadow-sm shadow-orange-900/[0.03] dark:border-orange-400/20 dark:from-orange-500/15 dark:to-orange-500/[0.06] dark:text-orange-300"
+                                >
+                                  <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500 dark:bg-orange-400" />
+                                  <span className="truncate">{item}</span>
+                                </span>
+                              ))}
+                              {specializations.length > 3 && (
+                                <span
+                                  title={specializations.slice(3).join(", ")}
+                                  className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-semibold text-slate-600 dark:border-white/10 dark:bg-white/[0.06] dark:text-slate-300"
+                                >
+                                  +{specializations.length - 3} more
+                                </span>
+                              )}
+                            </>
+                          ) : <span className="text-slate-400">—</span>;
+                        })()}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 text-slate-600">{trainer.phone || "—"}</td>
                     <td className="px-6 py-4">
                       <div className="min-w-36">

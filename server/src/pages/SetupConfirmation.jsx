@@ -68,7 +68,6 @@ export default function SetupConfirmation() {
         activity_level: healthData.experience || "Beginner",
         target_weight: goalData.targetWeight || null,
         workout_days_per_week: availability.daysPerWeek ? parseInt(availability.daysPerWeek) : null,
-        workout_duration: availability.duration || null,
         preferred_days: availability.days || [],
         intensity: healthData.intensity || null,
         injuries: healthData.injuries || [],
@@ -146,7 +145,6 @@ export default function SetupConfirmation() {
               <div className="bg-slate-900 rounded-2xl p-4 mb-4">
                 <h3 className="text-sm font-semibold text-slate-300 mb-2">Availability</h3>
                 <Row label="Days Per Week" value={availability.daysPerWeek || "—"} />
-                <Row label="Session Duration" value={availability.duration || "—"} />
                 <Row label="Workout Days" value={(availability.days || []).join(", ") || "—"} />
               </div>
 

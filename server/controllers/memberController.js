@@ -43,7 +43,6 @@ const requiredMemberFields = [
   ["fitness_goal", "fitness goal"],
   ["activity_level", "experience level"],
   ["workout_days_per_week", "workout days per week"],
-  ["workout_duration", "workout duration"],
   ["preferred_days", "preferred workout days"],
   ["injuries", "injury selection"],
   ["health_conditions", "health condition selection"],
@@ -53,7 +52,7 @@ const isMemberFieldComplete = (field, value) => {
   if (Array.isArray(value)) return value.length > 0;
   if (value === null || value === undefined || value === "") return false;
   if (typeof value === "string" && (!value.trim() || ["{}", "[]"].includes(value.trim()))) return false;
-  if (["age", "height", "weight", "workout_days_per_week", "workout_duration"].includes(field)) {
+  if (["age", "height", "weight", "workout_days_per_week"].includes(field)) {
     return Number.isFinite(Number(value)) && Number(value) > 0;
   }
   return true;
@@ -140,6 +139,22 @@ const getMembers = async (req, res) => {
     u.workout_duration,
     u.preferred_days,
     u.preferred_workout_time,
+    COALESCE((
+        SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+                'day_of_week', a.day_of_week,
+                'start_time', TO_CHAR(a.start_time, 'HH24:MI'),
+                'end_time', TO_CHAR(a.end_time, 'HH24:MI'),
+                'time_preference', a.time_preference
+            )
+            ORDER BY ARRAY_POSITION(
+                ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+                a.day_of_week
+            )
+        )
+        FROM user_workout_availability a
+        WHERE a.user_id = u.user_id
+    ), '[]'::json) AS weekly_availability,
     u.intensity,
     u.injuries,
     u.health_conditions,

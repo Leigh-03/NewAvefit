@@ -25,7 +25,6 @@ const PROFILE_CHANGE_LABELS = {
   activity_level: "Experience level",
   target_weight: "Target weight",
   workout_days_per_week: "Workout days per week",
-  workout_duration: "Workout duration",
   preferred_days: "Preferred days",
   weekly_availability: "Weekly workout availability",
   preferred_workout_time: "Preferred workout time",
@@ -44,9 +43,8 @@ const formatChangeValue = (value) => {
       `${slot.day_of_week} (${slot.time_preference || `${slot.start_time}-${slot.end_time}`})`
     ));
     const frequency = schedule.workout_days_per_week ? `${schedule.workout_days_per_week} workout days/week` : "";
-    const duration = schedule.workout_duration ? `${schedule.workout_duration} min/session` : "";
     const level = schedule.activity_level || "";
-    return [...days, frequency, duration, level].filter(Boolean).join(" · ") || "No availability selected";
+    return [...days, frequency, level].filter(Boolean).join(" · ") || "No availability selected";
   }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
@@ -264,7 +262,6 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
               ["Height (cm)", member.height],
               ["Weight (kg)", member.weight],
               ["Fitness goal", member.fitness_goal],
-              ["Preferred workout time", member.preferred_workout_time],
               ["Status", member.status],
             ].map(([label, value]) => (
               <div key={label} className="min-w-0 rounded-xl bg-slate-50 p-3 dark:bg-[#222]">
@@ -274,6 +271,29 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
             ))}
             <div className="rounded-xl bg-slate-50 p-3 dark:bg-[#222]"><p className="text-xs text-slate-400">Email verified</p><p className="mt-1 font-semibold text-slate-700 dark:text-gray-200">{member.email_verified ? "Yes" : "No"}</p></div>
           </div>
+          <section className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Training preferences</p>
+            <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
+              {Array.isArray(member.preferred_days)
+                ? member.preferred_days.join(", ") || "No preferred days set."
+                : member.preferred_days || "No preferred days set."}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {member.workout_days_per_week ? `${member.workout_days_per_week} days/week` : "Days/week not set"}
+            </p>
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              <span className="font-semibold">Preferred time:</span> {member.preferred_workout_time || "Not specified"}
+            </p>
+            {Array.isArray(member.weekly_availability) && member.weekly_availability.length > 0 && (
+              <ul className="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                {member.weekly_availability.map((slot) => (
+                  <li key={slot.day_of_week}>
+                    <span className="font-semibold">{slot.day_of_week}:</span> {slot.start_time}–{slot.end_time}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
           <div className="flex justify-end">
             <button type="button" onClick={() => onViewProgress(member)} className="inline-flex items-center gap-2 rounded-xl border border-orange-200 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 dark:border-orange-500/30 dark:text-orange-300 dark:hover:bg-orange-500/10">
               <TrendingUp size={16} /> View Progress
@@ -451,6 +471,35 @@ export default function Members() {
     finally { setLoading(false); }
   };
   useEffect(()=>{fetchData();},[]);
+  useEffect(() => {
+    let active = true;
+    const refreshHealthData = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const response = await api.get("/members");
+        if (!active) return;
+        const rows = (Array.isArray(response.data) ? response.data : (response.data?.data || []))
+          .map((member) => ({ ...member, fitness_goal: formatFitnessGoal(member.fitness_goal) }));
+        setMembers(rows);
+        setViewMember((current) => current
+          ? rows.find((row) => Number(row.member_id) === Number(current.member_id)) || current
+          : current);
+      } catch (error) {
+        if (!active) return;
+        console.error("Couldn't refresh member health information:", error);
+        setFetchError(error.response?.data?.message || "Member information couldn't be refreshed.");
+      }
+    };
+    const intervalId = window.setInterval(refreshHealthData, 15000);
+    window.addEventListener("focus", refreshHealthData);
+    document.addEventListener("visibilitychange", refreshHealthData);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshHealthData);
+      document.removeEventListener("visibilitychange", refreshHealthData);
+    };
+  }, []);
 
   const handleReviewChangeRequest = async (request, decision) => {
     setReviewingRequestId(request.request_id);
@@ -618,7 +667,7 @@ export default function Members() {
                       </div>
                     ) : (
                       <dl className="mt-3 grid gap-2 text-sm">
-                        {Object.entries(changes).map(([key, value]) => (
+                        {Object.entries(changes).filter(([key]) => key !== "workout_duration").map(([key, value]) => (
                           <div key={key} className="min-w-0 rounded-lg bg-slate-50 px-3 py-2 dark:bg-white/[0.04]">
                             <dt className="text-xs font-semibold text-slate-600 dark:text-slate-300">{PROFILE_CHANGE_LABELS[key] || key.replaceAll("_", " ")}</dt>
                             <dd className="mt-1 grid gap-1 break-words text-xs sm:grid-cols-[1fr_auto_1fr] sm:items-center">

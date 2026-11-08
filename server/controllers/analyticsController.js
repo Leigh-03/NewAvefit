@@ -40,6 +40,35 @@ const getTrainingPulse = async (req, res) => {
   try {
     const audience = req.trainingAudience;
     const trainerId = audience === "trainer" ? Number(req.trainer.trainer_id) : null;
+    const todayParts = new Intl.DateTimeFormat("en", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const todayValues = Object.fromEntries(todayParts.map(({ type, value }) => [type, value]));
+    const todayDate = `${todayValues.year}-${todayValues.month}-${todayValues.day}`;
+    const requestedDate = audience === "user" && typeof req.query.date === "string"
+      ? req.query.date
+      : todayDate;
+    const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+      ? new Date(`${requestedDate}T00:00:00.000Z`)
+      : null;
+    if (!parsedDate || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== requestedDate) {
+      return res.status(400).json({ success: false, message: "Choose a valid overview date." });
+    }
+    const dateForQueries = new Date(`${requestedDate}T12:00:00.000Z`);
+    const selectedWeekday = new Intl.DateTimeFormat("en", {
+      timeZone: "UTC",
+      weekday: "long",
+    }).format(dateForQueries);
+    const selectedDateLabel = new Intl.DateTimeFormat("en-PH", {
+      timeZone: "UTC",
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    }).format(dateForQueries);
+    const isToday = requestedDate === todayDate;
     const memberResult = await pool.query(`
       SELECT preferred_days, CONCAT_WS(' ', first_name, last_name) AS member_name
       FROM users
@@ -47,13 +76,9 @@ const getTrainingPulse = async (req, res) => {
         AND ($1::int IS NULL OR trainer_id = $1)
     `, [trainerId]);
 
-    const today = new Intl.DateTimeFormat("en", {
-      timeZone: "Asia/Manila",
-      weekday: "long",
-    }).format(new Date());
     const includeMemberNames = audience === "admin" || audience === "trainer";
-    const todayPrograms = getTodayProgramTotals(memberResult.rows, today, includeMemberNames);
-    const currentDay = WEEKDAYS.find((day) => day.toLowerCase() === today.toLowerCase());
+    const todayPrograms = getTodayProgramTotals(memberResult.rows, selectedWeekday, includeMemberNames);
+    const currentDay = WEEKDAYS.find((day) => day.toLowerCase() === selectedWeekday.toLowerCase());
     const availabilityResult = await pool.query(`
       SELECT period.label, COUNT(DISTINCT member.user_id)::int AS count
       FROM (VALUES
@@ -82,22 +107,24 @@ const getTrainingPulse = async (req, res) => {
         AND (
           (
             ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-            AND ws.session_date = TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD')
+            AND ws.session_date = $1
           )
           OR (
             ws.session_date::text !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-            AND LOWER(BTRIM(ws.session_date::text)) = LOWER(TO_CHAR(NOW() AT TIME ZONE 'Asia/Manila', 'FMDay'))
+            AND LOWER(BTRIM(ws.session_date::text)) = LOWER($2)
           )
         )
       GROUP BY BTRIM(e.equipment)
       ORDER BY count DESC, equipment ASC
       LIMIT 5
-    `);
+    `, [requestedDate, selectedWeekday]);
 
     return res.json({
       success: true,
       data: {
-        today,
+        today: selectedWeekday,
+        dateLabel: isToday ? `Today · ${selectedWeekday}` : selectedDateLabel,
+        dayLabel: isToday ? "today" : `on ${selectedDateLabel}`,
         todayPrograms,
         busiestProgram: todayPrograms[0] || null,
         todayAvailability: availabilityResult.rows,
@@ -106,7 +133,7 @@ const getTrainingPulse = async (req, res) => {
     });
   } catch (err) {
     console.error("getTrainingPulse error:", err.message);
-    return res.status(500).json({ success: false, message: "Unable to load today's training overview." });
+    return res.status(500).json({ success: false, message: "Unable to load the training overview." });
   }
 };
 

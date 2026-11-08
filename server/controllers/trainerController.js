@@ -49,8 +49,10 @@ const GOAL_SPECIALTIES = [
   "General Fitness",
 ];
 const DEFAULT_WORKOUT_SESSION_DURATION = 60;
-const formatWorkoutPlanName = (firstName, trainingProgram) =>
-  `${String(firstName || "Member").trim()}'s ${trainingProgram} day Workout Routine`;
+const formatWorkoutPlanName = (firstName, lastName, trainingProgram) => {
+  const memberName = `${String(firstName || "").trim()} ${String(lastName || "").trim()}`.trim() || "Member";
+  return `${memberName}'s ${trainingProgram} day Workout Routine`;
+};
 
 const timeToMinutes = (value) => {
   const [hours, minutes] = String(value).split(":").map(Number);
@@ -1103,6 +1105,12 @@ const getTrainerRoster = async (req, res) => {
         u.workout_duration,
         u.membership_start_date,
         u.membership_end_date,
+        t.full_name AS coach_name,
+        CASE
+          WHEN u.membership_start_date IS NULL OR u.membership_end_date IS NULL THEN 'Not set'
+          WHEN u.membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date THEN 'Expired'
+          ELSE 'Active'
+        END AS membership_status,
         COALESCE(user_availability.slots, '[]'::json) AS weekly_availability,
         pl.weight AS latest_weight,
         pl.bmi AS latest_bmi,
@@ -1110,6 +1118,8 @@ const getTrainerRoster = async (req, res) => {
         COALESCE(workout_stats.assigned_workouts, 0)::int AS assigned_workouts,
         COALESCE(workout_stats.completed_workouts, 0)::int AS completed_workouts
       FROM users u
+      LEFT JOIN trainers t
+        ON t.trainer_id = u.trainer_id
       LEFT JOIN LATERAL (
         SELECT JSON_AGG(
           JSON_BUILD_OBJECT(
@@ -1323,6 +1333,12 @@ const getMyRoster = async (req, res) => {
         u.workout_duration,
         u.membership_start_date,
         u.membership_end_date,
+        t.full_name AS coach_name,
+        CASE
+          WHEN u.membership_start_date IS NULL OR u.membership_end_date IS NULL THEN 'Not set'
+          WHEN u.membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date THEN 'Expired'
+          ELSE 'Active'
+        END AS membership_status,
         COALESCE(user_availability.slots, '[]'::json) AS weekly_availability,
         pl.weight AS latest_weight,
         pl.bmi AS latest_bmi,
@@ -1331,6 +1347,8 @@ const getMyRoster = async (req, res) => {
         COALESCE(workout_stats.completed_workouts, 0)::int AS completed_workouts,
         COALESCE(workout_days.workouts_by_day, '[]'::json) AS workouts_by_day
       FROM users u
+      LEFT JOIN trainers t
+        ON t.trainer_id = u.trainer_id
       LEFT JOIN LATERAL (
         SELECT
           weight,
@@ -1446,6 +1464,7 @@ const getMyWorkoutPlans = async (req, res) => {
         wp.workout_plan_id,
         wp.plan_name,
         wp.goal,
+        u.fitness_goal,
         u.target_weight,
         wp.training_program,
         wp.previous_training_program,
@@ -1599,7 +1618,7 @@ const createMyWorkoutPlan = async (req, res) => {
 
     const member = await client.query(
       `
-      SELECT user_id, first_name, email, activity_level, fitness_goal,
+      SELECT user_id, first_name, last_name, email, activity_level, fitness_goal,
              target_weight, membership_end_date,
              workout_days_per_week, preferred_days, injuries, health_conditions
       FROM users
@@ -1633,7 +1652,7 @@ const createMyWorkoutPlan = async (req, res) => {
         message: "Choose exercises for the program automatically assigned to this member's preferred workout day.",
       });
     }
-    const planName = formatWorkoutPlanName(memberPreferences.first_name, trainingProgram);
+    const planName = formatWorkoutPlanName(memberPreferences.first_name, memberPreferences.last_name, trainingProgram);
     const goal = memberPreferences.target_weight != null
       ? `Target weight: ${memberPreferences.target_weight} kg`
       : memberPreferences.fitness_goal || "Fitness goal not set";
@@ -1737,7 +1756,7 @@ const createMyWorkoutPlan = async (req, res) => {
           OR EXISTS (
             SELECT 1 FROM workout_sessions ws
             WHERE ws.workout_plan_id = wp.workout_plan_id
-              AND COALESCE(ws.session_date::text, '') = $2
+              AND COALESCE(ws.session_date::text, '') = $2::date::text
           )
         )
       LIMIT 1
@@ -2244,9 +2263,6 @@ const updateMyWorkoutPlan = async (req, res) => {
   if (!Number.isInteger(planId) || planId < 1) {
     return res.status(400).json({ success: false, message: "Choose a valid workout plan." });
   }
-  if (changeReason.length > 1000) {
-    return res.status(400).json({ success: false, message: "Enter a reason for changing this workout plan between 5 and 1000 characters." });
-  }
   const parsedSessionDate = typeof sessionDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sessionDate)
     ? new Date(`${sessionDate}T00:00:00.000Z`)
     : null;
@@ -2293,7 +2309,8 @@ const updateMyWorkoutPlan = async (req, res) => {
     const plan = await client.query(
       `
       SELECT wp.workout_plan_id, wp.user_id, wp.approval_status, wp.deletion_request_status,
-             wp.training_program, wp.goal, wp.request_type
+             wp.training_program, wp.goal, wp.request_type,
+             wp.requested_session_date::text AS requested_session_date
       FROM workout_plans wp
       JOIN users u ON u.user_id = wp.user_id
       WHERE wp.workout_plan_id = $1
@@ -2319,14 +2336,23 @@ const updateMyWorkoutPlan = async (req, res) => {
       `SELECT session_id, session_date::text AS session_date, started_at, completed
        FROM workout_sessions
        WHERE workout_plan_id = $1
+       ORDER BY session_date, session_id
        FOR UPDATE`,
       [planId]
     );
     const isInitialCoachRequest = plan.rows[0].request_type === "coach_created" && planSessions.rowCount === 0;
-    if (!isInitialCoachRequest && changeReason.length < 5) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(400).json({ success: false, message: "Enter a reason for changing this workout plan between 5 and 1000 characters." });
+    if (plan.rows[0].request_type === "coach_created") {
+      const currentSessionDate = String(
+        planSessions.rows[0]?.session_date || plan.rows[0].requested_session_date || ""
+      ).slice(0, 10);
+      if (currentSessionDate && sessionDate !== currentSessionDate) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: "The workout date requested by the member can't be changed.",
+        });
+      }
     }
     const currentDate = await client.query(
       "SELECT TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today"
@@ -2359,7 +2385,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     }
 
     const member = await client.query(
-      `SELECT user_id, first_name, email, activity_level, fitness_goal, workout_days_per_week, injuries, health_conditions
+      `SELECT user_id, first_name, last_name, email, activity_level, fitness_goal, workout_days_per_week, injuries, health_conditions
        FROM users
        WHERE user_id = $1 AND trainer_id = $2 AND LOWER(COALESCE(account_status, 'pending')) = 'active'`,
       [plan.rows[0].user_id, trainerId]
@@ -2441,7 +2467,7 @@ const updateMyWorkoutPlan = async (req, res) => {
             SELECT 1
             FROM workout_sessions ws
             WHERE ws.workout_plan_id = wp.workout_plan_id
-              AND COALESCE(ws.session_date::text, '') = $2
+              AND COALESCE(ws.session_date::text, '') = $2::date::text
           )
         )
       LIMIT 1
@@ -2567,6 +2593,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     // FIX: define planName once so it is in scope for both the UPDATE and the email below.
     const planName = formatWorkoutPlanName(
       member.rows[0].first_name,
+      member.rows[0].last_name,
       plan.rows[0].training_program || "Workout"
     );
 
@@ -2576,9 +2603,13 @@ const updateMyWorkoutPlan = async (req, res) => {
            scheduled_start_time = $3::time,
            scheduled_duration_minutes = $4,
            trainer_change_reason = $5,
-           approval_status = CASE WHEN approval_status = 'Rejected' THEN 'Pending' ELSE approval_status END
+           approval_status = CASE
+             WHEN $7::boolean THEN 'Approved'
+             WHEN approval_status = 'Rejected' THEN 'Pending'
+             ELSE approval_status
+           END
        WHERE workout_plan_id = $6`,
-      [planName, plan.rows[0].goal, scheduledStartTime, sessionDuration, changeReason, planId]
+      [planName, plan.rows[0].goal, scheduledStartTime, sessionDuration, changeReason, planId, isInitialCoachRequest]
     );
     await client.query("DELETE FROM workout_sessions WHERE workout_plan_id = $1", [planId]);
     for (const session of sessions) {
@@ -2592,11 +2623,12 @@ const updateMyWorkoutPlan = async (req, res) => {
 
     await client.query("COMMIT");
     transactionStarted = false;
-    const awaitingApproval = ["Pending", "Rejected"].includes(plan.rows[0].approval_status);
+    const awaitingApproval = !isInitialCoachRequest
+      && ["Pending", "Rejected"].includes(plan.rows[0].approval_status);
     await createNotification({
       audience: "user",
       recipientId: Number(plan.rows[0].user_id),
-      message: `Your coach updated your workout plan for ${sessionDate}. Reason: ${changeReason}${awaitingApproval ? " It is awaiting approval." : ""}`,
+      message: `Your coach updated your workout plan for ${sessionDate}.${changeReason ? ` Reason: ${changeReason}` : ""}${awaitingApproval ? " It is awaiting approval." : ""}`,
       notificationType: "workout",
       targetUrl: `/user/workout?planId=${planId}&date=${sessionDate}`,
     }).catch((notificationError) => {
@@ -2629,7 +2661,7 @@ const deleteMyWorkoutPlan = async (req, res) => {
     transactionStarted = true;
     const plan = await client.query(
       `
-      SELECT wp.workout_plan_id, wp.deletion_request_status
+      SELECT wp.workout_plan_id, wp.deletion_request_status, wp.requested_session_date
       FROM workout_plans wp
       WHERE wp.workout_plan_id = $1
         AND wp.trainer_id = $2
@@ -2665,29 +2697,23 @@ const deleteMyWorkoutPlan = async (req, res) => {
     }
 
     const planDate = await client.query(
-      `SELECT MIN(session_date) FILTER (
-         WHERE session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+      `SELECT COALESCE(
+         MIN(ws.session_date) FILTER (
+           WHERE ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+         ),
+         $2::date::text
        ) AS scheduled_date,
-       COALESCE(BOOL_OR(started_at IS NOT NULL OR completed = TRUE), FALSE) AS has_started,
        TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today
-       FROM workout_sessions
-       WHERE workout_plan_id = $1`,
-      [plan.rows[0].workout_plan_id]
+       FROM workout_sessions ws
+       WHERE ws.workout_plan_id = $1`,
+      [plan.rows[0].workout_plan_id, plan.rows[0].requested_session_date]
     );
-    if (planDate.rows[0].has_started) {
+    if (!planDate.rows[0].scheduled_date || planDate.rows[0].scheduled_date >= planDate.rows[0].today) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(409).json({
         success: false,
-        message: "This workout plan has started or finished and can no longer be changed.",
-      });
-    }
-    if (planDate.rows[0].scheduled_date && planDate.rows[0].scheduled_date < planDate.rows[0].today) {
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(409).json({
-        success: false,
-        message: "This workout plan's date has passed and it can no longer be changed.",
+        message: "Workout plans can only be deleted after their workout date has passed.",
       });
     }
 

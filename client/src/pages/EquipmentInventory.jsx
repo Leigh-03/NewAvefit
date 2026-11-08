@@ -356,9 +356,9 @@ export default function EquipmentInventory() {
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
         <div className="border-b border-slate-200 p-4 dark:border-white/10 sm:p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <label className="flex max-w-md flex-1 items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 dark:border-white/10">
-              <Search size={17} className="text-slate-400" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search equipment..." className="w-full border-0 bg-transparent text-sm outline-none focus:ring-0 dark:text-white" aria-label="Search equipment inventory" />
+            <label className="ave-search flex min-h-12 max-w-md flex-1 items-center gap-3 rounded-xl border px-4">
+              <Search size={18} className="shrink-0 text-slate-400" aria-hidden="true" />
+              <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search equipment..." className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none shadow-none focus:border-0 focus:ring-0 dark:text-white" aria-label="Search equipment inventory" />
             </label>
             <label htmlFor="equipment-status-filter" className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
               Filter by status
@@ -372,7 +372,7 @@ export default function EquipmentInventory() {
                 }}
                 className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
               >
-                <option value="All">All statuses</option>
+                <option value="All">All Status</option>
                 {STATUSES.map((status) => (
                   <option key={status} value={status}>{displayEquipmentStatus(status)}</option>
                 ))}

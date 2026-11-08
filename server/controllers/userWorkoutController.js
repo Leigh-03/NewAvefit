@@ -8,6 +8,7 @@ const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutG
 const {
   TRAINING_PROGRAMS,
   exerciseMatchesProgram,
+  isExerciseAllowedForExperience,
   getProgramForDate,
   getScheduledPrograms,
   requiresConservativeWorkout,
@@ -112,6 +113,9 @@ const requestWorkoutPlan = async (req, res) => {
   if ((requestType === "keep_current_program" || requestType === "specific_workout" || requestType === "program_change") && sessions.length > 30) {
     return res.status(400).json({ success: false, message: "A coach-requested workout can include up to 30 exercises." });
   }
+  if (requestType === "keep_current_program" && (sessions.length < 3 || sessions.length > 30)) {
+    return res.status(400).json({ success: false, message: "Add between 3 and 30 exercises for your coach to review." });
+  }
   if (normalizedRequestType === "coach_created" && requestType !== "keep_current_program" && sessions.length !== 0) {
     return res.status(400).json({ success: false, message: "A coach-created workout request must not include member-selected exercises." });
   }
@@ -145,9 +149,10 @@ const requestWorkoutPlan = async (req, res) => {
 
     const memberResult = await client.query(
       `SELECT u.user_id, u.first_name, u.last_name, u.email, u.trainer_id,
+              u.activity_level,
               u.fitness_goal, u.workout_days_per_week,
               u.preferred_days, u.injuries, u.health_conditions,
-              u.target_weight, u.membership_end_date,
+              u.target_weight, u.membership_start_date, u.membership_end_date,
               t.full_name AS trainer_name,
               t.email AS trainer_email
        FROM users u
@@ -184,6 +189,21 @@ const requestWorkoutPlan = async (req, res) => {
       return res.status(403).json({
         success: false,
         message: "Your membership has ended. You can continue using AveFit, but workout requests are unavailable until it is renewed.",
+      });
+    }
+    const membershipStartDate = member.membership_start_date
+      ? String(member.membership_start_date).slice(0, 10)
+      : null;
+    const membershipEndDate = member.membership_end_date
+      ? String(member.membership_end_date).slice(0, 10)
+      : null;
+    if ((membershipStartDate && sessionDate < membershipStartDate)
+      || (membershipEndDate && sessionDate > membershipEndDate)) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(403).json({
+        success: false,
+        message: "Workout requests must be scheduled within your membership period.",
       });
     }
 
@@ -223,30 +243,26 @@ const requestWorkoutPlan = async (req, res) => {
       const alreadySwitched = await client.query(
         `SELECT 1
          FROM workout_plans wp
-         JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
          WHERE wp.user_id = $1
-           AND wp.is_program_switch = TRUE
            AND wp.training_program = $2
+           AND wp.approval_status IN ('Approved', 'Pending')
            AND (
-             (CASE
-                WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN wp.requested_session_date::date
-                ELSE NULL
-              END >= DATE_TRUNC('week', $3::date)::date
-               AND CASE
-                   WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN wp.requested_session_date::date
-                   ELSE NULL
-                 END < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date)
+             CASE
+               WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                 THEN wp.requested_session_date::date >= DATE_TRUNC('week', $3::date)::date
+                   AND wp.requested_session_date::date < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date
+               ELSE FALSE
+             END
              OR EXISTS (
-               SELECT 1 FROM workout_sessions ws2
-               WHERE ws2.workout_plan_id = wp.workout_plan_id
+               SELECT 1
+               FROM workout_sessions ws
+               WHERE ws.workout_plan_id = wp.workout_plan_id
                  AND CASE
-                     WHEN ws2.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws2.session_date::date
-                     ELSE NULL
-                   END >= DATE_TRUNC('week', $3::date)::date
-                 AND CASE
-                     WHEN ws2.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws2.session_date::date
-                     ELSE NULL
-                   END < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date
+                   WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                     THEN ws.session_date::date >= DATE_TRUNC('week', $3::date)::date
+                       AND ws.session_date::date < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date
+                   ELSE FALSE
+                 END
              )
            )
          LIMIT 1`,
@@ -255,7 +271,7 @@ const requestWorkoutPlan = async (req, res) => {
       if (alreadySwitched.rowCount) {
         await client.query("ROLLBACK");
         transactionStarted = false;
-        return res.status(409).json({ success: false, message: "You have already requested this program switch this week." });
+        return res.status(409).json({ success: false, message: "This program is already selected for this week." });
       }
       const completedProgram = await client.query(
         `SELECT 1
@@ -313,6 +329,14 @@ const requestWorkoutPlan = async (req, res) => {
     const exercisesById = new Map(exercisesResult.rows.map((exercise) => [Number(exercise.exercise_id), exercise]));
     for (const session of sessions) {
       const exercise = exercisesById.get(Number(session.exercise_id));
+      if (!isExerciseAllowedForExperience(exercise, member.activity_level || "Beginner")) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: "Choose exercises that match your experience level.",
+        });
+      }
       if (!exerciseMatchesProgram(exercise, trainingProgram)) {
         await client.query("ROLLBACK");
         transactionStarted = false;
@@ -327,7 +351,7 @@ const requestWorkoutPlan = async (req, res) => {
         if (Number(session.sets) < 1 || Number(session.sets) > 2 || Number(session.reps) < 6 || Number(session.reps) > 10) {
           await client.query("ROLLBACK");
           transactionStarted = false;
-          return res.status(400).json({ success: false, message: "This reduced 1–2 sets / 6–10 reps range applies only when the member has injury or health-condition restrictions. Otherwise, the normal beginner minimum is 3 sets." });
+          return res.status(400).json({ success: false, message: "Use 1–2 sets and 6–10 reps for this exercise because the member has injury or health-condition restrictions." });
         }
       } else if (!isWorkoutDoseAllowed(member.fitness_goal, session.sets, session.reps)) {
         const rules = getWorkoutGoalRules(member.fitness_goal);
@@ -408,16 +432,18 @@ const requestWorkoutPlan = async (req, res) => {
       });
     }
 
-    const planName = `Program: ${trainingProgram}`;
+    const planMemberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || "Member";
+    const planName = `${planMemberName}'s ${trainingProgram} day Workout Routine`;
+    const approvalStatus = requestType === "coach_created" ? "Approved" : "Pending";
     const goal = member.target_weight != null && Number.isFinite(Number(member.target_weight))
       ? `Target weight: ${Number(member.target_weight)} kg`
       : member.fitness_goal || "Fitness goal not set";
     const planResult = await client.query(
       `INSERT INTO workout_plans
          (user_id, trainer_id, plan_name, goal, scheduled_duration_minutes, approval_status, training_program, previous_training_program, is_program_switch, request_type, requested_session_date, request_note)
-       VALUES ($1, $2, $3, $4, $5, 'Pending', $6, $7, $8, $9, $10, $11)
+       VALUES ($1, $2, $3, $4, $5, $12, $6, $7, $8, $9, $10, $11)
        RETURNING workout_plan_id, plan_name, goal, approval_status, training_program, previous_training_program, is_program_switch, request_type, request_note`,
-      [member.user_id, member.trainer_id, planName, goal, sessionDuration, trainingProgram, isProgramSwitch ? defaultProgram : null, isProgramSwitch, normalizedRequestType, sessionDate, requestNote || null]
+      [member.user_id, member.trainer_id, planName, goal, sessionDuration, trainingProgram, isProgramSwitch ? defaultProgram : null, isProgramSwitch, normalizedRequestType, sessionDate, requestNote || null, approvalStatus]
     );
     const planId = planResult.rows[0].workout_plan_id;
     for (const session of sessions) {
@@ -436,7 +462,9 @@ const requestWorkoutPlan = async (req, res) => {
     await createNotification({
       audience: "trainer",
       recipientId: member.trainer_id,
-      message: isProgramSwitch
+      message: normalizedRequestType === "coach_created" && sessions.length > 0
+        ? `${memberName} submitted a ${trainingProgram} workout for ${sessionDate}. Please review the workout.`
+        : isProgramSwitch
         ? normalizedRequestType === "coach_created"
           ? `${memberName} requested you to create a ${trainingProgram} workout for ${sessionDate}, switching from ${defaultProgram}. Review the request.`
           : `${memberName} requested a switch from ${defaultProgram} to ${trainingProgram}. Goal weight: ${member.target_weight == null ? "not set" : `${member.target_weight} kg`}. Review the workout request.`
@@ -463,6 +491,7 @@ const requestWorkoutPlan = async (req, res) => {
           isProgramSwitch,
           previousProgram: defaultProgram,
           requestType: normalizedRequestType,
+          hasSubmittedWorkout: sessions.length > 0,
           sessionDate,
         });
         emailSent = delivery.delivered;
@@ -483,9 +512,13 @@ const requestWorkoutPlan = async (req, res) => {
           : "Your request was submitted, but your coach's email could not be delivered. Please contact your coach."
         : emailSent
           ? normalizedRequestType === "coach_created"
-            ? "Workout request sent. Your coach has been notified by email and will create the plan."
+            ? sessions.length > 0
+              ? "Workout plan submitted. Your coach has been notified by email and will review it."
+              : "Workout request sent. Your coach has been notified by email and will create the plan."
             : "Workout plan submitted. Your coach has been notified by email."
-          : "Your request was submitted, but the coach email could not be delivered. Please contact your coach.",
+          : normalizedRequestType === "coach_created" && sessions.length > 0
+            ? "Workout plan submitted for your coach to review, but their email could not be delivered. Please contact your coach."
+            : "Your request was submitted, but the coach email could not be delivered. Please contact your coach.",
     });
   } catch (err) {
     if (transactionStarted) await client.query("ROLLBACK");
