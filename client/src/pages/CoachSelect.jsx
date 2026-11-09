@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import OnboardingShell from "../components/layout/OnboardingShell";
 import ScrollReveal from "../components/ScrollReveal";
 import { useNavigate } from "react-router-dom";
-import { Briefcase, Search, Sparkles, User, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Briefcase, CalendarClock, Search, Sparkles, User, X } from "lucide-react";
 import userApi from "../userApi";
 
 const GOAL_ALIASES = {
@@ -198,6 +198,87 @@ function ProfileModal({ trainer, onClose }) {
   );
 }
 
+function ScheduleMismatchModal({ trainer, onCancel, onContinue }) {
+  const cancelButtonRef = useRef(null);
+
+  useEffect(() => {
+    cancelButtonRef.current?.focus();
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="schedule-mismatch-title"
+        aria-describedby="schedule-mismatch-description"
+        className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#151515]"
+      >
+        <div className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 px-6 pb-5 pt-6 dark:border-white/10 dark:from-amber-500/10 dark:via-[#151515] dark:to-orange-500/10">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-black/5 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:hover:bg-white/10 dark:hover:text-white"
+            aria-label="Close schedule warning"
+          >
+            <X size={18} />
+          </button>
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+            <CalendarClock size={24} aria-hidden="true" />
+          </span>
+          <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
+            Schedule mismatch
+          </p>
+          <h2 id="schedule-mismatch-title" className="mt-1 pr-8 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            Check coach availability
+          </h2>
+        </div>
+
+        <div className="px-6 py-5">
+          <p id="schedule-mismatch-description" className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+            <span className="font-semibold text-slate-900 dark:text-white">{trainer.full_name}</span>
+            {"’s available times don’t fully match your preferred workout schedule. "}
+            You can choose another coach or continue with this coach and confirm your schedule later.
+          </p>
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs leading-5 text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span>Your coach assignment can still be submitted, but your preferred workout times may need to change.</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/80 p-4 sm:flex-row sm:justify-end dark:border-white/10 dark:bg-white/[0.03]">
+          <button
+            ref={cancelButtonRef}
+            type="button"
+            onClick={onCancel}
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/[0.06]"
+          >
+            Choose another coach
+          </button>
+          <button
+            type="button"
+            onClick={onContinue}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-bold text-white shadow-lg shadow-orange-500/20 transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#151515]"
+          >
+            Continue anyway
+            <ArrowRight size={16} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CoachCard({ trainer, recommended, goalMatch, selected, onProfile, onSelect }) {
   return (
     <div className="coach-card-interactive overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-orange-500/60 dark:bg-[#171717] dark:border-slate-800">
@@ -256,6 +337,7 @@ export default function CoachSelect() {
   const [availability, setAvailability] = useState({});
   const [search, setSearch] = useState("");
   const [selectedTrainerId, setSelectedTrainerId] = useState("");
+  const [showScheduleConfirmation, setShowScheduleConfirmation] = useState(false);
 
   useEffect(() => {
     const readSessionValue = (key, fallback) => {
@@ -311,8 +393,8 @@ export default function CoachSelect() {
   };
 
   const handleContinue = () => {
-    if (selectedTrainer && !selectedTrainer.schedule_compatible &&
-      !window.confirm(`${selectedTrainer.full_name}'s available times do not match your preferred workout schedule. Do you want to continue with this coach anyway?`)) {
+    if (selectedTrainer && !selectedTrainer.schedule_compatible) {
+      setShowScheduleConfirmation(true);
       return;
     }
     navigate("/user/confirm");
@@ -509,6 +591,13 @@ export default function CoachSelect() {
         <ProfileModal
           trainer={profile}
           onClose={() => setProfile(null)}
+        />
+      )}
+      {showScheduleConfirmation && selectedTrainer && (
+        <ScheduleMismatchModal
+          trainer={selectedTrainer}
+          onCancel={() => setShowScheduleConfirmation(false)}
+          onContinue={() => navigate("/user/confirm")}
         />
       )}
     </>

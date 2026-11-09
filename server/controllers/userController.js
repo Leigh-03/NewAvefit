@@ -1582,6 +1582,7 @@ const updateProfile = async (req, res) => {
       });
     }
 
+    const currentUser = current.rows[0];
     await pool.query(
       `
       UPDATE users
@@ -1611,39 +1612,63 @@ const updateProfile = async (req, res) => {
       WHERE user_id=$23
       `,
       [
-        first_name
+        first_name !== undefined && first_name !== null
           ? String(first_name).trim()
-          : first_name,
-        last_name
+          : currentUser.first_name,
+        last_name !== undefined && last_name !== null
           ? String(last_name).trim()
-          : last_name,
-        email
+          : currentUser.last_name,
+        email !== undefined && email !== null
           ? normalizeEmail(email)
-          : email,
-        gender,
-        birth_date || null,
-        height || null,
-        weight || null,
-        fitness_goal,
-        activity_level,
-        phone,
-        age ?? null,
-        target_weight ?? null,
-        workout_days_per_week ?? null,
-        normalizedWorkoutDuration,
-        preferred_days ?? null,
-        preferred_workout_time ?? null,
-        intensity ?? null,
-        normalizedInjuries,
-        normalizedHealthConditions,
-        typeof setup_completed === "boolean"
-          ? setup_completed
-          : null,
-        profile_image ?? null,
-        selectedTrainerId,
+          : currentUser.email,
+        gender ?? currentUser.gender,
+        birth_date !== undefined && birth_date !== null ? birth_date : currentUser.birth_date,
+        height !== undefined && height !== null ? height : currentUser.height,
+        weight !== undefined && weight !== null ? weight : currentUser.weight,
+        fitness_goal !== undefined && fitness_goal !== null ? fitness_goal : currentUser.fitness_goal,
+        activity_level !== undefined && activity_level !== null ? activity_level : currentUser.activity_level,
+        phone !== undefined && phone !== null ? phone : currentUser.phone,
+        age ?? currentUser.age,
+        target_weight ?? currentUser.target_weight,
+        workout_days_per_week ?? currentUser.workout_days_per_week,
+        normalizedWorkoutDuration ?? currentUser.workout_duration,
+        preferred_days ?? currentUser.preferred_days,
+        preferred_workout_time ?? currentUser.preferred_workout_time,
+        intensity ?? currentUser.intensity,
+        normalizedInjuries ?? currentUser.injuries,
+        normalizedHealthConditions ?? currentUser.health_conditions,
+        typeof setup_completed === "boolean" ? setup_completed : currentUser.setup_completed,
+        profile_image ?? currentUser.profile_image,
+        selectedTrainerId ?? currentUser.trainer_id,
         req.user.user_id,
       ]
     );
+
+    const assessmentWeight = Number(weight);
+    const assessmentHeight = Number(height);
+    if (
+      currentUser.setup_completed !== true &&
+      setup_completed !== true &&
+      weight !== undefined &&
+      height !== undefined &&
+      Number.isFinite(assessmentWeight) &&
+      assessmentWeight >= 20 &&
+      assessmentWeight <= 200 &&
+      Number.isFinite(assessmentHeight) &&
+      assessmentHeight > 0
+    ) {
+      const assessmentBmi = (assessmentWeight / ((assessmentHeight / 100) ** 2)).toFixed(2);
+      await pool.query(
+        `
+        INSERT INTO progress_logs (user_id, weight, bmi, log_date)
+        SELECT $1, $2, $3, (NOW() AT TIME ZONE 'Asia/Manila')::date
+        WHERE NOT EXISTS (
+          SELECT 1 FROM progress_logs WHERE user_id = $1
+        )
+        `,
+        [req.user.user_id, assessmentWeight, assessmentBmi]
+      );
+    }
 
     // Keep the admin member record synchronized with the registered user.
     // A member record is created the first time onboarding is completed;

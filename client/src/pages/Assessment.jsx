@@ -15,8 +15,8 @@ export default function Assessment() {
   const { user } = useUserAuth();
   const [gender, setGender] = useState(user?.gender || "Male");
   const [age, setAge] = useState(user?.age?.toString() || "");
-  const [weight, setWeight] = useState(user?.weight?.toString() || "");
-  const [height, setHeight] = useState(user?.height?.toString() || "");
+  const [weight, setWeight] = useState("");
+  const [height, setHeight] = useState("");
   const [bmi, setBmi] = useState(null);
   const [bmiCategory, setBmiCategory] = useState("");
   const [calculated, setCalculated] = useState(false);
@@ -27,8 +27,6 @@ export default function Assessment() {
     if (!user) return;
     setGender(user.gender || "Male");
     setAge(user.age != null ? String(user.age) : "");
-    setWeight(user.weight != null ? String(user.weight) : "");
-    setHeight(user.height != null ? String(user.height) : "");
     setCalculated(false);
     setBmi(null);
     setFormError("");
@@ -98,8 +96,12 @@ export default function Assessment() {
       });
       navigate("/user/goal");
     } catch (err) {
-      console.error(err);
-      setFormError("We couldn't save your assessment. Please try again.");
+      console.error("Assessment save failed:", err.response?.data || err.message);
+      const message =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        "We couldn't save your assessment. Please try again.";
+      setFormError(message);
     }
   };
 

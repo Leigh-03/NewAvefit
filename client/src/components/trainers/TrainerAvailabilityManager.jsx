@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { CalendarClock, Plus, Save, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CalendarClock, Check, ChevronDown, Clock3, Plus, Save, Trash2, X } from "lucide-react";
 import api from "../../services/api";
 import trainerApi from "../../trainerApi";
 
@@ -35,6 +35,76 @@ const formatTime = (value) => {
   const parts = toClockParts(value);
   return `${parts.hour}:${parts.minute} ${parts.period}`;
 };
+
+function AvailabilityRangePicker({ id, value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const selectedOption = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutsideClick = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative w-full max-w-[24rem]">
+      <button
+        id={id}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={`${id}-options`}
+        onClick={() => setOpen((current) => !current)}
+        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-300 bg-white px-3.5 text-left text-sm text-slate-800 shadow-sm transition hover:border-orange-400 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50 dark:border-gray-700 dark:bg-[#111] dark:text-white dark:hover:border-orange-500/60"
+      >
+        <span className="flex min-w-0 items-center gap-2.5">
+          <Clock3 size={16} aria-hidden="true" className="shrink-0 text-orange-500" />
+          <span className="truncate font-semibold">{selectedOption?.label || "Choose availability"}</span>
+        </span>
+        <ChevronDown size={18} aria-hidden="true" className={`shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <ul id={`${id}-options`} role="listbox" aria-label="Availability time range" className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[95] space-y-1 rounded-xl border border-slate-200 bg-white p-2 shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-[#141414] dark:ring-white/10">
+          {options.map((option) => {
+            const selected = option.value === value;
+            return (
+              <li key={option.value} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  className={`flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-3 text-left text-sm transition ${
+                    selected
+                      ? "bg-orange-50 font-semibold text-orange-800 ring-1 ring-inset ring-orange-200 dark:bg-orange-500/10 dark:text-orange-200 dark:ring-orange-500/25"
+                      : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {selected && <Check size={16} aria-hidden="true" className="shrink-0 text-orange-600 dark:text-orange-400" />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function TimeOfDaySelect({ id, label, value, onChange }) {
   const parts = toClockParts(value);
@@ -320,17 +390,15 @@ export default function TrainerAvailabilityManager({
                           ) : (
                             <>
                               <label className="sr-only" htmlFor={`range-${slot.id}`}>{day} availability time</label>
-                              <select
+                              <AvailabilityRangePicker
                                 id={`range-${slot.id}`}
                                 value={slot.custom ? "custom" : AVAILABILITY_RANGES.find((range) => range.start_time === slot.start_time && range.end_time === slot.end_time)?.value || "custom"}
-                                onChange={(event) => updateSlotRange(slot.id, event.target.value)}
-                                className="w-full max-w-[24rem] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-gray-700 dark:bg-[#111] dark:text-white"
-                              >
-                                <option value="custom">Custom · {formatTime(slot.start_time)}–{formatTime(slot.end_time)}</option>
-                                {AVAILABILITY_RANGES.map((range) => (
-                                  <option key={range.value} value={range.value}>{range.label}</option>
-                                ))}
-                              </select>
+                                options={[
+                                  { value: "custom", label: `Custom · ${formatTime(slot.start_time)}–${formatTime(slot.end_time)}` },
+                                  ...AVAILABILITY_RANGES,
+                                ]}
+                                onChange={(value) => updateSlotRange(slot.id, value)}
+                              />
                             </>
                           )}
                           {!isAdmin && (slot.custom || AVAILABILITY_RANGES.every((range) => range.start_time !== slot.start_time || range.end_time !== slot.end_time)) && (

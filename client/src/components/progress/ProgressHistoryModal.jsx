@@ -13,6 +13,21 @@ function formatDate(value) {
   return new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" }).format(date);
 }
 
+function formatWeightDifference(entries, index) {
+  if (index === 0 || entries[index]?.weight == null || entries[index - 1]?.weight == null) return "—";
+  const difference = Number(entries[index].weight) - Number(entries[index - 1].weight);
+  if (!Number.isFinite(difference)) return "—";
+  return `${difference > 0 ? "+" : ""}${difference.toFixed(2)} kg`;
+}
+
+function formatWeightToTarget(weight, targetWeight) {
+  if (weight == null || targetWeight == null) return "—";
+  const difference = Number(targetWeight) - Number(weight);
+  if (!Number.isFinite(difference)) return "—";
+  if (difference.toFixed(2) === "0.00") return "Target reached";
+  return `${Math.abs(difference).toFixed(2)} kg to ${difference > 0 ? "gain" : "lose"}`;
+}
+
 export default function ProgressHistoryModal({ member, fetchProgress, onClose }) {
   const memberId = member?.member_id ?? member?.user_id;
   const [entries, setEntries] = useState([]);
@@ -92,10 +107,10 @@ export default function ProgressHistoryModal({ member, fetchProgress, onClose })
                   }} />
                 </div>
                 <div className="mt-5 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                  <table className="w-full min-w-[760px] text-left text-sm">
+                  <table className="w-full min-w-[1100px] text-left text-sm">
                     <thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-white/5">
                       <tr>
-                        {["Date", "Weight", "BMI", "Body fat"].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}
+                        {["Date", "Weight", "BMI", "Weight difference", "Weight to target", "Target weight"].map((label) => <th key={label} className="px-4 py-3">{label}</th>)}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -104,7 +119,11 @@ export default function ProgressHistoryModal({ member, fetchProgress, onClose })
                           <td className="px-4 py-3">{formatDate(entry.log_date)}</td>
                           <td className="px-4 py-3">{entry.weight ?? "—"}{entry.weight != null ? " kg" : ""}</td>
                           <td className="px-4 py-3">{entry.bmi ?? "—"}</td>
-                          <td className="px-4 py-3">{entry.body_fat ?? "—"}{entry.body_fat != null ? "%" : ""}</td>
+                          <td className="px-4 py-3">
+                            {formatWeightDifference(entries, entries.length - index - 1)}
+                          </td>
+                          <td className="px-4 py-3">{formatWeightToTarget(entry.weight, member.target_weight)}</td>
+                          <td className="px-4 py-3">{member.target_weight == null ? "—" : `${Number(member.target_weight).toFixed(2)} kg`}</td>
                         </tr>
                       ))}
                     </tbody>

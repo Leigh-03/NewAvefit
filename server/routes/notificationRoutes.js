@@ -21,6 +21,7 @@ const createAudienceRouter = (audience, authenticate) => {
   audienceRouter.get("/unread-count", controller.getUnreadCount);
   audienceRouter.put("/mark-all-read", controller.markAllAsRead);
   audienceRouter.put("/:id/read", controller.markAsRead);
+  audienceRouter.delete("/read", controller.deleteReadNotifications);
   audienceRouter.delete("/:id", controller.deleteNotification);
   return audienceRouter;
 };

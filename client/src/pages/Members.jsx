@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck, TrendingUp, Mail } from "lucide-react";
+import { Search, Check, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck, TrendingUp, Mail, AlertTriangle } from "lucide-react";
 import api from "../services/api";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
@@ -48,6 +48,18 @@ const formatChangeValue = (value) => {
   }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+};
+
+const toHealthNotes = (value) => {
+  const noReportValues = new Set(["none", "no injury", "no injuries", "no condition", "no conditions", "n/a"]);
+  const items = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.replace(/^\{|\}$/g, "").split(",")
+      : [];
+  return items
+    .map((item) => String(item).trim().replace(/^["']|["']$/g, ""))
+    .filter((item) => item && !noReportValues.has(item.toLowerCase()));
 };
 
 function getBMICategory(bmi) {
@@ -175,13 +187,13 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
   const [recommendations, setRecommendations] = useState([]);
   const [recommendationMessage, setRecommendationMessage] = useState("");
   const [recommendationsLoading, setRecommendationsLoading] = useState(true);
-  const [membershipMonths, setMembershipMonths] = useState(member.membership_months || "");
+  const [membershipMonths, setMembershipMonths] = useState(member.membership_months || 1);
   const [savingChanges, setSavingChanges] = useState(false);
   const [changesError, setChangesError] = useState("");
   const assignedTrainer = trainers.find(t => Number(t.trainer_id) === Number(member.trainer_id));
   const canEditMembershipAndCoach = String(member.status || "").trim() === "Active";
   useEffect(() => {
-    setMembershipMonths(member.membership_months || "");
+    setMembershipMonths(member.membership_months || 1);
     setSelectedTrainer(member.trainer_id || "");
     let active = true;
     setRecommendationsLoading(true);
@@ -226,6 +238,8 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
   const selectedCoach = recommendations.find((coach) => String(coach.trainer_id) === String(selectedTrainer));
   const coachChanged = String(selectedTrainer || "") !== String(member.trainer_id || "");
   const hasChanges = membershipChanged || coachChanged;
+  const injuries = toHealthNotes(member.injuries);
+  const healthConditions = toHealthNotes(member.health_conditions);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
@@ -294,6 +308,16 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
               </ul>
             )}
           </section>
+          <section aria-labelledby="member-health-safety-heading" className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+            <h3 id="member-health-safety-heading" className="flex items-center gap-2 text-sm font-semibold text-amber-500 dark:text-amber-400">
+              <AlertTriangle size={16} aria-hidden="true" />
+              Health &amp; Safety Assessment
+            </h3>
+            <div className="mt-3 space-y-1 text-sm text-amber-700 dark:text-amber-200">
+              <p><span className="font-semibold">Injury:</span> {injuries.join(", ") || "None reported"}</p>
+              <p><span className="font-semibold">Health Condition:</span> {healthConditions.join(", ") || "None reported"}</p>
+            </div>
+          </section>
           <div className="flex justify-end">
             <button type="button" onClick={() => onViewProgress(member)} className="inline-flex items-center gap-2 rounded-xl border border-orange-200 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 dark:border-orange-500/30 dark:text-orange-300 dark:hover:bg-orange-500/10">
               <TrendingUp size={16} /> View Progress
@@ -331,7 +355,6 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                   disabled={!canEditMembershipAndCoach}
                   className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-[#111] dark:text-white"
                 >
-                  <option value="">Not selected</option>
                   {[1, 3, 6, 12].map((months) => (
                     <option key={months} value={months}>{months === 12 ? "1 year" : `${months} ${months === 1 ? "month" : "months"}`}</option>
                   ))}
@@ -442,6 +465,8 @@ export default function Members() {
   const [sendingReportMemberId, setSendingReportMemberId] = useState(null);
   const [sendingAllReports, setSendingAllReports] = useState(false);
   const [reportNotice, setReportNotice] = useState({ message: "", error: "" });
+  const [sentReportMemberIds, setSentReportMemberIds] = useState(() => new Set());
+  const [allReportsSent, setAllReportsSent] = useState(false);
 
   const fetchData = async () => {
     setLoading(true); setFetchError("");
@@ -536,8 +561,9 @@ export default function Members() {
     setSendingReportMemberId(member.member_id);
     setReportNotice({ message: "", error: "" });
     try {
-      const response = await api.post(`/analytics/weekly-progress-report/${member.member_id}`);
-      setReportNotice({ message: `${response.data.message} (${member.full_name})`, error: "" });
+      await api.post(`/analytics/weekly-progress-report/${member.member_id}`);
+      setReportNotice({ message: `Weekly progress report sent to ${member.full_name}.`, error: "" });
+      setSentReportMemberIds((current) => new Set(current).add(Number(member.member_id)));
     } catch (error) {
       setReportNotice({
         message: "",
@@ -550,10 +576,18 @@ export default function Members() {
 
   const sendAllMemberReports = async () => {
     setSendingAllReports(true);
+    setAllReportsSent(false);
     setReportNotice({ message: "", error: "" });
     try {
       const response = await api.post("/analytics/weekly-progress-report");
       setReportNotice({ message: response.data.message, error: "" });
+      const sentIds = (response.data.sent_user_ids || []).map(Number);
+      setSentReportMemberIds((current) => new Set([...current, ...sentIds]));
+      setAllReportsSent(
+        response.data.member_count > 0 &&
+        response.data.failed_count === 0 &&
+        response.data.sent_count === response.data.member_count
+      );
     } catch (error) {
       setReportNotice({
         message: "",
@@ -737,14 +771,14 @@ export default function Members() {
     <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-5">
       <summary className="cursor-pointer list-none text-lg font-bold text-slate-900 marker:hidden dark:text-white">
         <span className="inline-flex items-center gap-2"><Mail size={18} className="text-orange-500" /> Weekly Progress Reports</span>
-        <span className="mt-1 block text-sm font-normal text-slate-600 dark:text-slate-400">Open to send a report to one member or all active members.</span>
+        <span className="mt-1 block text-sm font-normal text-slate-600 dark:text-slate-400">Email a personalized progress summary to one member or all eligible active members.</span>
       </summary>
       <section aria-labelledby="weekly-progress-report-title" className="mt-4 space-y-4 border-t border-slate-200 pt-4 dark:border-white/10">
       <div>
-        <h2 id="weekly-progress-report-title" className="text-lg font-bold text-slate-900 dark:text-white">Weekly Progress Report</h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Send an individual report or send reports to all active users.</p>
+        <h2 id="weekly-progress-report-title" className="text-lg font-bold text-slate-900 dark:text-white">Send weekly progress reports</h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Each report includes the member’s latest measurements and completed workouts from the past 7 days.</p>
         <button type="button" onClick={sendAllMemberReports} disabled={sendingAllReports || sendingReportMemberId !== null} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60">
-          <Mail size={15} />{sendingAllReports ? "Sending reports..." : "Send to all active members"}
+          {sendingAllReports ? <><Mail size={15} />Sending reports...</> : allReportsSent ? <><Check size={16} />Sent to all eligible members</> : <><Mail size={15} />Send to all active members</>}
         </button>
       </div>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -754,8 +788,8 @@ export default function Members() {
               <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{member.full_name}</p>
               <p className="truncate text-xs text-slate-500">{member.email}</p>
             </div>
-            <button type="button" onClick={() => sendMemberReport(member)} disabled={sendingReportMemberId !== null || sendingAllReports} aria-label={`Send weekly progress report to ${member.full_name}`} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60">
-              <Mail size={14} />{sendingReportMemberId === member.member_id ? "Sending..." : "Send"}
+            <button type="button" onClick={() => sendMemberReport(member)} disabled={sendingReportMemberId !== null || sendingAllReports || sentReportMemberIds.has(Number(member.member_id))} aria-label={sentReportMemberIds.has(Number(member.member_id)) ? `Weekly progress report sent to ${member.full_name}` : `Send weekly progress report to ${member.full_name}`} className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${sentReportMemberIds.has(Number(member.member_id)) ? "bg-green-700" : "bg-orange-600 hover:bg-orange-700"}`}>
+              {sendingReportMemberId === member.member_id ? <><Mail size={14} />Sending...</> : sentReportMemberIds.has(Number(member.member_id)) ? <><Check size={14} />Sent</> : <><Mail size={14} />Send</>}
             </button>
           </div>
         ))}

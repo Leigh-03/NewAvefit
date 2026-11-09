@@ -220,7 +220,7 @@ export default function AboutUs() {
 
           <div className="grid gap-3">
             <label className="text-xs font-medium text-slate-600 dark:text-slate-300 sm:col-span-2">
-              Message *
+              Message
               <textarea
                 rows={4}
                 value={feedback.message}

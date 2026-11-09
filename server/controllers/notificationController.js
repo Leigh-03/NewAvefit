@@ -82,10 +82,30 @@ const deleteNotification = async (req, res) => {
   }
 };
 
+const deleteReadNotifications = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `DELETE FROM app_notifications
+       WHERE audience_type = $1 AND recipient_id = $2 AND is_read = true
+       RETURNING notification_id`,
+      [req.notificationAudience, req.notificationRecipientId]
+    );
+    res.json({
+      success: true,
+      deleted_count: result.rowCount,
+      message: "Read notifications deleted.",
+    });
+  } catch (err) {
+    console.error("deleteReadNotifications error:", err.message);
+    res.status(500).json({ success: false, message: "Unable to delete read notifications." });
+  }
+};
+
 module.exports = {
   getNotifications,
   getUnreadCount,
   markAsRead,
   markAllAsRead,
   deleteNotification,
+  deleteReadNotifications,
 };

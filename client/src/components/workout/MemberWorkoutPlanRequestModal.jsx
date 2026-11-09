@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 import userApi from "../../userApi";
+import ExercisePicker from "./ExercisePicker";
+import ProgramPicker from "./ProgramPicker";
 import { philippinesDateString } from "../../utils/philippinesDate";
 import { getWorkoutGoalRules } from "../../utils/workoutGoalRules";
 import {
@@ -344,8 +346,15 @@ export default function MemberWorkoutPlanRequestModal({
               Today&apos;s program: {programLabel(defaultProgram)}. Options are limited to your {workoutDays.length || workoutFrequency}-day weekly split.
             </p>
             <div className="mt-4 space-y-3">
-              <label className={`block rounded-xl border p-3 ${isKeepCurrentProgram ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}>
-                <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <div
+                onClick={(event) => {
+                  if (!event.target.closest("button, input, label") && !isKeepCurrentProgram) {
+                    handleRequestTypeChange("keep_current_program");
+                  }
+                }}
+                className={`block rounded-xl border p-3 transition-colors ${isKeepCurrentProgram ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
                   <input
                     type="radio"
                     name="workout-request-type"
@@ -354,15 +363,22 @@ export default function MemberWorkoutPlanRequestModal({
                     onChange={() => handleRequestTypeChange("keep_current_program")}
                   />
                   Keep My Current Program
-                </span>
+                </label>
                 <span className="mt-2 block pl-6 text-xs text-slate-500">Create a workout plan based on your current program and send it to your trainer for review.</span>
                 <div className="mt-3 ml-6 rounded-lg border border-slate-300 bg-slate-100/70 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-[#171717] dark:text-slate-200">
                   Current split: <span className="font-semibold text-slate-900 dark:text-white">{programLabel(defaultProgram || "Current program")}</span>
                 </div>
-              </label>
+              </div>
 
-              <label className={`block rounded-xl border p-3 ${isProgramChange ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}>
-                <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <div
+                onClick={(event) => {
+                  if (!event.target.closest("button, input, label") && !isProgramChange) {
+                    handleRequestTypeChange("program_change");
+                  }
+                }}
+                className={`block rounded-xl border p-3 transition-colors ${isProgramChange ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
                   <input
                     type="radio"
                     name="workout-request-type"
@@ -372,28 +388,33 @@ export default function MemberWorkoutPlanRequestModal({
                     onChange={() => handleRequestTypeChange("program_change")}
                   />
                   Request a Program Change
-                </span>
+                </label>
                 <span className="mt-2 block pl-6 text-xs text-slate-500">Create a new workout routine and request a different program for your trainer to review.</span>
                 <div className="mt-3 ml-6 rounded-lg border border-slate-300 bg-slate-100/70 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-[#171717] dark:text-slate-200">
                   Current program: <span className="font-semibold text-slate-900 dark:text-white">{programLabel(defaultProgram || "Current program")}</span>
                 </div>
                 <div className="mt-3 ml-6">
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Requested new split</label>
-                  <select
-                    aria-label="Requested new program"
+                  <p className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Requested new split</p>
+                  <ProgramPicker
+                    ariaLabel="Requested new program"
                     value={isProgramChange ? selectedProgram : ""}
                     disabled={!isProgramChange || !hasAvailableSwitchPrograms}
-                    onChange={(event) => handleProgramChange(event.target.value)}
-                    className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-[#171717] dark:text-white"
-                  >
-                    <option value="">Select alternate split</option>
-                    {availableSwitchPrograms.map((program) => <option key={program} value={program}>{programLabel(program)}</option>)}
-                  </select>
+                    placeholder="Select alternate split"
+                    options={availableSwitchPrograms.map((program) => ({ value: program, label: programLabel(program) }))}
+                    onChange={handleProgramChange}
+                  />
                 </div>
-              </label>
+              </div>
 
-              <label className={`block rounded-xl border p-3 ${isSpecificWorkout ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}>
-                <span className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              <div
+                onClick={(event) => {
+                  if (!event.target.closest("button, input, label") && !isSpecificWorkout) {
+                    handleRequestTypeChange("specific_workout");
+                  }
+                }}
+                className={`block rounded-xl border p-3 transition-colors ${isSpecificWorkout ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
                   <input
                     type="radio"
                     name="workout-request-type"
@@ -402,25 +423,23 @@ export default function MemberWorkoutPlanRequestModal({
                     onChange={() => handleRequestTypeChange("specific_workout")}
                   />
                   Request workout from your coach
-                </span>
+                </label>
                 <span className="mt-2 block pl-6 text-xs text-slate-500">Send a request to your trainer for a workout plan using an unfinished program from your weekly split.</span>
                 <div className="mt-3 ml-6 rounded-lg border border-slate-300 bg-slate-100/70 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-[#171717] dark:text-slate-200">
                   Current program: <span className="font-semibold text-slate-900 dark:text-white">{programLabel(defaultProgram || "Current program")}</span>
                 </div>
                 <div className="mt-3 ml-6">
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Requested program</label>
-                  <select
-                    aria-label="Requested program"
+                  <p className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Requested program</p>
+                  <ProgramPicker
+                    ariaLabel="Requested program"
                     value={isSpecificWorkout ? selectedProgram : ""}
                     disabled={!isSpecificWorkout || !hasAvailableCoachRequestPrograms}
-                    onChange={(event) => handleProgramChange(event.target.value)}
-                    className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:opacity-60 dark:border-slate-700 dark:bg-[#171717] dark:text-white"
-                  >
-                    <option value="">{hasAvailableCoachRequestPrograms ? "Select program" : "No programs available"}</option>
-                    {availableCoachRequestPrograms.map((program) => <option key={program} value={program}>{programLabel(program)}</option>)}
-                  </select>
+                    placeholder={hasAvailableCoachRequestPrograms ? "Select program" : "No programs available"}
+                    options={availableCoachRequestPrograms.map((program) => ({ value: program, label: programLabel(program) }))}
+                    onChange={handleProgramChange}
+                  />
                 </div>
-              </label>
+              </div>
             </div>
             {isProgramChange && selectedProgram && (
               <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-300">
@@ -456,14 +475,28 @@ export default function MemberWorkoutPlanRequestModal({
                   <div key={`request-exercise-${index}`} className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800 sm:grid-cols-[minmax(0,1fr)_90px_90px_36px]">
                     <label className="col-span-2 min-w-0 text-xs font-semibold text-slate-500 sm:col-span-1">
                       Exercise {index + 1}
-                      <select value={session.exercise_id} onChange={(event) => handleExerciseSelection(index, event.target.value)} required className="mt-1 block min-h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white">
-                        <option value="">Choose exercise</option>
-                        {visibleExercises.map((exercise) => (
-                          <option key={exercise.exercise_id} value={exercise.exercise_id} disabled={sessions.some((other, otherIndex) => otherIndex !== index && String(other.exercise_id) === String(exercise.exercise_id))}>
-                            {exercise.exercise_name}{scheduledExerciseIds.has(String(exercise.exercise_id)) ? " (Scheduled this week)" : ""}{requiresConservativeWorkout(exercise, injuries, healthConditions) ? " (Beginner / conservative)" : ""}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="mt-1">
+                        <ExercisePicker
+                          id={`member-request-exercise-${index}`}
+                          value={session.exercise_id}
+                          options={visibleExercises.map((exercise) => ({
+                            ...exercise,
+                            disabled: sessions.some((other, otherIndex) =>
+                              otherIndex !== index && String(other.exercise_id) === String(exercise.exercise_id)
+                            ),
+                          }))}
+                          onChange={(exerciseId) => handleExerciseSelection(index, exerciseId)}
+                          placeholder="Choose an exercise"
+                          getBadges={(exercise) => [
+                            ...(scheduledExerciseIds.has(String(exercise.exercise_id))
+                              ? [{ label: "Scheduled this week", className: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300" }]
+                              : []),
+                            ...(requiresConservativeWorkout(exercise, injuries, healthConditions)
+                              ? [{ label: "Beginner / conservative", className: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" }]
+                              : []),
+                          ]}
+                        />
+                      </div>
                       {scheduledExerciseIds.has(String(session.exercise_id)) && (
                         <span className="mt-1 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-500/15 dark:text-blue-300">
                           Scheduled this week

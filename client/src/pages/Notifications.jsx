@@ -12,9 +12,23 @@ const typeColors = {
   general: "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
 };
 
-const notificationTypeLabel = (type) => ({
-  bmi_reminder: "BMI reminder",
-}[type] || type.replaceAll("_", " "));
+const isMissingWorkoutNotification = (notification, audience) => (
+  audience === "trainer" &&
+  notification.notification_type === "workout" &&
+  notification.message?.toLowerCase().includes("workout is still missing")
+);
+
+const notificationTypeLabel = (notification, audience) => {
+  if (isMissingWorkoutNotification(notification, audience)) return "Missing Workout";
+  if (notification.notification_type === "bmi_reminder") return "BMI reminder";
+  return notification.notification_type.replaceAll("_", " ");
+};
+
+const getNotificationColor = (notification, audience) => (
+  isMissingWorkoutNotification(notification, audience)
+    ? "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"
+    : typeColors[notification.notification_type] || typeColors.general
+);
 
 export default function Notifications({ audience = "admin" }) {
   const notificationsApi = useMemo(() => createNotificationsApi(audience), [audience]);
@@ -78,7 +92,20 @@ export default function Notifications({ audience = "admin" }) {
     }
   };
 
-  const getNotificationTarget = (targetUrl) => {
+  const handleDeleteRead = async () => {
+    setActionError("");
+    setBusyAction("delete-read");
+    try {
+      await notificationsApi.delete("/read");
+      setNotifications((prev) => prev.filter((notification) => !notification.is_read));
+    } catch (err) {
+      setActionError(err.response?.data?.message || "Unable to delete read notifications.");
+    } finally {
+      setBusyAction("");
+    }
+  };
+
+  const getNotificationTarget = (targetUrl, notification) => {
     if (!targetUrl || targetUrl === "/") {
       return audience === "admin"
         ? "/admin/notifications"
@@ -93,6 +120,15 @@ export default function Notifications({ audience = "admin" }) {
       return "/trainer/workout-plans";
     }
 
+    if (
+      audience === "trainer" &&
+      notification?.notification_type === "workout" &&
+      targetUrl === "/trainer/workout-plans" &&
+      notification.user_name
+    ) {
+      return `/trainer/workout-plans?createForName=${encodeURIComponent(notification.user_name)}`;
+    }
+
     return targetUrl;
   };
 
@@ -103,6 +139,7 @@ export default function Notifications({ audience = "admin" }) {
   });
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const readCount = notifications.length - unreadCount;
 
   return (
     <div className="space-y-6">
@@ -133,25 +170,37 @@ export default function Notifications({ audience = "admin" }) {
       </header>
 
       {/* Filter tabs */}
-      <div className="flex gap-2" role="group" aria-label="Filter notifications">
-        {["All", "Unread", "Read"].map((f) => (
-          <button
-            key={f}
-            type="button"
-            aria-pressed={filter === f}
-            onClick={() => setFilter(f)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
-              filter === f ? "bg-orange-500 text-white" : "border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 dark:border-white/10 dark:bg-[#111] dark:text-slate-300 dark:hover:bg-white/5"
-            }`}
-          >
-            {f}
-            {f === "Unread" && unreadCount > 0 && (
-              <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">
-                {unreadCount}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-2" role="group" aria-label="Filter notifications">
+          {["All", "Unread", "Read"].map((f) => (
+            <button
+              key={f}
+              type="button"
+              aria-pressed={filter === f}
+              onClick={() => setFilter(f)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
+                filter === f ? "bg-orange-500 text-white" : "border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 dark:border-white/10 dark:bg-[#111] dark:text-slate-300 dark:hover:bg-white/5"
+              }`}
+            >
+              {f}
+              {f === "Unread" && unreadCount > 0 && (
+                <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={handleDeleteRead}
+          disabled={busyAction !== "" || readCount === 0}
+          title="Delete all read notifications"
+          className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10"
+        >
+          <Trash2 size={16} aria-hidden="true" />
+          Delete All
+        </button>
       </div>
 
       {/* Notifications list */}
@@ -178,7 +227,7 @@ export default function Notifications({ audience = "admin" }) {
                 }`}
               >
                 {/* Type badge */}
-                <div className={`mt-1 rounded-lg border p-2 flex-shrink-0 ${typeColors[notif.notification_type] || typeColors.general}`}>
+                <div className={`mt-1 rounded-lg border p-2 flex-shrink-0 ${getNotificationColor(notif, audience)}`}>
                   <Bell size={16} />
                 </div>
 
@@ -197,8 +246,8 @@ export default function Notifications({ audience = "admin" }) {
                       <span className="text-xs text-slate-400">{notif.user_name}</span>
                     )}
                     {notif.notification_type && (
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeColors[notif.notification_type] || typeColors.general}`}>
-                        {notificationTypeLabel(notif.notification_type)}
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getNotificationColor(notif, audience)}`}>
+                        {notificationTypeLabel(notif, audience)}
                       </span>
                     )}
                     <span className="text-xs text-slate-400">
@@ -206,7 +255,7 @@ export default function Notifications({ audience = "admin" }) {
                     </span>
                   </div>
                   {(() => {
-                    const target = getNotificationTarget(notif.target_url);
+                    const target = getNotificationTarget(notif.target_url, notif);
                     return target && (
                       <Link
                         to={target}

@@ -9,7 +9,7 @@ const {
 } = require("../controllers/userController");
 const { submitMembershipTermRequest, getMembershipTermRequest } = require("../controllers/memberController");
 const { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
-const { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
+const { getProgress, logProgress, updateUserGoal, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
 const { getTrainingPulse } = require("../controllers/analyticsController");
 const { getActiveTrainers } = require("../controllers/trainerController");
 const workoutAvailabilityController = require("../controllers/userWorkoutAvailabilityController");
@@ -63,6 +63,7 @@ router.delete("/workouts/reset/week", verifyUser, resetWeek);
 // Progress
 router.get("/progress", verifyUser, getProgress);
 router.post("/progress", verifyUser, logProgress);
+router.put("/profile/goal", verifyUser, updateUserGoal);
 router.post("/progress/predict", verifyUser, calculatePrediction);
 router.post("/progress/auto-predict", verifyUser, autoPredict);
 

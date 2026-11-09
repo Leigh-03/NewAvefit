@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Boxes, ChevronDown, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Boxes, Check, ChevronDown, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import api from "../services/api";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 
 const normalizeEquipmentStatus = (status) => {
   const cleaned = String(status || "").trim();
@@ -23,17 +25,142 @@ const CONDITIONS_BY_STATUS = {
   "In service": ["Good", "Rusty"],
   "Needs replacement": ["Poor", "Damaged", "Worn"],
 };
-const STATUSES = Object.keys(CONDITIONS_BY_STATUS);
+const STATUSES = Object.keys(CONDITIONS_BY_STATUS).filter((status) => status !== "Needs inspection");
 
 const emptyForm = {
   equipment_name: "",
-  quantity: "0",
-  condition: "Not assessed",
+  quantity: "1",
+  condition: "Good",
   condition_notes: "",
-  status: "Needs inspection",
+  status: "In service",
 };
 
-function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, deleteError }) {
+function EquipmentSelect({ id, value, options, onChange, disabled = false, ariaLabel }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const [menuPosition, setMenuPosition] = useState(null);
+  const [menuIsDark, setMenuIsDark] = useState(false);
+  const selectedOption = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const updateMenuPosition = () => {
+      const bounds = triggerRef.current?.getBoundingClientRect();
+      if (!bounds) return;
+      const gap = 6;
+      const desiredHeight = Math.min(240, options.length * 40 + 16);
+      const spaceBelow = window.innerHeight - bounds.bottom - gap - 8;
+      const spaceAbove = bounds.top - gap - 8;
+      const placeBelow = spaceBelow >= desiredHeight || spaceBelow >= spaceAbove;
+      const maxHeight = Math.max(80, Math.min(desiredHeight, placeBelow ? spaceBelow : spaceAbove));
+      const width = Math.min(Math.max(bounds.width, 240), window.innerWidth - 16);
+      const left = Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8));
+      const hasDarkAncestor = Boolean(rootRef.current?.closest(".dark"));
+      setMenuIsDark(
+        hasDarkAncestor ||
+        document.documentElement.classList.contains("dark") ||
+        document.body.classList.contains("dark")
+      );
+      setMenuPosition({
+        left,
+        width,
+        maxHeight,
+        ...(placeBelow
+          ? { top: bounds.bottom + gap }
+          : { bottom: window.innerHeight - bounds.top + gap }),
+      });
+    };
+    const closeOnOutsideClick = (event) => {
+      if (!rootRef.current?.contains(event.target) && !menuRef.current?.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    updateMenuPosition();
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [open, options.length]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        id={id}
+        ref={triggerRef}
+        type="button"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((current) => !current)}
+        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm text-slate-800 shadow-sm transition hover:border-orange-400 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-white/10 dark:bg-[#111] dark:text-white dark:hover:border-orange-500/60"
+      >
+        <span className="truncate font-semibold">{selectedOption?.label || value}</span>
+        <ChevronDown size={17} aria-hidden="true" className={`shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && !disabled && menuPosition && createPortal(
+        <ul
+          ref={menuRef}
+          role="listbox"
+          aria-label={ariaLabel}
+          style={{ ...menuPosition, position: "fixed" }}
+          className={`z-[120] space-y-1 overflow-y-auto rounded-xl border p-2 text-sm shadow-2xl ${
+            menuIsDark
+              ? "border-slate-700 bg-[#141414] text-slate-100 ring-1 ring-white/10"
+              : "border-slate-200 bg-white text-slate-800 ring-1 ring-black/5"
+          }`}
+        >
+          {options.map((option) => {
+            const selected = option.value === value;
+            return (
+              <li key={option.value} role="presentation">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  disabled={option.disabled}
+                  onClick={() => {
+                    if (option.disabled) return;
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  className={`flex min-h-10 w-full items-center justify-between gap-2 whitespace-nowrap rounded-lg px-3 text-left text-sm transition ${
+                    option.disabled
+                      ? `cursor-not-allowed opacity-50 ${menuIsDark ? "text-slate-400" : "text-slate-500"}`
+                      : selected
+                        ? menuIsDark
+                          ? "bg-orange-500/15 font-semibold text-orange-200 ring-1 ring-inset ring-orange-500/40"
+                          : "bg-orange-50 font-semibold text-orange-800 ring-1 ring-inset ring-orange-200"
+                        : menuIsDark
+                          ? "text-slate-100 hover:bg-white/10"
+                          : "text-slate-800 hover:bg-slate-100"
+                  }`}
+                >
+                  <span>{option.label}</span>
+                  {selected && <Check size={15} aria-hidden="true" className="shrink-0 text-orange-600 dark:text-orange-400" />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>,
+        document.body
+      )}
+    </div>
+  );
+}
+
+function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting }) {
   const normalizedEquipmentStatus = equipment ? normalizeEquipmentStatus(equipment.status) : "";
   const fallbackStatus = normalizedEquipmentStatus && CONDITIONS_BY_STATUS[normalizedEquipmentStatus]
     ? normalizedEquipmentStatus
@@ -54,10 +181,20 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
 
   const submit = async (event) => {
     event.preventDefault();
+    if (!equipment && !/^[\p{L}\s]+$/u.test(form.equipment_name.trim())) {
+      setError("Equipment name is required and can contain letters and spaces only.");
+      return;
+    }
+    if (!/^\d+$/.test(form.quantity) || Number(form.quantity) < 1 || Number(form.quantity) > 50) {
+      setError("Quantity must be a whole number from 1 to 50.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      const payload = { ...form, quantity: Number(form.quantity), status: normalizeEquipmentStatus(form.status) };
+      const payload = equipment
+        ? { ...form, quantity: Number(form.quantity), status: normalizeEquipmentStatus(form.status) }
+        : { ...form, quantity: Number(form.quantity), condition: "Good", status: "In service" };
       if (equipment) {
         await api.put(`/workouts/equipment/${equipment.equipment_id}`, payload);
       } else {
@@ -72,9 +209,7 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
     }
   };
 
-  const removeEquipment = async () => {
-    if (await onDelete(equipment)) onClose();
-  };
+  const removeEquipment = () => onDelete(equipment);
 
   const fieldClass = "mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-white";
 
@@ -89,7 +224,7 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
         </header>
         <form onSubmit={submit} className="space-y-4 p-5">
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-            Equipment name *
+            Equipment name
             <input
               required
               maxLength={120}
@@ -100,39 +235,67 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
             />
           </label>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-            Quantity *
+            Quantity
             <input
               required
-              type="number"
-              min="0"
-              max="100000"
-              step="1"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              min="1"
+              max="50"
+              maxLength={2}
               value={form.quantity}
-              onChange={(event) => setForm({ ...form, quantity: event.target.value })}
+              onChange={(event) => setForm({
+                ...form,
+                quantity: event.target.value.replace(/\D/g, "").slice(0, 2),
+              })}
+              onBlur={() => {
+                if (!form.quantity) setError("Quantity must be a whole number from 1 to 50.");
+              }}
               className={fieldClass}
             />
           </label>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-            Status *
-            <select value={form.status} onChange={(event) => {
-              const status = event.target.value;
-              const nextConditions = CONDITIONS_BY_STATUS[status] || ["Not assessed"];
-              setForm({ ...form, status, condition: nextConditions[0] || "Not assessed" });
-            }} className={fieldClass}>
-              {STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
-            </select>
-          </label>
-          <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-            Condition *
-            <select
-              value={form.condition}
-              disabled={availableConditions.length === 1}
-              onChange={(event) => setForm({ ...form, condition: event.target.value })}
-              className={fieldClass}
-            >
-              {availableConditions.map((condition) => <option key={condition} value={condition}>{condition}</option>)}
-            </select>
-          </label>
+          <div className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+            <p>Status</p>
+            {equipment ? (
+              <div className="mt-1">
+                <EquipmentSelect
+                  id="equipment-status"
+                  ariaLabel="Equipment status"
+                  value={form.status}
+                  options={[
+                    ...(form.status === "Needs inspection"
+                      ? [{ value: "Needs inspection", label: "Needs inspection", disabled: true }]
+                      : []),
+                    ...STATUSES.map((status) => ({ value: status, label: status })),
+                  ]}
+                  onChange={(status) => {
+                    const nextConditions = CONDITIONS_BY_STATUS[status] || ["Not assessed"];
+                    setForm({ ...form, status, condition: nextConditions[0] || "Not assessed" });
+                  }}
+                />
+              </div>
+            ) : (
+              <span className={`${fieldClass} block cursor-not-allowed opacity-75`}>In service</span>
+            )}
+          </div>
+          <div className="block text-sm font-medium text-slate-700 dark:text-slate-200">
+            <p>Condition</p>
+            {equipment ? (
+              <div className="mt-1">
+                <EquipmentSelect
+                  id="equipment-condition"
+                  ariaLabel="Equipment condition"
+                  value={form.condition}
+                  disabled={availableConditions.length === 1}
+                  options={availableConditions.map((condition) => ({ value: condition, label: condition }))}
+                  onChange={(condition) => setForm({ ...form, condition })}
+                />
+              </div>
+            ) : (
+              <span className={`${fieldClass} block cursor-not-allowed opacity-75`}>Good</span>
+            )}
+          </div>
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
             Condition details
             <textarea
@@ -145,7 +308,6 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting, d
             />
           </label>
           {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
-          {deleteError && <p role="alert" className="text-sm text-red-500">{deleteError}</p>}
           <footer className="flex flex-wrap justify-between gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
             {equipment && (
               <button
@@ -182,6 +344,7 @@ export default function EquipmentInventory() {
   const [search, setSearch] = useState("");
   const [expandedEquipment, setExpandedEquipment] = useState(null);
   const [editingEquipment, setEditingEquipment] = useState(null);
+  const [confirmDeleteEquipment, setConfirmDeleteEquipment] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [deletingEquipmentId, setDeletingEquipmentId] = useState(null);
   const [deleteError, setDeleteError] = useState("");
@@ -245,7 +408,6 @@ export default function EquipmentInventory() {
   const underMaintenanceCount = equipment.filter((item) => normalizeEquipmentStatus(item.status) === "Under Maintenance").length;
 
   const handleDelete = async (item) => {
-    if (!window.confirm(`Remove "${item.equipment_name}" from the inventory? The record will be hidden but preserved for existing workout references.`)) return;
     setDeletingEquipmentId(item.equipment_id);
     setDeleteError("");
     setError("");
@@ -253,6 +415,8 @@ export default function EquipmentInventory() {
       await api.delete(`/workouts/equipment/${item.equipment_id}`);
       setEquipment((current) => current.filter((entry) => entry.equipment_id !== item.equipment_id));
       setExpandedEquipment((current) => current === item.equipment_id ? null : current);
+      setConfirmDeleteEquipment(null);
+      setEditingEquipment((current) => current?.equipment_id === item.equipment_id ? null : current);
       return true;
     } catch (requestError) {
       const message = requestError.response?.data?.message || "Unable to remove equipment.";
@@ -271,9 +435,27 @@ export default function EquipmentInventory() {
           equipment={editingEquipment}
           onClose={() => { setShowAddModal(false); setEditingEquipment(null); }}
           onSaved={fetchEquipment}
-          onDelete={handleDelete}
+          onDelete={(item) => {
+            setDeleteError("");
+            setConfirmDeleteEquipment(item);
+          }}
           deleting={deletingEquipmentId === editingEquipment?.equipment_id}
-          deleteError={deleteError}
+        />
+      )}
+      {confirmDeleteEquipment && (
+        <ConfirmDialog
+          title={`Remove "${confirmDeleteEquipment.equipment_name}" from inventory?`}
+          description="The equipment will be hidden from inventory but preserved for existing workout references."
+          confirmLabel="Remove equipment"
+          isLoading={deletingEquipmentId === confirmDeleteEquipment.equipment_id}
+          error={deleteError}
+          onCancel={() => {
+            if (!deletingEquipmentId) {
+              setConfirmDeleteEquipment(null);
+              setDeleteError("");
+            }
+          }}
+          onConfirm={() => handleDelete(confirmDeleteEquipment)}
         />
       )}
       <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
@@ -360,24 +542,23 @@ export default function EquipmentInventory() {
               <Search size={18} className="shrink-0 text-slate-400" aria-hidden="true" />
               <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search equipment..." className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none shadow-none focus:border-0 focus:ring-0 dark:text-white" aria-label="Search equipment inventory" />
             </label>
-            <label htmlFor="equipment-status-filter" className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
-              Filter by status
-              <select
-                id="equipment-status-filter"
-                name="equipment-status-filter"
-                value={selectedStatusFilter || "All"}
-                onChange={(event) => {
-                  const nextStatus = event.target.value === "All" ? "" : event.target.value;
-                  setSearchParams(nextStatus ? { status: nextStatus } : {});
-                }}
-                className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
-              >
-                <option value="All">All Status</option>
-                {STATUSES.map((status) => (
-                  <option key={status} value={status}>{displayEquipmentStatus(status)}</option>
-                ))}
-              </select>
-            </label>
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+              <label htmlFor="equipment-status-filter">Filter by status</label>
+              <div className="w-44">
+                <EquipmentSelect
+                  id="equipment-status-filter"
+                  ariaLabel="Filter by equipment status"
+                  value={selectedStatusFilter || "All"}
+                  options={[
+                    { value: "All", label: "All Status" },
+                    ...STATUSES.map((status) => ({ value: status, label: displayEquipmentStatus(status) })),
+                  ]}
+                  onChange={(status) => {
+                    setSearchParams(status !== "All" ? { status } : {});
+                  }}
+                />
+              </div>
+            </div>
           </div>
         </div>
         {loading ? <p className="p-8 text-center text-sm text-slate-500">Loading equipment...</p> : filteredEquipment.length ? (

@@ -1430,6 +1430,47 @@ const getMyRoster = async (req, res) => {
   }
 };
 
+const getMyMissingWorkouts = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      WITH schedule AS (
+        SELECT (NOW() AT TIME ZONE 'Asia/Manila')::date + 1 AS workout_date
+      )
+      SELECT
+        u.user_id,
+        CONCAT_WS(' ', u.first_name, u.last_name) AS member_name,
+        TO_CHAR(schedule.workout_date, 'YYYY-MM-DD') AS workout_date
+      FROM users u
+      CROSS JOIN schedule
+      WHERE u.trainer_id = $1
+        AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+        AND u.setup_completed = TRUE
+        AND COALESCE(cardinality(u.preferred_days), 0) > 0
+        AND (u.membership_end_date IS NULL OR u.membership_end_date >= schedule.workout_date)
+        AND LOWER(TO_CHAR(schedule.workout_date, 'FMDay')) = ANY (
+          SELECT LOWER(BTRIM(day_name))
+          FROM UNNEST(u.preferred_days) AS days(day_name)
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM workout_plans wp
+          JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+          WHERE wp.user_id = u.user_id
+            AND ws.session_date = TO_CHAR(schedule.workout_date, 'YYYY-MM-DD')
+        )
+      ORDER BY u.first_name ASC, u.last_name ASC
+      `,
+      [req.trainer.trainer_id]
+    );
+
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error("getMyMissingWorkouts error:", err.message);
+    res.status(500).json({ success: false, message: "Unable to load members with missing workouts." });
+  }
+};
+
 const getMyMemberProgress = async (req, res) => {
   const userId = Number(req.params.userId);
   if (!Number.isInteger(userId) || userId < 1) {
@@ -1492,14 +1533,7 @@ const getMyWorkoutPlans = async (req, res) => {
             AND plan_sessions.completed_count = plan_sessions.exercise_count
             THEN 'Complete'
           WHEN plan_sessions.scheduled_date IS NULL
-            OR plan_sessions.scheduled_date > TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD')
-            OR (
-              plan_sessions.scheduled_date = TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD')
-              AND (
-                wp.scheduled_start_time IS NULL
-                OR wp.scheduled_start_time > (NOW() AT TIME ZONE 'Asia/Manila')::time
-              )
-            )
+            OR plan_sessions.scheduled_date >= TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD')
             THEN 'Active'
           WHEN plan_sessions.completed_count = 0 THEN 'Absent'
           ELSE 'Incomplete'
@@ -3372,6 +3406,7 @@ module.exports = {
   getTrainerRoster,
   loginTrainer,
   getMyRoster,
+  getMyMissingWorkouts,
   getMyMemberProgress,
   getMyProfile,
   updateMyPhoto,

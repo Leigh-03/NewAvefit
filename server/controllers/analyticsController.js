@@ -154,13 +154,17 @@ const getWeeklyProgressRows = async (userId = null) => {
         current_progress.weight AS current_weight,
         current_progress.bmi AS current_bmi,
         current_progress.body_fat AS current_body_fat,
+        current_progress.waist AS current_waist,
+        current_progress.chest AS current_chest,
+        current_progress.hips AS current_hips,
+        current_progress.left_arm AS current_left_arm,
         current_progress.log_date AS progress_date,
         previous_progress.weight AS previous_weight,
         COALESCE(workout_progress.completed_count, 0)::int AS completed_workouts,
         COALESCE(workout_progress.plan_names, '') AS completed_plan_names
       FROM users u
       LEFT JOIN LATERAL (
-        SELECT weight, bmi, body_fat, log_date
+        SELECT weight, bmi, body_fat, waist, chest, hips, left_arm, log_date
         FROM progress_logs
         WHERE user_id = u.user_id
           AND log_date >= (NOW() AT TIME ZONE 'Asia/Manila')::date - 6
@@ -204,6 +208,10 @@ const buildWeeklyProgressReport = (member) => {
           ["Weight", member.current_weight, "kg"],
           ["BMI", member.current_bmi, ""],
           ["Body fat", member.current_body_fat, "%"],
+          ["Waist", member.current_waist, ""],
+          ["Chest", member.current_chest, ""],
+          ["Hips", member.current_hips, ""],
+          ["Left arm", member.current_left_arm, ""],
         ].filter(([, value]) => value !== null && value !== undefined)
           .map(([label, value, unit]) => `${label}: ${value}${unit}`);
         achievements.push(`Logged progress on ${new Date(member.progress_date).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}${measurements.length ? ` — ${measurements.join(", ")}` : ""}`);
@@ -220,25 +228,68 @@ const buildWeeklyProgressReport = (member) => {
 };
 
 const sendMemberWeeklyProgressReport = async (member) => {
-    const report = buildWeeklyProgressReport(member);
-    const text = [
-      `Weekly Progress Report for ${report.name}`,
-      "Reporting window: the last 7 days",
-      "",
-      ...report.achievements.map((achievement) => `- ${achievement}`),
-      "",
-      "Avenue Power & Fitness Gym",
-    ].join("\n");
-    const achievementsHtml = report.achievements
-      .map((achievement) => `<li style="margin:0 0 8px;">${escapeHtml(achievement)}</li>`)
-      .join("");
-    const html = `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><tr><td style="padding:22px 28px;background:#f97316;color:#fff;"><strong style="font-size:20px;">Weekly Progress Report</strong><p style="margin:6px 0 0;">Last 7 days · ${escapeHtml(new Date().toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }))}</p></td></tr><tr><td style="padding:24px 28px;"><p style="margin:0 0 16px;">Hi ${escapeHtml(report.name)}, here is your progress summary for the past week:</p><ul style="padding-left:20px;line-height:1.6;">${achievementsHtml}</ul><p style="margin:24px 0 0;color:#64748b;font-size:13px;">Avenue Power &amp; Fitness Gym</p></td></tr></table></body></html>`;
-    return sendMail({
-      to: report.email,
-      subject: "Weekly Progress Report",
-      text,
-      html,
-    });
+  const report = buildWeeklyProgressReport(member);
+  const reportDate = new Date().toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
+    dateStyle: "long",
+  });
+  const text = [
+    `Weekly Progress Report for ${report.name}`,
+    `Reporting window: the last 7 days · ${reportDate}`,
+    "",
+    "Your progress summary:",
+    ...report.achievements.map((achievement) => `• ${achievement}`),
+    "",
+    "Keep up your consistency, and log your progress regularly to track your journey.",
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const achievementsHtml = report.achievements
+    .map((achievement) => (
+      `<tr><td style="padding:0 0 12px;color:#334155;font-size:15px;line-height:24px;">&#8226;&nbsp; ${escapeHtml(achievement)}</td></tr>`
+    ))
+    .join("");
+  const safeName = escapeHtml(report.name);
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Weekly Progress Report</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#f1f5f9" style="width:100%;border-collapse:collapse;background-color:#f1f5f9;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" width="600" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="width:100%;max-width:600px;border-collapse:collapse;background-color:#ffffff;border:1px solid #e2e8f0;">
+            <tr>
+              <td bgcolor="#f97316" style="padding:24px;background-color:#f97316;color:#ffffff;">
+                <h1 style="margin:0;font-size:22px;line-height:28px;font-weight:700;color:#ffffff;">Weekly Progress Report</h1>
+                <p style="margin:8px 0 0;font-size:14px;line-height:20px;color:#ffffff;">Your update for the last 7 days · ${escapeHtml(reportDate)}</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px;">
+                <p style="margin:0 0 20px;font-size:16px;line-height:24px;color:#0f172a;">Hi ${safeName}, here is your progress summary:</p>
+                <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
+                  ${achievementsHtml}
+                </table>
+                <p style="margin:12px 0 0;font-size:14px;line-height:22px;color:#475569;">Keep up your consistency, and log your progress regularly to track your journey.</p>
+                <p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;line-height:18px;color:#64748b;">Avenue Power &amp; Fitness Gym</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({
+    to: report.email,
+    subject: "Your Weekly Progress Report",
+    text,
+    html,
+  });
 };
 
 const sendWeeklyProgressReport = async (req, res) => {
@@ -258,11 +309,15 @@ const sendWeeklyProgressReport = async (req, res) => {
     }
 
     let sentCount = 0;
+    const sentUserIds = [];
     const failed = [];
     for (const member of members) {
       try {
         const delivery = await sendMemberWeeklyProgressReport(member);
-        if (delivery.delivered) sentCount += 1;
+        if (delivery.delivered) {
+          sentCount += 1;
+          sentUserIds.push(member.user_id);
+        }
         else failed.push(member.email);
       } catch (emailError) {
         console.error(`Weekly progress report delivery failed for user ${member.user_id}:`, emailError.message);
@@ -280,11 +335,12 @@ const sendWeeklyProgressReport = async (req, res) => {
     return res.json({
       success: true,
       message: userId === null
-        ? `Weekly Progress Report sent to ${sentCount} of ${members.length} active users${failed.length ? `; ${failed.length} failed` : ""}.`
-        : "Weekly Progress Report sent.",
+        ? `Sent weekly progress reports to ${sentCount} of ${members.length} active members${failed.length ? `; ${failed.length} failed` : ""}.`
+        : "Weekly progress report sent.",
       member_count: members.length,
       sent_count: sentCount,
       failed_count: failed.length,
+      sent_user_ids: sentUserIds,
     });
   } catch (err) {
     console.error("sendWeeklyProgressReport error:", err.message);

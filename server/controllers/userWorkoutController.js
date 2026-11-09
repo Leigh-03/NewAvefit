@@ -152,7 +152,9 @@ const requestWorkoutPlan = async (req, res) => {
               u.activity_level,
               u.fitness_goal, u.workout_days_per_week,
               u.preferred_days, u.injuries, u.health_conditions,
-              u.target_weight, u.membership_start_date, u.membership_end_date,
+              u.target_weight,
+              TO_CHAR(u.membership_start_date, 'YYYY-MM-DD') AS membership_start_date,
+              TO_CHAR(u.membership_end_date, 'YYYY-MM-DD') AS membership_end_date,
               t.full_name AS trainer_name,
               t.email AS trainer_email
        FROM users u
@@ -182,8 +184,7 @@ const requestWorkoutPlan = async (req, res) => {
       transactionStarted = false;
       return res.status(400).json({ success: false, message: "Workout requests are only available for future dates." });
     }
-    if (member.membership_end_date
-      && String(member.membership_end_date).slice(0, 10) < todayResult.rows[0].today) {
+    if (member.membership_end_date && member.membership_end_date < todayResult.rows[0].today) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(403).json({
@@ -191,12 +192,8 @@ const requestWorkoutPlan = async (req, res) => {
         message: "Your membership has ended. You can continue using AveFit, but workout requests are unavailable until it is renewed.",
       });
     }
-    const membershipStartDate = member.membership_start_date
-      ? String(member.membership_start_date).slice(0, 10)
-      : null;
-    const membershipEndDate = member.membership_end_date
-      ? String(member.membership_end_date).slice(0, 10)
-      : null;
+    const membershipStartDate = member.membership_start_date || null;
+    const membershipEndDate = member.membership_end_date || null;
     if ((membershipStartDate && sessionDate < membershipStartDate)
       || (membershipEndDate && sessionDate > membershipEndDate)) {
       await client.query("ROLLBACK");
