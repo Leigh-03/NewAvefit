@@ -251,7 +251,7 @@ export default function ProfilePage() {
     setMsg("");
     try {
       const profileChanges = Object.fromEntries(
-        Object.entries(form).filter(([key]) => !["injuries", "health_conditions"].includes(key))
+        Object.entries(form).filter(([key]) => !["email", "injuries", "health_conditions"].includes(key))
       );
       const res = await userApi.put("/profile", profileChanges);
       if (res.data.request) {
@@ -464,19 +464,19 @@ export default function ProfilePage() {
             ))}
           </div>
 
-          {[
-            { label: "Email Address", key: "email", type: "email", span: true },
-          ].map((f) => (
-            <div key={f.key} className={f.span ? "" : "grid grid-cols-2 gap-3"}>
-              <div>
-                <label htmlFor={`profile-${f.key}`} className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{f.label}</label>
-                <input id={`profile-${f.key}`} type={f.type} value={form[f.key]}
-                  onChange={(e) => handleChange(f.key, e.target.value)}
-                  autoComplete={f.key === "email" ? "email" : f.key === "phone" ? "tel" : "bday"}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white" />
-              </div>
-            </div>
-          ))}
+          <div>
+            <label htmlFor="profile-email" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Email address</label>
+            <input
+              id="profile-email"
+              type="email"
+              value={form.email}
+              readOnly
+              autoComplete="email"
+              aria-describedby="profile-email-note"
+              className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-sm text-slate-600 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-400"
+            />
+            <p id="profile-email-note" className="mt-1 text-xs text-slate-500">Email addresses cannot be changed from your profile.</p>
+          </div>
 
           <div>
             <label htmlFor="profile-phone" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Phone Number</label>

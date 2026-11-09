@@ -226,80 +226,54 @@ const requestWorkoutPlan = async (req, res) => {
       transactionStarted = false;
       return res.status(400).json({ success: false, message: "Set your preferred workout days before choosing a training program." });
     }
+    if (!getScheduledPrograms(member.preferred_days || []).has(trainingProgram)) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({ success: false, message: "Choose a program from your preferred weekly split." });
+    }
     if (isProgramSwitch) {
       if (trainingProgram === defaultProgram || req.body.previous_program !== defaultProgram) {
         await client.query("ROLLBACK");
         transactionStarted = false;
         return res.status(400).json({ success: false, message: "Choose an alternative program to request a switch." });
       }
-      if (!getScheduledPrograms(member.preferred_days || []).has(trainingProgram)) {
-        await client.query("ROLLBACK");
-        transactionStarted = false;
-        return res.status(409).json({ success: false, message: "Choose an unfinished program from your preferred weekly split." });
-      }
-      const alreadySwitched = await client.query(
-        `SELECT 1
-         FROM workout_plans wp
-         WHERE wp.user_id = $1
-           AND wp.training_program = $2
-           AND wp.approval_status IN ('Approved', 'Pending')
-           AND (
-             CASE
-               WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-                 THEN wp.requested_session_date::date >= DATE_TRUNC('week', $3::date)::date
-                   AND wp.requested_session_date::date < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date
-               ELSE FALSE
-             END
-             OR EXISTS (
-               SELECT 1
-               FROM workout_sessions ws
-               WHERE ws.workout_plan_id = wp.workout_plan_id
-                 AND CASE
-                   WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-                     THEN ws.session_date::date >= DATE_TRUNC('week', $3::date)::date
-                       AND ws.session_date::date < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date
-                   ELSE FALSE
-                 END
-             )
-           )
-         LIMIT 1`,
-        [member.user_id, trainingProgram, sessionDate]
-      );
-      if (alreadySwitched.rowCount) {
-        await client.query("ROLLBACK");
-        transactionStarted = false;
-        return res.status(409).json({ success: false, message: "This program is already selected for this week." });
-      }
-      const completedProgram = await client.query(
-        `SELECT 1
-         FROM workout_plans wp
-         JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
-         WHERE wp.user_id = $1
-           AND wp.training_program = $2
-           AND wp.approval_status = 'Approved'
-           AND CASE
-             WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws.session_date::date
-             ELSE NULL
-           END >= DATE_TRUNC('week', $3::date)::date
-           AND CASE
-             WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ws.session_date::date
-             ELSE NULL
-           END < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date
-         GROUP BY wp.workout_plan_id
-         HAVING COUNT(*) > 0
-           AND COUNT(*) FILTER (WHERE ws.completed = TRUE) = COUNT(*)
-         LIMIT 1`,
-        [member.user_id, trainingProgram, sessionDate]
-      );
-      if (completedProgram.rowCount) {
-        await client.query("ROLLBACK");
-        transactionStarted = false;
-        return res.status(409).json({ success: false, message: "That program has already been completed this week." });
-      }
     } else if (trainingProgram !== defaultProgram) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({ success: false, message: "Use the switch-program option to request a different program." });
+    }
+    const alreadySelected = await client.query(
+      `SELECT 1
+       FROM workout_plans wp
+       WHERE wp.user_id = $1
+         AND wp.training_program = $2
+         AND wp.approval_status IN ('Approved', 'Pending')
+         AND (
+           CASE
+             WHEN wp.requested_session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+               THEN wp.requested_session_date::date >= DATE_TRUNC('week', $3::date)::date
+                 AND wp.requested_session_date::date < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date
+             ELSE FALSE
+           END
+           OR EXISTS (
+             SELECT 1
+             FROM workout_sessions ws
+             WHERE ws.workout_plan_id = wp.workout_plan_id
+               AND CASE
+                 WHEN ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                   THEN ws.session_date::date >= DATE_TRUNC('week', $3::date)::date
+                     AND ws.session_date::date < (DATE_TRUNC('week', $3::date) + INTERVAL '7 days')::date
+                 ELSE FALSE
+               END
+           )
+         )
+       LIMIT 1`,
+      [member.user_id, trainingProgram, sessionDate]
+    );
+    if (alreadySelected.rowCount) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({ success: false, message: "Each program can only be selected once per week. Your choices reset next Monday." });
     }
 
     const workoutFrequency = Number(member.workout_days_per_week);

@@ -170,8 +170,13 @@ export default function PendingApproval() {
             autoComplete="email"
             placeholder="your@email.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            readOnly
+            aria-describedby="pending-email-note"
+            className="cursor-not-allowed bg-slate-100 text-slate-600 dark:bg-white/[0.03] dark:text-slate-400"
           />
+          <p id="pending-email-note" className="-mt-2 text-xs text-slate-500">
+            This is the email address used to register your account.
+          </p>
 
           <Field
             label="Six-digit verification code"

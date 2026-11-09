@@ -7,7 +7,7 @@ import MemberWorkoutPlanRequestModal from "../components/workout/MemberWorkoutPl
 import TrainingPulse from "../components/TrainingPulse";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
 import { getWorkoutDayGroups } from "../utils/workoutSessions";
-import { getProgramForDate } from "../utils/trainingPrograms";
+import { getProgramForDate, getScheduledPrograms } from "../utils/trainingPrograms";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const WORKOUT_STATUS_STYLES = {
@@ -237,7 +237,37 @@ export default function WorkoutPage() {
     .sort((a, b) => philippinesDateKey(a.session_date).localeCompare(philippinesDateKey(b.session_date)))[0];
   const weekDates = DAYS.map((_, index) => addDays(weekStart, index));
   const activeDayLabel = formatWorkoutDate(activeDay);
-  const activeDayProgram = getProgramForDate(activeDay, workoutDays, workoutFrequency);
+  const activeWeekStart = philippinesMondayString(new Date(`${activeDay}T12:00:00+08:00`));
+  const activeWeekEnd = addDays(activeWeekStart, 6);
+  const scheduledPrograms = [...getScheduledPrograms(workoutDays)];
+  const usedProgramsThisWeek = new Set([
+    ...userPlans
+      .filter((plan) => {
+        const planDate = philippinesDateKey(plan.session_date);
+        return ["pending", "approved"].includes(String(plan.approval_status || "").toLowerCase())
+          && planDate >= activeWeekStart
+          && planDate <= activeWeekEnd;
+      })
+      .map((plan) => plan.training_program)
+      .filter(Boolean),
+    ...sessions
+      .filter((session) => {
+        const sessionDate = philippinesDateKey(session.session_date);
+        return sessionDate >= activeWeekStart && sessionDate <= activeWeekEnd;
+      })
+      .map((session) => session.training_program)
+      .filter(Boolean),
+  ]);
+  const scheduledProgramForDay = getProgramForDate(activeDay, workoutDays, workoutFrequency);
+  const activeDayPlan = userPlans.find((plan) => (
+    philippinesDateKey(plan.session_date) === activeDay &&
+    ["Pending", "Approved"].includes(plan.approval_status)
+  ));
+  const activeDayProgram = activeDayPlan?.training_program
+    || daySessions.find((session) => session.training_program)?.training_program
+    || (usedProgramsThisWeek.has(scheduledProgramForDay)
+      ? scheduledPrograms.find((program) => !usedProgramsThisWeek.has(program)) || ""
+      : scheduledProgramForDay);
   const weekEnd = weekDates[6];
   const weekLabel = `${formatPhilippinesDate(weekStart, { month: "short", day: "numeric" })} – ${formatPhilippinesDate(weekEnd, { month: "short", day: "numeric", year: "numeric" })}`;
   const changedPlansForActiveDay = userPlans.filter((plan) =>
@@ -498,7 +528,9 @@ export default function WorkoutPage() {
                     : !isWorkoutDay(activeDay)
                       ? <span role="status" className="text-sm font-medium text-slate-500">Choose one of your preferred workout days to request a workout.</span>
                       : !activeDayProgram
-                        ? <span role="status" className="text-sm font-medium text-slate-500">Set your preferred workout days in your profile before requesting a workout.</span>
+                        ? <span role="status" className="text-sm font-medium text-slate-500">{scheduledPrograms.length && scheduledPrograms.every((program) => usedProgramsThisWeek.has(program))
+                          ? "All programs in this week's split have been selected. New choices reset next Monday."
+                          : "Set your preferred workout days in your profile before requesting a workout."}</span>
                       : null)}
             {canRequestWorkout && (
               <button type="button" onClick={() => { setPlanRequestNotice(""); setShowPlanRequest(true); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700">
