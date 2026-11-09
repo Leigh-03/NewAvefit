@@ -22,6 +22,7 @@ const verifyUser = async (req, res, next) => {
     if (result.rows.length === 0) return res.status(401).json({ success: false, message: "User account not found." });
 
     const status = result.rows[0].account_status;
+    const normalizedStatus = String(status || "Pending").trim().toLowerCase();
     if (Number(decoded.token_version ?? -1) !== Number(result.rows[0].token_version ?? 0)) {
       return res.status(401).json({ success: false, message: "Your session is no longer valid. Please log in again." });
     }
@@ -34,13 +35,13 @@ const verifyUser = async (req, res, next) => {
         message: "Please verify your email address first. Enter the AveFit verification code or request a new one."
       });
     }
-    if (status !== "Active") {
+    if (normalizedStatus !== "active") {
       return res.status(403).json({
         success: false,
         status: status || "Pending",
-        message: status === "Rejected"
+        message: normalizedStatus === "rejected"
           ? "Your AveFit account was not approved. Please contact the gym administrator."
-          : status === "Inactive"
+          : normalizedStatus === "inactive"
             ? "Your membership has expired. Please contact the gym administrator to reactivate your account."
             : "Your account is still pending approval. Please wait 1-3 working days while the gym administrator reviews your registration."
       });

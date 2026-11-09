@@ -3,6 +3,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import { Line } from "react-chartjs-2";
 import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Scale, Target } from "lucide-react";
 import userApi from "../userApi";
+import GoalRenewalModal from "../components/progress/GoalRenewalModal";
 import { useUserAuth } from "../context/UserAuthContext";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
 import { getWorkoutDayGroups } from "../utils/workoutSessions";
@@ -174,7 +175,7 @@ const weightInput = (val, prev = "") => {
 };
 
 export default function ProgressPage() {
-  const { user } = useUserAuth();
+  const { user, updateUser } = useUserAuth();
   const [logs, setLogs] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [profile, setProfile] = useState(null);
@@ -192,6 +193,8 @@ export default function ProgressPage() {
   const [logging, setLogging] = useState(false);
   const [logMsg, setLogMsg] = useState("");
   const [logError, setLogError] = useState("");
+  const [goalRenewalSaving, setGoalRenewalSaving] = useState(false);
+  const [goalRenewalError, setGoalRenewalError] = useState("");
 
   const fetchProgress = useCallback(async () => {
     setLoading(true);
@@ -267,6 +270,25 @@ export default function ProgressPage() {
     }
   };
 
+  const handleGoalRenewalSave = async (fitnessGoal, nextTargetWeight) => {
+    setGoalRenewalSaving(true);
+    setGoalRenewalError("");
+    try {
+      const response = await userApi.put("/profile/goal", {
+        fitness_goal: fitnessGoal,
+        target_weight: nextTargetWeight,
+      });
+      const updatedGoal = response.data.data;
+      setProfile((current) => ({ ...current, ...updatedGoal }));
+      updateUser(updatedGoal);
+    } catch (error) {
+      console.error("Goal renewal save failed:", error);
+      setGoalRenewalError(error.response?.data?.message || "Unable to save your new goal. Please try again.");
+    } finally {
+      setGoalRenewalSaving(false);
+    }
+  };
+
   const logWeightValue = logForm.weight;
   const logWeightError = logWeightValue !== "" && logWeightValue != null
     ? Number(logWeightValue) < 20 || Number(logWeightValue) > 200
@@ -274,29 +296,72 @@ export default function ProgressPage() {
       : ""
     : "";
 
-  const chartOptions = {
-    responsive: true,
-    plugins: { legend: { display: false } },
-    scales: {
-      y: { beginAtZero: false, grid: { color: "rgba(148,163,184,0.15)" }, ticks: { color: "#94a3b8" } },
-      x: { grid: { display: false }, ticks: { color: "#94a3b8" } },
-    },
+  const createTrendChartOptions = (values, unit, minimumPadding) => {
+    const numericValues = values.filter((value) => Number.isFinite(value));
+    const dataMin = numericValues.length ? Math.min(...numericValues) : 0;
+    const dataMax = numericValues.length ? Math.max(...numericValues) : 1;
+    const padding = Math.max((dataMax - dataMin) * 0.15, minimumPadding);
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: "index" },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "#111827",
+          titleColor: "#f8fafc",
+          bodyColor: "#e2e8f0",
+          padding: 10,
+          displayColors: false,
+          callbacks: {
+            label: (context) => `${Number(context.parsed.y).toFixed(1)} ${unit}`,
+          },
+        },
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          min: numericValues.length ? Math.max(0, dataMin - padding) : undefined,
+          max: numericValues.length ? dataMax + padding : undefined,
+          border: { display: false },
+          grid: { color: "rgba(148,163,184,0.12)", drawTicks: false },
+          ticks: {
+            color: "#94a3b8",
+            padding: 8,
+            maxTicksLimit: 5,
+            callback: (value) => Number(value).toFixed(1),
+          },
+        },
+        x: {
+          border: { display: false },
+          grid: { display: false },
+          ticks: { color: "#94a3b8", padding: 8, maxTicksLimit: 7, autoSkip: true },
+        },
+      },
+    };
   };
 
   const latestLog = logs[logs.length - 1];
+  const latestWeightedLog = [...logs].reverse().find((log) => log.weight != null && Number.isFinite(Number(log.weight)));
   const firstWeightedLog = logs.find((log) => Number.isFinite(Number(log.weight)) && log.weight !== null);
-  const latestWeight = latestLog?.weight == null ? null : Number(latestLog.weight);
+  const latestWeight = latestWeightedLog?.weight == null ? null : Number(latestWeightedLog.weight);
   const firstWeight = firstWeightedLog?.weight == null ? null : Number(firstWeightedLog.weight);
   const weightChange = latestWeight !== null && firstWeight !== null
     ? Number((latestWeight - firstWeight).toFixed(1))
     : null;
   const targetWeight = profile?.target_weight == null ? null : Number(profile.target_weight);
   const goal = profile?.fitness_goal || "Your fitness goal";
+  const goalWeight = latestWeight ?? (profile?.weight == null ? null : Number(profile.weight));
   const goalDirection = /lose|loss|reduce/i.test(goal) ? "loss" : /gain|muscle/i.test(goal) ? "gain" : "maintain";
+  const goalAchieved = !loading && goalWeight !== null && targetWeight !== null &&
+    Number.isFinite(goalWeight) && Number.isFinite(targetWeight) &&
+    ((goal === "Weight Loss" && goalWeight <= targetWeight) ||
+      (goal === "Gain Weight" && goalWeight >= targetWeight));
   const goalChange = weightChange === null ? null : goalDirection === "loss" ? -weightChange : weightChange;
   const goalProgress = goalDirection !== "maintain" && goalChange !== null && Number.isFinite(targetWeight) && targetWeight > 0 && firstWeight !== null && firstWeight !== targetWeight
     ? Math.max(0, Math.min(100, (goalChange / Math.abs(firstWeight - targetWeight)) * 100))
     : null;
+  const formattedGoalProgress = goalProgress === null ? null : `${goalProgress.toFixed(1)}%`;
 
   const today = philippinesDateString();
   const analyticsRange = { start: analyticsFrom, end: analyticsTo };
@@ -330,8 +395,14 @@ export default function ProgressPage() {
         data: periodLogs.map((l) => l.weight ? parseFloat(l.weight) : null),
         borderColor: "#f97316",
         backgroundColor: "rgba(249,115,22,0.1)",
-        fill: true, tension: 0.4,
-        pointBackgroundColor: "#f97316", pointRadius: 5,
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2.5,
+        pointBackgroundColor: "#f97316",
+        pointBorderColor: "#111827",
+        pointBorderWidth: 2,
+        pointRadius: 5,
+        pointHoverRadius: 7,
       },
     ],
   };
@@ -344,11 +415,27 @@ export default function ProgressPage() {
         data: periodLogs.map((l) => l.bmi ? parseFloat(l.bmi) : null),
         borderColor: "#fb923c",
         backgroundColor: "rgba(251,146,60,0.1)",
-        fill: true, tension: 0.4,
-        pointBackgroundColor: "#fb923c", pointRadius: 5,
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2.5,
+        pointBackgroundColor: "#fb923c",
+        pointBorderColor: "#111827",
+        pointBorderWidth: 2,
+        pointRadius: 5,
+        pointHoverRadius: 7,
       },
     ],
   };
+  const weightChartOptions = createTrendChartOptions(
+    chartData.datasets[0].data,
+    "kg",
+    2
+  );
+  const bmiChartOptions = createTrendChartOptions(
+    bmiChart.datasets[0].data,
+    "BMI",
+    1
+  );
 
   const weekStartString = philippinesMondayString();
   const scheduledThisWeek = workoutDayGroups.filter((group) => (
@@ -474,22 +561,38 @@ export default function ProgressPage() {
               </div>
 
               {periodLogs.length > 0 ? (
-                <div className="mt-5 space-y-6">
-                  <div>
+                <div className="mt-5 grid gap-4 xl:grid-cols-2">
+                  <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-[#151515] sm:p-5">
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Weight trend</h3>
-                      <span className="text-xs text-slate-500">kg</span>
-                    </div>
-                    <Line data={chartData} options={chartOptions} />
-                  </div>
-                  {periodLogs.some((log) => log.bmi != null) && (
-                    <div className="border-t border-slate-200 pt-5 dark:border-white/10">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">BMI trend</h3>
-                        <span className="text-xs text-slate-500">BMI</span>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Weight trend</h3>
+                        <p className="mt-0.5 text-[11px] text-slate-500">Your recorded body weight</p>
                       </div>
-                      <Line data={bmiChart} options={chartOptions} />
+                      <span className="rounded-lg bg-orange-500/10 px-2.5 py-1 text-xs font-bold text-orange-700 dark:text-orange-300">kg</span>
                     </div>
+                    <div className="h-56 w-full sm:h-64">
+                      <Line data={chartData} options={weightChartOptions} />
+                    </div>
+                    {periodWeightedLogs.length === 1 && (
+                      <p className="mt-2 text-center text-[11px] text-slate-500">Log another check-in to see your weight trend.</p>
+                    )}
+                  </section>
+                  {periodLogs.some((log) => log.bmi != null) && (
+                    <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-[#151515] sm:p-5">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">BMI trend</h3>
+                          <p className="mt-0.5 text-[11px] text-slate-500">Your recorded body mass index</p>
+                        </div>
+                        <span className="rounded-lg bg-orange-500/10 px-2.5 py-1 text-xs font-bold text-orange-700 dark:text-orange-300">BMI</span>
+                      </div>
+                      <div className="h-56 w-full sm:h-64">
+                        <Line data={bmiChart} options={bmiChartOptions} />
+                      </div>
+                      {periodLogs.filter((log) => log.bmi != null).length === 1 && (
+                        <p className="mt-2 text-center text-[11px] text-slate-500">Log another check-in to see your BMI trend.</p>
+                      )}
+                    </section>
                   )}
                 </div>
               ) : (
@@ -548,7 +651,7 @@ export default function ProgressPage() {
                     {goal}{Number.isFinite(targetWeight) && targetWeight > 0 ? ` · Target ${targetWeight} kg` : ""}
                   </p>
                 </div>
-                {goalProgress !== null && <span className="text-sm font-bold text-orange-500">{goalProgress}%</span>}
+                {formattedGoalProgress !== null && <span className="text-sm font-bold text-orange-500">{formattedGoalProgress}</span>}
               </div>
               {goalProgress !== null ? (
                 <div className="mt-4">
@@ -610,20 +713,35 @@ export default function ProgressPage() {
         {/* History */}
         {logs.length > 0 && (
           <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
-            <h2 className="font-bold text-slate-900 dark:text-white mb-4">Progress history</h2>
+            <h2 className="font-bold text-slate-900 dark:text-white">All-time progress history</h2>
+            <p className="mb-4 mt-1 text-xs text-slate-500">Every check-in is listed with all measurements recorded for it.</p>
             <div className="space-y-2">
-              {[...logs].reverse().map((log) => (
-                <div key={log.progress_id} className="flex items-center justify-between py-2 border-b border-slate-200 last:border-0">
-                  <span className="text-sm text-slate-500">
-                    {formatPhilippinesDate(log.log_date) || "—"}
-                  </span>
-                  <div className="flex gap-4 text-sm">
-                    {log.weight != null && <span className="text-slate-900 dark:text-white font-medium">{log.weight} kg</span>}
-                    {log.bmi != null && <span className="text-orange-600 dark:text-orange-400">BMI {log.bmi}</span>}
-                    {log.body_fat != null && <span className="text-slate-500">{log.body_fat}% fat</span>}
+              {logs.map((log) => {
+                const measurements = [
+                  log.weight != null && ["Weight", `${log.weight} kg`],
+                  log.bmi != null && ["BMI", log.bmi],
+                  log.body_fat != null && ["Body fat", `${log.body_fat}%`],
+                  log.waist != null && ["Waist", log.waist],
+                  log.chest != null && ["Chest", log.chest],
+                  log.hips != null && ["Hips", log.hips],
+                  log.left_arm != null && ["Left arm", log.left_arm],
+                ].filter(Boolean);
+                return (
+                  <div key={log.progress_id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 py-3 last:border-0 dark:border-white/10">
+                    <span className="text-sm text-slate-500">
+                      {formatPhilippinesDate(log.log_date) || "—"}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                      {measurements.map(([label, value]) => (
+                        <span key={label} className={label === "Weight" ? "font-medium text-slate-900 dark:text-white" : label === "BMI" ? "text-orange-600 dark:text-orange-400" : "text-slate-500 dark:text-slate-400"}>
+                          {label} {value}
+                        </span>
+                      ))}
+                      {!measurements.length && <span className="text-slate-400">No measurements recorded</span>}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -635,6 +753,15 @@ export default function ProgressPage() {
           </div>
         )}
       </div>
+      {goalAchieved && (
+        <GoalRenewalModal
+          currentWeight={goalWeight}
+          height={profile?.height ?? user?.height}
+          saving={goalRenewalSaving}
+          error={goalRenewalError}
+          onSave={handleGoalRenewalSave}
+        />
+      )}
     </div>
   );
 }

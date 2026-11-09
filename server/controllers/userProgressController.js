@@ -4,7 +4,7 @@ const pool = require("../db");
 const getProgress = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT * FROM progress_logs WHERE user_id = $1 ORDER BY log_date ASC",
+      "SELECT * FROM progress_logs WHERE user_id = $1 ORDER BY log_date ASC, progress_id ASC",
       [req.user.user_id]
     );
     res.json({ success: true, data: result.rows });
@@ -37,6 +37,93 @@ const logProgress = async (req, res) => {
   } catch (err) {
     console.error("logProgress error:", err.message);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+const updateUserGoal = async (req, res) => {
+  try {
+    const { fitness_goal, target_weight } = req.body;
+    const profileResult = await pool.query(
+      `SELECT u.height, u.weight,
+        (SELECT p.weight FROM progress_logs p
+         WHERE p.user_id = u.user_id AND p.weight IS NOT NULL
+         ORDER BY p.log_date DESC, p.progress_id DESC
+         LIMIT 1) AS latest_weight
+       FROM users u
+       WHERE u.user_id = $1`,
+      [req.user.user_id]
+    );
+    if (!profileResult.rowCount) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const profile = profileResult.rows[0];
+    const height = Number(profile.height);
+    const currentWeight = Number(profile.latest_weight ?? profile.weight);
+    const targetWeight = Number(target_weight);
+    if (
+      !Number.isFinite(height) || height <= 0 ||
+      !Number.isFinite(currentWeight) || currentWeight <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid height and current weight are required before setting a goal.",
+      });
+    }
+
+    const bmi = currentWeight / ((height / 100) ** 2);
+    const allowedGoals = bmi < 18.5
+      ? ["Gain Weight"]
+      : bmi >= 25
+        ? ["Weight Loss"]
+        : ["Weight Loss", "Maintain Weight", "Gain Weight"];
+    if (!allowedGoals.includes(fitness_goal)) {
+      return res.status(400).json({
+        success: false,
+        message: "That goal is not available for your current BMI.",
+      });
+    }
+
+    const heightMeters = height / 100;
+    const normalMin = Math.ceil(18.5 * heightMeters ** 2);
+    const normalMax = Math.floor(24.9 * heightMeters ** 2);
+    if (normalMin > normalMax) {
+      return res.status(400).json({
+        success: false,
+        message: "Your height does not allow us to calculate a healthy target-weight range.",
+      });
+    }
+
+    let targetMin = normalMin;
+    let targetMax = normalMax;
+    if (fitness_goal === "Weight Loss") {
+      targetMax = Math.max(normalMin, Math.min(normalMax, Math.ceil(currentWeight) - 1));
+    } else if (fitness_goal === "Gain Weight") {
+      targetMin = Math.min(normalMax, Math.max(normalMin, Math.floor(currentWeight) + 1));
+    } else {
+      const maintenanceWeight = Math.min(Math.max(Math.round(currentWeight), normalMin), normalMax);
+      targetMin = maintenanceWeight;
+      targetMax = maintenanceWeight;
+    }
+
+    if (!Number.isInteger(targetWeight) || targetWeight < targetMin || targetWeight > targetMax) {
+      return res.status(400).json({
+        success: false,
+        message: `Choose a target weight between ${targetMin} kg and ${targetMax} kg for this goal.`,
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE users
+       SET fitness_goal = $1, target_weight = $2, updated_at = NOW()
+       WHERE user_id = $3
+       RETURNING fitness_goal, target_weight`,
+      [fitness_goal, targetWeight, req.user.user_id]
+    );
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error("updateUserGoal error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to update your goal." });
   }
 };
 
@@ -206,4 +293,4 @@ const getUserNotifications = async (req, res) => {
   }
 };
 
-module.exports = { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications };
+module.exports = { getProgress, logProgress, updateUserGoal, calculatePrediction, autoPredict, getUserNotifications };

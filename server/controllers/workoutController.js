@@ -21,17 +21,23 @@ const EQUIPMENT_CONDITIONS_BY_STATUS = {
 };
 const equipmentStatuses = Object.keys(EQUIPMENT_CONDITIONS_BY_STATUS);
 
-const validateEquipmentInput = (body) => {
+const validateEquipmentInput = (body, { creating = false } = {}) => {
   const equipmentName = typeof body.equipment_name === "string" ? body.equipment_name.trim() : "";
   const quantity = Number(body.quantity);
-  const condition = typeof body.condition === "string" ? body.condition.trim() : "";
+  const quantityIsDigits = typeof body.quantity === "number"
+    ? Number.isInteger(body.quantity)
+    : typeof body.quantity === "string" && /^\d+$/.test(body.quantity);
+  const condition = creating ? "Good" : typeof body.condition === "string" ? body.condition.trim() : "";
   const conditionNotes = typeof body.condition_notes === "string" ? body.condition_notes.trim() : "";
-  const status = typeof body.status === "string" ? body.status.trim() : "";
+  const status = creating ? "In service" : typeof body.status === "string" ? body.status.trim() : "";
+  if (creating && (!/^(?=.*\p{L})[\p{L}\s]+$/u.test(equipmentName))) {
+    return { error: "Equipment name is required and can contain letters and spaces only." };
+  }
   if (!equipmentName || equipmentName.length > 120) {
     return { error: "Equipment name is required and must be 120 characters or fewer." };
   }
-  if (!Number.isInteger(quantity) || quantity < 0 || quantity > 100000) {
-    return { error: "Quantity must be a whole number from 0 to 100000." };
+  if (!quantityIsDigits || quantity < 1 || quantity > 50) {
+    return { error: "Quantity must be a whole number from 1 to 50." };
   }
   if (!equipmentStatuses.includes(status)) {
     return { error: "Choose a valid equipment status." };
@@ -105,7 +111,7 @@ const getEquipmentInventory = async (_req, res) => {
 };
 
 const createEquipment = async (req, res) => {
-  const validated = validateEquipmentInput(req.body);
+  const validated = validateEquipmentInput(req.body, { creating: true });
   if (validated.error) {
     return res.status(400).json({ success: false, message: validated.error });
   }

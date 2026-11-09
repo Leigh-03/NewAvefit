@@ -272,7 +272,7 @@ const sendUnassignedWorkoutReminders = async () => {
         message: `A workout is still missing for ${user.first_name || "your member"}'s preferred workout day tomorrow.`,
         notificationType: "workout",
         userName: user.first_name || "Member",
-        targetUrl: "/trainer/workout-plans",
+        targetUrl: `/trainer/workout-plans?createFor=${user.user_id}`,
       });
     } catch (err) {
       console.error(`No-workout coach notification failed for user ${user.user_id}:`, err.message);

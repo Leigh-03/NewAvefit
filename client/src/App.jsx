@@ -163,7 +163,7 @@ export default function App() {
                 <Routes>
                   <Route path="/dashboard" element={<TrainerDashboard />} />
                   <Route path="/roster" element={<TrainerRosterPage />} />
-                  <Route path="/workout-plans" element={<TrainerWorkoutPlans hideCreatePlanButton />} />
+                  <Route path="/workout-plans" element={<TrainerWorkoutPlans />} />
                   <Route path="/availability" element={<TrainerAvailability />} />
                   <Route path="/exercises" element={<TrainerExercises />} />
                   <Route path="/notifications" element={<Notifications audience="trainer" />} />

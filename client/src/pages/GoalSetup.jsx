@@ -2,46 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import OnboardingShell from "../components/layout/OnboardingShell";
 import { useNavigate } from "react-router-dom";
 import userApi from "../userApi";
-
-const GOALS = [
-  { key: "Weight Loss", icon: "⬇️", desc: "Lose weight while staying within the healthy BMI range." },
-  { key: "Maintain Weight", icon: "⚖️", desc: "Stay close to your current weight." },
-  { key: "Gain Weight", icon: "💪", desc: "Gain weight while staying within the healthy BMI range." },
-];
-
-const getNormalWeightRange = (heightCm) => {
-  const heightMeters = Number(heightCm) / 100;
-  if (!Number.isFinite(heightMeters) || heightMeters <= 0) return null;
-  const minimum = 18.5 * heightMeters ** 2;
-  const maximum = 24.9 * heightMeters ** 2;
-  return {
-    min: Math.ceil(minimum),
-    max: Math.floor(maximum),
-  };
-};
-
-const getRange = (goal, currentWeight, normalRange) => {
-  if (goal === "Weight Loss") {
-    const max = Math.min(normalRange.max, Math.ceil(currentWeight) - 1);
-    return { min: normalRange.min, max: Math.max(normalRange.min, max) };
-  }
-  if (goal === "Gain Weight") {
-    const min = Math.max(normalRange.min, Math.floor(currentWeight) + 1);
-    return { min: Math.min(min, normalRange.max), max: normalRange.max };
-  }
-  const maintenanceWeight = Math.min(
-    Math.max(Math.round(currentWeight), normalRange.min),
-    normalRange.max
-  );
-  return { min: maintenanceWeight, max: maintenanceWeight };
-};
-
-const getBmiCategory = (bmi) => {
-  if (bmi < 18.5) return "Underweight";
-  if (bmi < 25) return "Normal";
-  if (bmi < 30) return "Overweight";
-  return "Obese";
-};
+import {
+  GOALS,
+  getAvailableGoals,
+  getBmiCategory,
+  getGoalRange,
+  getNormalWeightRange,
+  getRecommendedGoal,
+} from "../utils/goalRules";
 
 export default function GoalSetup() {
   const navigate = useNavigate();
@@ -64,17 +32,13 @@ export default function GoalSetup() {
         }
 
         const bmi = weight / ((heightCm / 100) ** 2);
-        const recommendedGoal = bmi < 18.5
-          ? "Gain Weight"
-          : bmi >= 25
-            ? "Weight Loss"
-            : "Maintain Weight";
+        const recommendedGoal = getRecommendedGoal(getBmiCategory(bmi));
         const normalRange = getNormalWeightRange(heightCm);
         if (!normalRange || normalRange.min > normalRange.max) {
           setProfileError("Your height does not allow us to calculate a healthy target-weight range.");
           return;
         }
-        const range = getRange(recommendedGoal, weight, normalRange);
+        const range = getGoalRange(recommendedGoal, weight, normalRange);
         setCurrentWeight(weight);
         setHeight(heightCm);
         setGoal(recommendedGoal);
@@ -105,13 +69,9 @@ export default function GoalSetup() {
       ? "Weight Loss"
       : "";
   const normalRange = height ? getNormalWeightRange(height) : null;
-  const availableGoals = bmiCategory === "Underweight"
-    ? new Set(["Gain Weight", "Maintain Weight"])
-    : bmiCategory === "Overweight" || bmiCategory === "Obese"
-      ? new Set(["Weight Loss"])
-      : new Set(GOALS.map(({ key }) => key));
+  const availableGoals = getAvailableGoals(bmiCategory);
   const range = normalRange && currentWeight
-    ? getRange(goal, currentWeight, normalRange)
+    ? getGoalRange(goal, currentWeight, normalRange)
     : { min: 0, max: 0 };
   const isLocked = goal === "Maintain Weight";
   const goalOptions = [...GOALS].sort((a, b) => (
@@ -121,7 +81,7 @@ export default function GoalSetup() {
   const handleSelectGoal = (nextGoal) => {
     if (!availableGoals.has(nextGoal) || !normalRange || !currentWeight) return;
     setGoal(nextGoal);
-    const nextRange = getRange(nextGoal, currentWeight, normalRange);
+    const nextRange = getGoalRange(nextGoal, currentWeight, normalRange);
     setTargetWeight((previous) => Math.min(Math.max(previous, nextRange.min), nextRange.max));
   };
 

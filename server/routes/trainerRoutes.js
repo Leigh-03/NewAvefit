@@ -8,7 +8,7 @@ const { updateCapacity } = require("../controllers/coachCapacityController");
 const { getTrainingPulse } = require("../controllers/analyticsController");
 const {
   getTrainers, getTrainerById, createTrainer, updateTrainer, approveTrainer, rejectTrainer, deactivateTrainer, deleteTrainer, getTrainerRoster,
-  loginTrainer, getMyRoster, getMyProfile, updateMyPhoto, getExerciseCatalog,
+  loginTrainer, getMyRoster, getMyMissingWorkouts, getMyProfile, updateMyPhoto, getExerciseCatalog,
   getMyWorkoutPlans, createMyWorkoutPlan, reviewMemberWorkoutPlan, reviewMemberWorkoutPlanDeletion, updateMyWorkoutPlan, deleteMyWorkoutPlan, getMyMemberProgress,
   getRosterMemberSessions, assignSessionAsTrainer, deleteSessionAsTrainer,
 } = require("../controllers/trainerController");
@@ -16,6 +16,7 @@ const {
 // Trainer Portal (self-service, trainer-authenticated)
 router.post("/login", userLoginLimiter, loginTrainer);
 router.get("/me/roster", verifyTrainer, getMyRoster);
+router.get("/me/missing-workouts", verifyTrainer, getMyMissingWorkouts);
 router.get("/me/training-pulse", verifyTrainer, (req, res, next) => {
   req.trainingAudience = "trainer";
   next();
