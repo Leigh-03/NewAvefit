@@ -79,51 +79,39 @@ export default function MemberWorkoutPlanRequestModal({
       })
       .map((scheduledSession) => String(scheduledSession.exercise_id))
   );
-  const selectedWeekPlan = getWeekDateRange(sessionDate);
   const scheduledPrograms = [...getScheduledPrograms(workoutDays)];
-  const completedPrograms = new Set(
-    Object.values(existingSessions
-      .filter((session) => {
-        const date = String(session.session_date || "").slice(0, 10);
-        return date >= selectedWeek.start && date <= selectedWeek.end;
-      })
-      .reduce((groups, session) => {
-        const key = `${session.workout_plan_id || session.training_program}:${String(session.session_date).slice(0, 10)}`;
-        if (!groups[key]) groups[key] = { program: session.training_program, completed: true };
-        groups[key].completed = groups[key].completed && session.completed === true;
-        return groups;
-      }, {}))
-      .filter((group) => group.completed && group.program)
-      .map((group) => group.program)
-  );
   const usedPrograms = new Set([
     ...existingPlans
       .filter((plan) => {
         const planDate = String(plan.session_date || "").slice(0, 10);
         return ["pending", "approved"].includes(String(plan.approval_status || "").toLowerCase())
-          && planDate >= selectedWeekPlan.start
-          && planDate <= selectedWeekPlan.end;
+          && planDate >= selectedWeek.start
+          && planDate <= selectedWeek.end;
       })
       .map((plan) => plan.training_program)
       .filter(Boolean),
     ...existingSessions
       .filter((session) => {
         const sessionDate = String(session.session_date || "").slice(0, 10);
-        return sessionDate >= selectedWeekPlan.start && sessionDate <= selectedWeekPlan.end;
+        return sessionDate >= selectedWeek.start && sessionDate <= selectedWeek.end;
       })
       .map((session) => session.training_program)
       .filter(Boolean),
   ]);
-  const availableSwitchPrograms = scheduledPrograms.filter((program) => (
-    program !== defaultProgram && !completedPrograms.has(program) && !usedPrograms.has(program)
-  ));
-  const availableCoachRequestPrograms = availableSwitchPrograms.length
-    ? availableSwitchPrograms
-    : defaultProgram ? [defaultProgram] : [];
+  const availableWeeklyPrograms = scheduledPrograms.filter((program) => !usedPrograms.has(program));
+  const availableSwitchPrograms = availableWeeklyPrograms.filter((program) => program !== defaultProgram);
+  const availableCoachRequestPrograms = availableWeeklyPrograms;
+  const hasAvailableWeeklyPrograms = availableWeeklyPrograms.length > 0;
   const defaultCoachRequestProgram = availableCoachRequestPrograms[0] || "";
   const selectedProgramAvailableForCoachRequest = availableCoachRequestPrograms.includes(selectedProgram);
   const hasAvailableSwitchPrograms = availableSwitchPrograms.length > 0;
   const hasAvailableCoachRequestPrograms = availableCoachRequestPrograms.length > 0;
+  const hasAvailableCurrentProgram = availableWeeklyPrograms.includes(defaultProgram);
+  const hasSelectableProgram = requestType === "program_change"
+    ? hasAvailableSwitchPrograms
+    : requestType === "specific_workout"
+      ? hasAvailableCoachRequestPrograms
+      : hasAvailableCurrentProgram;
 
   useEffect(() => {
     if (requestType === "program_change") {
@@ -146,9 +134,19 @@ export default function MemberWorkoutPlanRequestModal({
     }
 
     if (requestType === "keep_current_program" || requestType === "coach_created") {
+      if (requestType === "keep_current_program" && !hasAvailableCurrentProgram) {
+        if (hasAvailableSwitchPrograms) {
+          setRequestType("program_change");
+          setSelectedProgram(availableSwitchPrograms[0]);
+        } else if (hasAvailableCoachRequestPrograms) {
+          setRequestType("specific_workout");
+          setSelectedProgram(defaultCoachRequestProgram);
+        }
+        return;
+      }
       setSelectedProgram(defaultProgram || "");
     }
-  }, [availableSwitchPrograms, defaultCoachRequestProgram, defaultProgram, hasAvailableSwitchPrograms, requestType, selectedProgram, selectedProgramAvailableForCoachRequest]);
+  }, [availableSwitchPrograms, defaultCoachRequestProgram, defaultProgram, hasAvailableCoachRequestPrograms, hasAvailableCurrentProgram, hasAvailableSwitchPrograms, requestType, selectedProgram, selectedProgramAvailableForCoachRequest]);
   const isProgramChange = requestType === "program_change";
   const isKeepCurrentProgram = requestType === "keep_current_program";
   const isSpecificWorkout = requestType === "specific_workout";
@@ -216,6 +214,7 @@ export default function MemberWorkoutPlanRequestModal({
   };
 
   const handleRequestTypeChange = (nextType) => {
+    if (nextType === "keep_current_program" && !hasAvailableCurrentProgram) return;
     setRequestType(nextType);
     if (nextType === "program_change") {
       const nextProgram = availableSwitchPrograms[0] || "";
@@ -275,11 +274,15 @@ export default function MemberWorkoutPlanRequestModal({
       return;
     }
     if (requestType === "program_change" && !availableSwitchPrograms.includes(selectedProgram)) {
-      setError("That program has already been scheduled or switched to this week. Choose another program.");
+      setError("Each program can only be selected once per week. Choose an unused program.");
       return;
     }
     if (requestType === "specific_workout" && !availableCoachRequestPrograms.includes(selectedProgram)) {
-      setError("Choose an available program for your coach request.");
+      setError("Each program can only be selected once per week. Choose an unused program.");
+      return;
+    }
+    if (requestType === "keep_current_program" && !hasAvailableCurrentProgram) {
+      setError("Your current program has already been selected this week. Choose an unused program.");
       return;
     }
     if (!scheduledPrograms.includes(selectedProgram)) {
@@ -360,6 +363,7 @@ export default function MemberWorkoutPlanRequestModal({
                     name="workout-request-type"
                     value="keep_current_program"
                     checked={isKeepCurrentProgram}
+                    disabled={!hasAvailableCurrentProgram}
                     onChange={() => handleRequestTypeChange("keep_current_program")}
                   />
                   Keep My Current Program
@@ -446,7 +450,9 @@ export default function MemberWorkoutPlanRequestModal({
                 {`Program change: ${programLabel(defaultProgram) || "Not set"} → ${programLabel(selectedProgram) || "Select a program"}. Your coach must approve it.`}
               </label>
             )}
-            {!hasAvailableSwitchPrograms && <p className="mt-2 text-xs text-slate-500">There are no unfinished alternative programs available to change to this week. You can still create a workout plan for your current split.</p>}
+            {!hasAvailableWeeklyPrograms && <p className="mt-2 text-xs text-slate-500">Each program in your weekly split can be selected once per week. Your choices reset next Monday.</p>}
+            {hasAvailableWeeklyPrograms && !hasAvailableCurrentProgram && <p className="mt-2 text-xs text-slate-500">Your current program has already been selected this week. Choose one of the unused programs above; your choices reset next Monday.</p>}
+            {!hasAvailableSwitchPrograms && hasAvailableCurrentProgram && <p className="mt-2 text-xs text-slate-500">There are no unused alternative programs this week. Each program can be selected once and choices reset next Monday.</p>}
             {hasInjuryOrHealthCondition && (
               <p className="mt-3 rounded-lg border border-amber-300/50 bg-amber-100/60 p-3 text-xs leading-relaxed text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
                 Injury-related exercises and workouts for members with recorded health conditions use a conservative beginner starting range for coach review. This is not medical advice; consult a healthcare professional about exercise restrictions.
@@ -537,7 +543,7 @@ export default function MemberWorkoutPlanRequestModal({
           {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
           <div className="flex justify-end gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
             <button type="button" onClick={onClose} disabled={saving} className="min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">Cancel</button>
-            <button type="submit" disabled={saving || (requestNeedsExerciseEditor && (loadingExercises || exercises.length === 0))} className="min-h-11 rounded-xl bg-orange-600 px-5 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Sending request..." : "Submit"}</button>
+            <button type="submit" disabled={saving || !hasSelectableProgram || (requestNeedsExerciseEditor && (loadingExercises || exercises.length === 0))} className="min-h-11 rounded-xl bg-orange-600 px-5 text-sm font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Sending request..." : "Submit"}</button>
           </div>
         </form>
       </section>
