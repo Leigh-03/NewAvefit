@@ -69,8 +69,6 @@ export default function ProfilePage() {
   const [photo, setPhoto] = useState(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [bmi, setBmi] = useState(null);
-  const [savingBmi, setSavingBmi] = useState(false);
-  const [bmiLogFeedback, setBmiLogFeedback] = useState({ message: "", isError: false });
   const [saving, setSaving] = useState(false);
   const [savingHealth, setSavingHealth] = useState(false);
   const [healthSaveMessage, setHealthSaveMessage] = useState("");
@@ -158,7 +156,6 @@ export default function ProfilePage() {
   };
 
   const handleChange = (key, val) => {
-    setBmiLogFeedback({ message: "", isError: false });
     setForm((f) => {
       const updated = { ...f, [key]: val };
       if ((key === "weight" || key === "height") && updated.weight && updated.height) {
@@ -212,33 +209,6 @@ export default function ProfilePage() {
       setHealthSaveMessage(error.response?.data?.message || "Unable to save health information. Please try again.");
     } finally {
       setSavingHealth(false);
-    }
-  };
-
-  const handleCalculateBmi = async () => {
-    const heightCm = Number(form.height);
-    const weightKg = Number(form.weight);
-    if (!Number.isFinite(heightCm) || heightCm <= 0 || !Number.isFinite(weightKg) || weightKg < 20 || weightKg > 200) {
-      setBmiLogFeedback({ message: "Enter a valid height and a weight between 20 and 200 kg.", isError: true });
-      return;
-    }
-
-    const heightMeters = heightCm / 100;
-    const calculatedBmi = (weightKg / (heightMeters * heightMeters)).toFixed(1);
-    setBmi(calculatedBmi);
-    setSavingBmi(true);
-    setBmiLogFeedback({ message: "", isError: false });
-    try {
-      await userApi.post("/progress", { weight: weightKg, bmi: Number(calculatedBmi) });
-      setBmiLogFeedback({ message: "BMI calculated and added to your progress trend.", isError: false });
-    } catch (err) {
-      console.error(err);
-      setBmiLogFeedback({
-        message: err.response?.data?.message || "BMI calculated, but it could not be added to your progress trend.",
-        isError: true,
-      });
-    } finally {
-      setSavingBmi(false);
     }
   };
 
@@ -507,49 +477,6 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        {/* Body Metrics */}
-        <section id="profile-body-metrics" className="scroll-mt-24 space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
-          <div className="flex items-center gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Activity size={19} /></span>
-            <div>
-              <h2 className="font-bold text-slate-900 dark:text-white">Body metrics</h2>
-              <p className="text-xs text-slate-500">Used to calculate your BMI and personalize your experience.</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: "Height (cm)", key: "height" },
-              { label: "Weight (kg)", key: "weight" },
-            ].map((f) => (
-              <div key={f.key}>
-                <label htmlFor={`profile-${f.key}`} className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{f.label}</label>
-                <input id={`profile-${f.key}`} type="number" min="0" step="0.1" value={form[f.key]}
-                  onChange={(e) => handleChange(f.key, e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white" />
-              </div>
-            ))}
-          </div>
-          <button type="button" onClick={handleCalculateBmi} disabled={savingBmi} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
-            {savingBmi ? "Calculating..." : "Calculate BMI"}
-          </button>
-          {bmiLogFeedback.message && (
-            <p role={bmiLogFeedback.isError ? "alert" : "status"} className={`text-sm ${bmiLogFeedback.isError ? "text-red-600 dark:text-red-300" : "text-green-700 dark:text-green-300"}`}>
-              {bmiLogFeedback.message}
-            </p>
-          )}
-          {bmi && (
-            <div className="rounded-xl border border-orange-100 bg-orange-50/70 p-3 text-center dark:border-orange-500/20 dark:bg-orange-500/[0.06]">
-              <p className="text-xs text-slate-500">Calculated BMI</p>
-              <p className="mt-1 text-2xl font-bold text-orange-600 dark:text-orange-400">{bmi}</p>
-              {bmiCategory && (
-                <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${bmiCategory.style}`}>
-                  {bmiCategory.label}
-                </span>
-              )}
-            </div>
-          )}
-        </section>
-
         {/* Fitness Settings */}
         <section id="profile-fitness-settings" className="scroll-mt-24 space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
           <div className="flex items-center gap-3">
@@ -730,7 +657,6 @@ export default function ProfilePage() {
             <p className="mt-1 text-xs text-slate-500">Edit your settings below. Changes need admin approval before taking effect.</p>
           </div>
           {[
-            { label: "Update body metrics", target: "profile-body-metrics" },
             { label: "Change fitness goal", target: "profile-fitness-settings" },
           ].map((item) => (
             <button key={item.label} type="button" onClick={() => document.getElementById(item.target)?.scrollIntoView({ behavior: "smooth", block: "start" })}
