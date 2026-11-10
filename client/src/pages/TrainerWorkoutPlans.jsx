@@ -1169,7 +1169,7 @@ export default function TrainerWorkoutPlans() {
               <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/70">
                 <tr>
                   {["Plan Name", "Goal", "Member", "Workout Date", "Completed / Total", "Status", "Actions"].map((heading) => (
-                    <th key={heading} className="whitespace-nowrap px-5 py-4 font-semibold text-slate-600 dark:text-slate-300">
+                    <th key={heading} className={`whitespace-nowrap px-5 py-4 font-semibold text-slate-600 dark:text-slate-300 ${heading === "Status" ? "min-w-[150px]" : ""}`}>
                       {heading}
                     </th>
                   ))}
@@ -1214,8 +1214,8 @@ export default function TrainerWorkoutPlans() {
                     <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
                       {Number(plan.completed_count) || 0} / {Number(plan.exercise_count) || 0} completed
                     </td>
-                    <td className="px-5 py-4">
-                      <div className="flex w-fit max-w-[240px] flex-wrap items-center gap-2">
+                    <td className="min-w-[150px] px-4 py-4">
+                      <div className="flex w-fit max-w-[180px] flex-col items-start gap-2">
                         {pendingApproval && (
                           <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-amber-300/70 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold leading-none text-amber-200">
                             <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-amber-300" />
@@ -1229,7 +1229,10 @@ export default function TrainerWorkoutPlans() {
                           </span>
                         )}
                         {plan.is_program_switch && (
-                          <span className="inline-flex min-h-8 items-center rounded-full border border-orange-300/60 bg-orange-500/10 px-2.5 py-1 text-[11px] font-semibold leading-tight text-orange-200">Program switch: {plan.training_program}</span>
+                          <span className="inline-flex min-h-9 w-full items-center gap-2 rounded-xl border border-orange-300/60 bg-orange-500/10 px-2.5 py-1.5 text-orange-200">
+                            <span className="shrink-0 rounded-md bg-orange-500/15 px-1.5 py-1 text-[9px] font-bold uppercase tracking-wide text-orange-300">Switch</span>
+                            <span className="min-w-0 break-words text-xs font-semibold leading-tight">{plan.training_program}</span>
+                          </span>
                         )}
                         {plan.request_type === "coach_created" && plan.deletion_request_status !== "Pending" && (
                           <span className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none ${
@@ -1253,7 +1256,8 @@ export default function TrainerWorkoutPlans() {
                           plan.approval_status !== "Pending" &&
                           plan.approval_status !== "Rejected" &&
                           !plan.deletion_request_status && (
-                          <span className={`inline-flex min-h-8 items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusColors[plan.activity_status] || statusColors.Active}`}>
+                          <span className={`inline-flex min-h-8 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusColors[plan.activity_status] || statusColors.Active}`}>
+                            <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${plan.activity_status === "Complete" ? "bg-orange-400" : "bg-green-400"}`} />
                             {plan.activity_status || "Active"}
                           </span>
                         )}

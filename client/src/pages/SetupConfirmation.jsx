@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import OnboardingShell from "../components/layout/OnboardingShell";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, TrendingUp, User } from "lucide-react";
+import { CheckCircle2, Dumbbell, TrendingUp, User } from "lucide-react";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
+import { PROGRAM_SCHEDULES } from "../utils/trainingPrograms";
+
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 function Row({ label, value }) {
   return (
@@ -26,6 +29,12 @@ export default function SetupConfirmation() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const selectedWorkoutDays = WEEKDAYS.filter((day) => (
+    (availability.availability || []).some((slot) => slot.day_of_week === day)
+    || (availability.days || []).includes(day)
+  ));
+  const frequency = Number(availability.daysPerWeek) || selectedWorkoutDays.length;
+  const scheduledPrograms = PROGRAM_SCHEDULES[frequency] || ["Full Body"];
 
   useEffect(() => {
     const goal = JSON.parse(sessionStorage.getItem("avefit_goal") || "{}");
@@ -155,6 +164,28 @@ export default function SetupConfirmation() {
           <Row label="Days Per Week" value={availability.daysPerWeek || "—"} />
           <Row label="Workout Days" value={(availability.availability || []).map((slot) => `${slot.day_of_week} (${slot.time_preference})`).join(", ") || "—"} />
           <Row label="Preferred Coach" value={preferredCoach?.full_name || "No coach selected"} />
+        </div>
+
+        <div className="bg-slate-50 rounded-2xl p-4 mb-4">
+          <h3 className="text-sm font-semibold text-slate-600 mb-1 flex items-center gap-2">
+            <Dumbbell size={14} /> Your Suggested Weekly Program
+          </h3>
+          <p className="text-xs text-slate-500 mb-2">
+            A workout split based on your {frequency || "selected"} available {frequency === 1 ? "day" : "days"} per week.
+          </p>
+          {selectedWorkoutDays.length ? (
+            selectedWorkoutDays.map((day, index) => (
+              <Row
+                key={day}
+                label={day}
+                value={scheduledPrograms[index % scheduledPrograms.length] === "Full Body"
+                  ? "Full Body"
+                  : `${scheduledPrograms[index % scheduledPrograms.length]} Day`}
+              />
+            ))
+          ) : (
+            <p className="text-sm text-slate-500">Select your available workout days to see your program.</p>
+          )}
         </div>
 
         {/* Predictive Analytics */}
