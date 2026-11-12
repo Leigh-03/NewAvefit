@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 
 const MEMBERSHIP_TERMS = [1, 3, 6, 12];
 
@@ -18,6 +19,7 @@ export default function MembershipPeriod() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [confirmLogout, setConfirmLogout] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     const [profileResponse, requestResponse] = await Promise.all([
@@ -107,6 +109,15 @@ export default function MembershipPeriod() {
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10 dark:bg-[#080808]">
+      {confirmLogout && (
+        <ConfirmDialog
+          title="Log out of AveFit?"
+          description="You will need to sign in again to access your account."
+          confirmLabel="Log out"
+          onCancel={() => setConfirmLogout(false)}
+          onConfirm={logoutUser}
+        />
+      )}
       <section className="mx-auto max-w-xl rounded-3xl border border-orange-100 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-8">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Membership</p>
         <h1 className="mt-2 text-2xl font-black text-slate-900 dark:text-white">Choose your membership term</h1>
@@ -135,7 +146,7 @@ export default function MembershipPeriod() {
             {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
             {isPending ? (
-              <button type="button" onClick={logoutUser} className="min-h-12 w-full rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-white/5">Log out</button>
+              <button type="button" onClick={() => setConfirmLogout(true)} className="min-h-12 w-full rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-white/5">Log out</button>
             ) : (
               <button type="submit" disabled={saving || isCurrentSelection} className="min-h-12 w-full rounded-xl bg-orange-600 px-4 text-sm font-bold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
                 {saving ? "Submitting..." : isCurrentSelection ? "This membership term is already active" : "Submit for approval"}

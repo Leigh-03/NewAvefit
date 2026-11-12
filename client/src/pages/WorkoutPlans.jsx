@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2, Search, X, ClipboardList } from "lucide-react";
 import api from "../services/api";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 
 function PlanModal({ members, trainers, onClose, onSave }) {
   const [form, setForm] = useState({ user_id: "", trainer_id: "", plan_name: "", goal: "" });
@@ -94,6 +95,9 @@ export default function WorkoutPlans() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [showModal, setShowModal] = useState(false);
   const [fetchError, setFetchError] = useState("");
+  const [deletePlan, setDeletePlan] = useState(null);
+  const [deletingPlan, setDeletingPlan] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const fetchData = () => {
     setLoading(true);
@@ -117,14 +121,21 @@ export default function WorkoutPlans() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const handleDelete = async (id) => {
-    if (!confirm("Delete this workout plan?")) return;
+  const handleDelete = async () => {
+    if (!deletePlan) return;
     setFetchError("");
+    setDeleteError("");
+    setDeletingPlan(true);
     try {
-      await api.delete(`/workouts/plans/${id}`);
+      await api.delete(`/workouts/plans/${deletePlan.workout_plan_id}`);
+      setDeletePlan(null);
       await fetchData();
     } catch (err) {
-      setFetchError(err.response?.data?.message || "Failed to delete workout plan.");
+      const message = err.response?.data?.message || "Failed to delete workout plan.";
+      setFetchError(message);
+      setDeleteError(message);
+    } finally {
+      setDeletingPlan(false);
     }
   };
 
@@ -137,6 +148,22 @@ export default function WorkoutPlans() {
 
   return (
     <div className="space-y-6">
+      {deletePlan && (
+        <ConfirmDialog
+          title={`Delete "${deletePlan.plan_name}"?`}
+          description="This workout plan will be permanently deleted. This action cannot be undone."
+          confirmLabel="Delete plan"
+          isLoading={deletingPlan}
+          error={deleteError}
+          onCancel={() => {
+            if (!deletingPlan) {
+              setDeletePlan(null);
+              setDeleteError("");
+            }
+          }}
+          onConfirm={handleDelete}
+        />
+      )}
       {showModal && (
         <PlanModal
           members={members}
@@ -235,8 +262,8 @@ export default function WorkoutPlans() {
                       {plan.created_at ? new Date(plan.created_at).toLocaleDateString() : "—"}
                     </td>
                     <td className="px-6 py-4">
-                      <button onClick={() => handleDelete(plan.workout_plan_id)}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition" title="Delete">
+                      <button onClick={() => { setDeleteError(""); setDeletePlan(plan); }}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition" title="Delete" aria-label={`Delete ${plan.plan_name}`}>
                         <Trash2 size={16} />
                       </button>
                     </td>

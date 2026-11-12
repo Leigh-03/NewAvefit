@@ -46,6 +46,9 @@ export default function TrainingPulse({ audience, date }) {
   const busiestPeriod = data?.todayAvailability?.reduce((highest, current) => (
     !highest || Number(current.count) > Number(highest.count) ? current : highest
   ), null);
+  const scheduledEquipment = (data?.mostUsedEquipment || []).filter(
+    (item) => String(item.equipment || "").trim().toLowerCase() !== "gym equipment"
+  );
 
   return (
     <section aria-labelledby={`training-pulse-${audience}`} className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
@@ -107,9 +110,9 @@ export default function TrainingPulse({ audience, date }) {
           </div>
           <div className="rounded-xl bg-slate-50 p-4 md:col-span-2 dark:bg-white/[0.04]">
             <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500"><Dumbbell size={15} /> Most scheduled equipment {data?.dayLabel || "today"}</p>
-            {data?.mostUsedEquipment?.length ? (
+            {scheduledEquipment.length ? (
               <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                {data.mostUsedEquipment.map((item) => (
+                {scheduledEquipment.map((item) => (
                   <li key={item.equipment} className="flex min-w-0 flex-col items-start gap-2 rounded-xl border border-slate-200/80 bg-white px-3 py-3 shadow-sm shadow-slate-900/[0.03] dark:border-white/10 dark:bg-white/[0.06]">
                     <span className="w-full break-words text-sm font-semibold leading-snug text-slate-800 dark:text-slate-100">{item.equipment}</span>
                     <span className="inline-flex items-center rounded-full bg-orange-50 px-2.5 py-1 text-[11px] font-semibold text-orange-700 dark:bg-orange-500/10 dark:text-orange-300">{item.count} {Number(item.count) === 1 ? "planned use" : "planned uses"}</span>

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { CalendarDays, ClipboardList, Dumbbell, Eye, LockKeyhole, Pencil, Plus, Search, Target, Trash2, UserRound, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 import ExercisePicker from "../components/workout/ExercisePicker";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 import { getWorkoutGoalRules } from "../utils/workoutGoalRules";
 import {
   exerciseMatchesProgram,
@@ -814,6 +815,8 @@ export default function TrainerWorkoutPlans() {
   const [rejectionError, setRejectionError] = useState("");
   const [fetchError, setFetchError] = useState("");
   const [reviewingPlanId, setReviewingPlanId] = useState(null);
+  const [pendingDeleteAction, setPendingDeleteAction] = useState(null);
+  const [deleteActionError, setDeleteActionError] = useState("");
 
   const fetchData = useCallback(async () => {
     setFetchError("");
@@ -876,14 +879,35 @@ export default function TrainerWorkoutPlans() {
   }, [fetchData]);
 
   const handleDelete = async (plan) => {
-    if (!window.confirm(`Delete "${plan.plan_name}"? This can't be undone.`)) return;
+    setDeleteActionError("");
+    setPendingDeleteAction({ kind: "plan", plan });
+  };
+
+  const confirmDeleteAction = async () => {
+    if (!pendingDeleteAction) return;
+    const { kind, plan } = pendingDeleteAction;
+    setDeleteActionError("");
+    if (kind === "request") {
+      if (await handleDeletionReview(plan, "approve")) {
+        setPendingDeleteAction(null);
+        if (viewingPlan?.workout_plan_id === plan.workout_plan_id) setViewingPlan(null);
+      }
+      return;
+    }
+
+    setReviewingPlanId(plan.workout_plan_id);
     setFetchError("");
     try {
       await trainerApi.delete(`/me/workout-plans/${plan.workout_plan_id}`);
+      setPendingDeleteAction(null);
       await fetchData();
     } catch (err) {
       console.error(err);
-      setFetchError(err.response?.data?.message || "Failed to delete workout plan.");
+      const message = err.response?.data?.message || "Failed to delete workout plan.";
+      setFetchError(message);
+      setDeleteActionError(message);
+    } finally {
+      setReviewingPlanId(null);
     }
   };
 
@@ -939,6 +963,7 @@ export default function TrainerWorkoutPlans() {
     } catch (err) {
       const message = err.response?.data?.message || "Unable to review this deletion request.";
       setFetchError(message);
+      if (decision === "approve") setDeleteActionError(message);
       if (decision === "reject") setRejectionError(message);
       return false;
     } finally {
@@ -946,9 +971,9 @@ export default function TrainerWorkoutPlans() {
     }
   };
 
-  const approveDeletionRequest = async (plan) => {
-    if (!window.confirm(`Approve deletion of "${plan.plan_name}"? The plan and its workouts will be permanently removed.`)) return false;
-    return handleDeletionReview(plan, "approve");
+  const approveDeletionRequest = (plan) => {
+    setDeleteActionError("");
+    setPendingDeleteAction({ kind: "request", plan });
   };
 
   const submitRejection = async () => {
@@ -998,6 +1023,26 @@ export default function TrainerWorkoutPlans() {
           onSave={fetchData}
         />
       )}
+      {pendingDeleteAction && (
+        <ConfirmDialog
+          title={pendingDeleteAction.kind === "request"
+            ? `Approve deletion of "${pendingDeleteAction.plan.plan_name}"?`
+            : `Delete "${pendingDeleteAction.plan.plan_name}"?`}
+          description={pendingDeleteAction.kind === "request"
+            ? "The workout plan and its workouts will be permanently removed to fulfill the member’s deletion request."
+            : "This workout plan will be permanently deleted. This action cannot be undone."}
+          confirmLabel={pendingDeleteAction.kind === "request" ? "Approve deletion" : "Delete plan"}
+          isLoading={reviewingPlanId === pendingDeleteAction.plan.workout_plan_id}
+          error={deleteActionError}
+          onCancel={() => {
+            if (reviewingPlanId !== pendingDeleteAction.plan.workout_plan_id) {
+              setPendingDeleteAction(null);
+              setDeleteActionError("");
+            }
+          }}
+          onConfirm={confirmDeleteAction}
+        />
+      )}
       {viewingPlan && (
         <PlanDetailsModal
           plan={viewingPlan}
@@ -1006,9 +1051,7 @@ export default function TrainerWorkoutPlans() {
           onApprove={async () => {
             if (await handleReviewRequest(viewingPlan, "approve")) setViewingPlan(null);
           }}
-          onApproveDeletion={async () => {
-            if (await approveDeletionRequest(viewingPlan)) setViewingPlan(null);
-          }}
+          onApproveDeletion={() => approveDeletionRequest(viewingPlan)}
           onRejectDeletion={() => {
             setRejectingPlan(viewingPlan);
             setRejectionType("deletion");

@@ -4,7 +4,7 @@ const verifyToken = require("../middleware/authMiddleware");
 const verifyTrainer = require("../middleware/trainerAuthMiddleware");
 const { userLoginLimiter } = require("../middleware/rateLimit");
 const availabilityController = require("../controllers/trainerAvailabilityController");
-const { updateCapacity } = require("../controllers/coachCapacityController");
+const { getCapacity, updateCapacity } = require("../controllers/coachCapacityController");
 const { getTrainingPulse } = require("../controllers/analyticsController");
 const {
   getTrainers, getTrainerById, createTrainer, updateTrainer, approveTrainer, rejectTrainer, deactivateTrainer, deleteTrainer, getTrainerRoster,
@@ -26,6 +26,8 @@ router.get("/me/profile", verifyTrainer, getMyProfile);
 router.put("/me/photo", verifyTrainer, updateMyPhoto);
 router.get("/me/availability", verifyTrainer, availabilityController.getForTrainer);
 router.put("/me/availability", verifyTrainer, availabilityController.saveForTrainer);
+router.get("/me/capacity", verifyTrainer, getCapacity);
+router.put("/me/capacity", verifyTrainer, updateCapacity);
 router.get("/me/workout-plans", verifyTrainer, getMyWorkoutPlans);
 router.post("/me/workout-plans", verifyTrainer, createMyWorkoutPlan);
 router.put("/me/workout-plans/:planId/review", verifyTrainer, reviewMemberWorkoutPlan);

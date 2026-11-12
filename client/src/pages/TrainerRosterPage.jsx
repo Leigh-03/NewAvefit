@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Search, TrendingUp, Users, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
+import CustomSelect from "../components/ui/CustomSelect";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -190,6 +191,7 @@ export default function TrainerRosterPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("first_name");
   const [profileMember, setProfileMember] = useState(null);
   const [progressMember, setProgressMember] = useState(null);
 
@@ -237,11 +239,17 @@ export default function TrainerRosterPage() {
     };
   }, [refreshRoster]);
 
-  const filteredMembers = members.filter((member) => {
-    const query = search.trim().toLowerCase();
-    if (!query) return true;
-    return `${member.first_name || ""} ${member.last_name || ""} ${member.email || ""} ${member.fitness_goal || ""}`.toLowerCase().includes(query);
-  });
+  const filteredMembers = members
+    .filter((member) => {
+      const query = search.trim().toLowerCase();
+      if (!query) return true;
+      return `${member.first_name || ""} ${member.last_name || ""} ${member.email || ""} ${member.fitness_goal || ""}`.toLowerCase().includes(query);
+    })
+    .sort((memberA, memberB) => {
+      const otherName = sortBy === "first_name" ? "last_name" : "first_name";
+      const primaryComparison = (memberA[sortBy] || "").localeCompare(memberB[sortBy] || "", undefined, { sensitivity: "base", numeric: true });
+      return primaryComparison || (memberA[otherName] || "").localeCompare(memberB[otherName] || "", undefined, { sensitivity: "base", numeric: true });
+    });
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
@@ -262,11 +270,24 @@ export default function TrainerRosterPage() {
           <p className="mt-1 text-xs text-slate-500">View your members’ profiles.</p>
         </div>
         {!loading && members.length > 0 && (
-          <label className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 dark:border-white/10 dark:bg-[#111] sm:max-w-xs">
-            <Search size={16} className="text-slate-400" />
-            <span className="sr-only">Search roster</span>
-            <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search members..." className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white" />
-          </label>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <label className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 dark:border-white/10 dark:bg-[#111] sm:max-w-xs">
+              <Search size={16} className="text-slate-400" />
+              <span className="sr-only">Search roster</span>
+              <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search members..." className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white" />
+            </label>
+            <div className="w-full sm:w-56">
+              <CustomSelect
+                value={sortBy}
+                onChange={setSortBy}
+                ariaLabel="Alphabetical Sorting"
+                options={[
+                  { value: "first_name", label: "Sort by First Name" },
+                  { value: "last_name", label: "Sort by Last Name" },
+                ]}
+              />
+            </div>
+          </div>
         )}
       </div>
 

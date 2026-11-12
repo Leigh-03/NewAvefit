@@ -3,8 +3,47 @@ const { getCapacityStatus } = require("../utils/coachAssignment");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const { sendCoachCapacityStatusEmail } = require("../utils/mailer");
 
+const getCapacity = async (req, res) => {
+  const trainerId = Number(req.trainer?.trainer_id ?? req.params.id);
+  if (!Number.isInteger(trainerId) || trainerId < 1) {
+    return res.status(400).json({ success: false, message: "Invalid coach ID." });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         t.trainer_id,
+         t.max_members,
+         COALESCE((SELECT COUNT(*)::integer FROM users u WHERE u.trainer_id = t.trainer_id), 0) AS assigned_member_count,
+         t.status
+       FROM trainers t
+       WHERE t.trainer_id = $1`,
+      [trainerId]
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({ success: false, message: "Coach not found." });
+    }
+
+    const coach = result.rows[0];
+    res.json({
+      success: true,
+      data: {
+        trainer_id: coach.trainer_id,
+        max_members: Number(coach.max_members) || 0,
+        assigned_member_count: Number(coach.assigned_member_count) || 0,
+        status: coach.status,
+        capacity_status: getCapacityStatus(coach.assigned_member_count, coach.max_members, coach.status),
+      },
+    });
+  } catch (err) {
+    console.error("get coach capacity error:", err.message);
+    res.status(500).json({ success: false, message: "Unable to load coach capacity." });
+  }
+};
+
 const updateCapacity = async (req, res) => {
-  const trainerId = Number(req.params.id);
+  const trainerId = Number(req.params.id ?? req.trainer?.trainer_id);
   const maxMembers = Number(req.body?.max_members);
   if (!Number.isInteger(trainerId) || trainerId < 1) {
     return res.status(400).json({ success: false, message: "Invalid coach ID." });
@@ -84,4 +123,4 @@ const updateCapacity = async (req, res) => {
   }
 };
 
-module.exports = { updateCapacity };
+module.exports = { getCapacity, updateCapacity };

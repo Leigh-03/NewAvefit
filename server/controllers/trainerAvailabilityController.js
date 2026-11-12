@@ -17,11 +17,15 @@ const validateAvailability = (availability) => {
   const normalized = [];
   for (const slot of availability) {
     const dayOfWeek = Number(slot?.day_of_week);
+    const memberLimit = Number(slot?.member_limit ?? 1);
     if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
       return "Choose a valid day of the week for every time slot.";
     }
     if (!isValidTime(slot.start_time) || !isValidTime(slot.end_time)) {
       return "Enter a valid start and end time for every time slot.";
+    }
+    if (!Number.isInteger(memberLimit) || memberLimit < 1 || memberLimit > 5) {
+      return "Each preferred workout time must allow between 1 and 5 members.";
     }
     if (timeToMinutes(slot.start_time) < 360 || timeToMinutes(slot.end_time) > 1320) {
       return "Coach availability must be between 6:00 AM and 10:00 PM.";
@@ -33,6 +37,7 @@ const validateAvailability = (availability) => {
       day_of_week: dayOfWeek,
       start_time: slot.start_time,
       end_time: slot.end_time,
+      member_limit: memberLimit,
     });
   }
 
@@ -63,7 +68,8 @@ const listAvailability = async (trainerId) => {
   const result = await pool.query(
     `SELECT availability_id, trainer_id, day_of_week,
             TO_CHAR(start_time, 'HH24:MI') AS start_time,
-            TO_CHAR(end_time, 'HH24:MI') AS end_time
+            TO_CHAR(end_time, 'HH24:MI') AS end_time,
+            member_limit
      FROM trainer_availability
      WHERE trainer_id = $1
      ORDER BY day_of_week, start_time`,
@@ -109,10 +115,11 @@ const replaceAvailability = async (trainerId, slots) => {
     }
     await client.query("DELETE FROM trainer_availability WHERE trainer_id = $1", [trainerId]);
     for (const slot of slots) {
+      const memberLimit = Number(slot?.member_limit ?? 1);
       await client.query(
-        `INSERT INTO trainer_availability (trainer_id, day_of_week, start_time, end_time)
-         VALUES ($1, $2, $3::time, $4::time)`,
-        [trainerId, slot.day_of_week, slot.start_time, slot.end_time]
+        `INSERT INTO trainer_availability (trainer_id, day_of_week, start_time, end_time, member_limit)
+         VALUES ($1, $2, $3::time, $4::time, $5)`,
+        [trainerId, slot.day_of_week, slot.start_time, slot.end_time, memberLimit]
       );
     }
     await client.query("COMMIT");
@@ -140,21 +147,10 @@ const saveForTrainer = async (req, res) => {
 };
 
 const saveForAdmin = async (req, res) => {
-  const { id } = req.params;
-  const validationError = validateAvailability(req.body?.availability);
-  if (validationError) {
-    return res.status(400).json({ success: false, message: validationError });
-  }
-  try {
-    const saved = await replaceAvailability(id, req.body.availability);
-    if (!saved) {
-      return res.status(404).json({ success: false, message: "Coach not found." });
-    }
-    res.json({ success: true, data: await listAvailability(id) });
-  } catch (err) {
-    console.error("save coach availability as admin error:", err.message);
-    res.status(500).json({ success: false, message: "Unable to save coach availability." });
-  }
+  return res.status(403).json({
+    success: false,
+    message: "Admins can view coach availability but cannot edit the trainer's member limits or time slots.",
+  });
 };
 
 module.exports = { getForAdmin, getForTrainer, saveForAdmin, saveForTrainer, validateAvailability };

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { LogOut, Menu, Search, X } from "lucide-react";
+import ConfirmDialog from "../ui/ConfirmDialog";
 
 /* ------------------------------------------------------------------ */
 /* Brand block — shared by the sidebar, the drawer and the mobile bar */
@@ -139,6 +140,8 @@ export default function AppShell({
 }) {
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const requestLogout = () => setConfirmLogout(true);
 
   // Close the drawer whenever the route changes.
   useEffect(() => {
@@ -169,7 +172,7 @@ export default function AppShell({
           pathname={location.pathname}
           subtitle={subtitle}
           user={user}
-          onLogout={onLogout}
+          onLogout={requestLogout}
         />
       </aside>
 
@@ -188,7 +191,7 @@ export default function AppShell({
               pathname={location.pathname}
               subtitle={subtitle}
               user={user}
-              onLogout={onLogout}
+              onLogout={requestLogout}
               onClose={() => setDrawerOpen(false)}
             />
           </aside>
@@ -270,6 +273,18 @@ export default function AppShell({
             );
           })}
         </nav>
+      )}
+      {confirmLogout && (
+        <ConfirmDialog
+          title="Log out of AveFit?"
+          description="You will need to sign in again to access your account."
+          confirmLabel="Log out"
+          onCancel={() => setConfirmLogout(false)}
+          onConfirm={() => {
+            setConfirmLogout(false);
+            onLogout?.();
+          }}
+        />
       )}
     </div>
   );

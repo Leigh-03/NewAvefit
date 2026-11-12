@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Save, User, Lock, Bell, Database, Camera } from "lucide-react";
+import { Save, User, Lock, Bell, Camera } from "lucide-react";
 import api from "../services/api";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 
@@ -265,28 +265,6 @@ export default function Settings() {
         </div>
       </section>
 
-      {/* System Info */}
-      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
-        <div className="flex items-center gap-3 border-b border-slate-200 pb-4 dark:border-white/10">
-          <div className="rounded-lg bg-slate-100 p-2 text-slate-600 dark:bg-white/5 dark:text-slate-300"><Database size={20} /></div>
-          <div><h2 className="text-lg font-bold text-slate-900 dark:text-white">System information</h2><p className="mt-0.5 text-xs text-slate-500">Application environment details.</p></div>
-        </div>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          {[
-            { label: "App Name", value: "AveFit" },
-            { label: "Version", value: "1.0.0" },
-            { label: "Database", value: "PostgreSQL" },
-            { label: "Framework", value: "React + Vite" },
-            { label: "Backend", value: "Node.js + Express" },
-            { label: "School", value: "Batangas State University" },
-          ].map((item) => (
-            <div key={item.label} className="flex flex-wrap justify-between gap-2 border-b border-slate-100 pb-2 dark:border-white/10">
-              <span className="text-slate-500">{item.label}</span>
-              <span className="font-medium text-slate-700">{item.value}</span>
-            </div>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }
