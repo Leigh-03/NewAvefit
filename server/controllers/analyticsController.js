@@ -104,6 +104,7 @@ const getTrainingPulse = async (req, res) => {
       JOIN exercises e ON e.exercise_id = ws.exercise_id
       WHERE wp.approval_status = 'Approved'
         AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+        AND LOWER(BTRIM(e.equipment)) <> 'gym equipment'
         AND (
           (
             ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
@@ -690,6 +691,7 @@ const getAnalytics = async (req, res) => {
       SELECT catalog.equipment, COALESCE(usage_stats.count, 0)::int AS count
       FROM equipment_catalog catalog
       LEFT JOIN filtered_usage usage_stats ON usage_stats.equipment = catalog.equipment
+      WHERE LOWER(BTRIM(catalog.equipment)) NOT IN ('gym equipment', 'machine', 'bodyweight')
       ORDER BY count DESC, catalog.equipment ASC
     `, [
       equipmentDay || null,

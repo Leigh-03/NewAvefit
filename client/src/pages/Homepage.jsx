@@ -12,6 +12,7 @@ import {
 import "./Homepage.css";
 
 const GYM_ADDRESS = "34 A Mabini Tanauan Batangas, Mabini Ave, Tanauan City, Batangas";
+const GYM_MAP_QUERY = `Avenue Power and Fitness Gym, ${GYM_ADDRESS}`;
 
 const FEATURES = [
   {
@@ -58,8 +59,8 @@ export default function Homepage() {
         <section className="home-hero" aria-labelledby="home-title">
           <img
             className="home-hero-image"
-            src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=2200&q=85"
-            alt="Strength training equipment inside a modern gym"
+            src="/images/avefit-gym-bg.png"
+            alt="Strength training equipment and a gym trainer inside a modern gym"
             fetchPriority="high"
           />
           <div className="home-hero-shade" aria-hidden="true" />
@@ -146,7 +147,7 @@ export default function Homepage() {
               </div>
               <a
                 className="home-button home-button-orange home-directions"
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(GYM_ADDRESS)}`}
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(GYM_MAP_QUERY)}`}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -156,7 +157,7 @@ export default function Homepage() {
             <div className="home-map-frame">
               <iframe
                 title="Map showing Avenue Power and Fitness Gym in Tanauan City, Batangas"
-                src={`https://maps.google.com/maps?q=${encodeURIComponent(GYM_ADDRESS)}&output=embed`}
+                src={`https://maps.google.com/maps?q=${encodeURIComponent(GYM_MAP_QUERY)}&z=18&output=embed`}
                 loading="lazy"
                 referrerPolicy="no-referrer-when-downgrade"
               />

@@ -5,6 +5,7 @@ import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 import MemberWorkoutPlanRequestModal from "../components/workout/MemberWorkoutPlanRequestModal";
 import TrainingPulse from "../components/TrainingPulse";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
 import { getWorkoutDayGroups } from "../utils/workoutSessions";
 import { getProgramForDate, getScheduledPrograms } from "../utils/trainingPrograms";
@@ -77,6 +78,9 @@ export default function WorkoutPage() {
   const [showPlanRequest, setShowPlanRequest] = useState(false);
   const [planRequestNotice, setPlanRequestNotice] = useState("");
   const [showPlanStatusNotices, setShowPlanStatusNotices] = useState(true);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resettingWorkouts, setResettingWorkouts] = useState(false);
+  const [resetError, setResetError] = useState("");
 
   useEffect(() => {
     if (!planRequestNotice) return undefined;
@@ -186,14 +190,20 @@ export default function WorkoutPage() {
   };
 
   const handleReset = async () => {
-    if (!confirm("Reset all workouts for this week?")) return;
+    setResettingWorkouts(true);
+    setResetError("");
     setError("");
     try {
       await userApi.delete("/workouts/reset/week");
+      setConfirmReset(false);
       await fetchData();
     } catch (err) {
       console.error(err);
-      setError(err.response?.data?.message || "Unable to reset this week's workouts. Please try again.");
+      const message = err.response?.data?.message || "Unable to reset this week's workouts. Please try again.";
+      setError(message);
+      setResetError(message);
+    } finally {
+      setResettingWorkouts(false);
     }
   };
 
@@ -312,6 +322,22 @@ export default function WorkoutPage() {
 
   return (
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
+      {confirmReset && (
+        <ConfirmDialog
+          title="Reset this week’s workouts?"
+          description="All workouts scheduled for this week will be removed. This action cannot be undone."
+          confirmLabel="Reset workouts"
+          isLoading={resettingWorkouts}
+          error={resetError}
+          onCancel={() => {
+            if (!resettingWorkouts) {
+              setConfirmReset(false);
+              setResetError("");
+            }
+          }}
+          onConfirm={handleReset}
+        />
+      )}
       {showPlanRequest && (
         <MemberWorkoutPlanRequestModal
           initialDate={activeDay}
@@ -550,7 +576,7 @@ export default function WorkoutPage() {
             ))}
           </div>
           {!daySessions.some((session) => /^\d{4}-\d{2}-\d{2}$/.test(philippinesDateKey(session.session_date))) && isWorkoutDay(activeDay) && daySessions.length > 0 && (
-            <button onClick={handleReset} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-400 transition">
+            <button onClick={() => { setResetError(""); setConfirmReset(true); }} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-400 transition">
               <RotateCcw size={14} /> Reset
             </button>
           )}

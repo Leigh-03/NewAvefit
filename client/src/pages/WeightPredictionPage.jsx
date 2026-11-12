@@ -2,6 +2,41 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import userApi from "../userApi";
+import { formatPhilippinesDate, philippinesDateString } from "../utils/philippinesDate";
+
+const FORECAST_WINDOW_DAYS = 56;
+const MIN_FORECAST_SPAN_DAYS = 7;
+const MAX_WEIGHT_LOSS_RATE = 1;
+const MAX_WEIGHT_GAIN_RATE = 0.45;
+
+const dateKeyToUtc = (dateKey) => {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return Date.UTC(year, month - 1, day);
+};
+
+const getWeeklyTrend = (entries) => {
+  if (entries.length < 2) return null;
+  const firstDate = entries[0].dateKey;
+  const lastDate = entries[entries.length - 1].dateKey;
+  const spanDays = (dateKeyToUtc(lastDate) - dateKeyToUtc(firstDate)) / (24 * 60 * 60 * 1000);
+  if (spanDays < MIN_FORECAST_SPAN_DAYS) return null;
+
+  const meanDay = entries.reduce((total, entry) => (
+    total + (dateKeyToUtc(entry.dateKey) - dateKeyToUtc(firstDate)) / (24 * 60 * 60 * 1000)
+  ), 0) / entries.length;
+  const meanWeight = entries.reduce((total, entry) => total + entry.weight, 0) / entries.length;
+  const denominator = entries.reduce((total, entry) => {
+    const day = (dateKeyToUtc(entry.dateKey) - dateKeyToUtc(firstDate)) / (24 * 60 * 60 * 1000);
+    return total + (day - meanDay) ** 2;
+  }, 0);
+  if (!denominator) return null;
+
+  const slopePerDay = entries.reduce((total, entry) => {
+    const day = (dateKeyToUtc(entry.dateKey) - dateKeyToUtc(firstDate)) / (24 * 60 * 60 * 1000);
+    return total + (day - meanDay) * (entry.weight - meanWeight);
+  }, 0) / denominator;
+  return slopePerDay * 7;
+};
 
 const isValidWeight = (value) => {
   const weight = Number(value);
@@ -56,47 +91,80 @@ export default function WeightPredictionPage() {
   }, []);
 
   const forecast = useMemo(() => {
+    const today = philippinesDateString();
+    const todayUtc = dateKeyToUtc(today);
+    const earliestForecastDate = new Date(todayUtc - FORECAST_WINDOW_DAYS * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
     const weightedLogs = logs
-      .filter((entry) => entry.log_date && Number(entry.weight) > 0)
-      .sort((left, right) => new Date(left.log_date) - new Date(right.log_date));
-    const latestWeight = weightedLogs.length
-      ? Number(weightedLogs[weightedLogs.length - 1].weight)
-      : Number(profile?.weight) || null;
-    const firstWeight = weightedLogs.length ? Number(weightedLogs[0].weight) : latestWeight;
-    const firstDate = weightedLogs[0]?.log_date;
-    const lastDate = weightedLogs[weightedLogs.length - 1]?.log_date;
-    const elapsedWeeks = firstDate && lastDate
-      ? (new Date(lastDate) - new Date(firstDate)) / (7 * 24 * 60 * 60 * 1000)
-      : 0;
-    const fitnessGoal = String(profile?.fitness_goal || "").toLowerCase();
-    const lossGoal = fitnessGoal.includes("loss");
-    const gainGoal = fitnessGoal.includes("gain");
-    const observedRate = elapsedWeeks >= 1 && weightedLogs.length >= 2
-      ? (lossGoal
-        ? (firstWeight - latestWeight) / elapsedWeeks
-        : (latestWeight - firstWeight) / elapsedWeeks)
-      : 0;
-    const fallbackRate = lossGoal ? 0.4 : gainGoal ? 0.2 : 0.25;
-    const weeklyRate = Math.min(1, Math.max(0.1, observedRate > 0 ? observedRate : fallbackRate));
+      .map((entry) => ({
+        ...entry,
+        dateKey: String(entry.log_date || "").slice(0, 10),
+        weight: Number(entry.weight),
+      }))
+      .filter((entry) => (
+        /^\d{4}-\d{2}-\d{2}$/.test(entry.dateKey)
+        && dateKeyToUtc(entry.dateKey) <= todayUtc
+        && Number.isFinite(entry.weight)
+        && entry.weight >= 20
+        && entry.weight <= 200
+      ))
+      .sort((left, right) => (
+        left.dateKey.localeCompare(right.dateKey)
+        || Number(left.progress_id || 0) - Number(right.progress_id || 0)
+      ));
+    const latestLogByDate = new Map(weightedLogs.map((entry) => [entry.dateKey, entry]));
+    const uniqueWeightedLogs = [...latestLogByDate.values()];
+    const recentLogs = uniqueWeightedLogs.filter((entry) => entry.dateKey >= earliestForecastDate);
+    const profileWeight = Number(profile?.weight);
+    const latestWeight = uniqueWeightedLogs.length
+      ? uniqueWeightedLogs[uniqueWeightedLogs.length - 1].weight
+      : Number.isFinite(profileWeight) && profileWeight >= 20 && profileWeight <= 200
+        ? profileWeight
+        : null;
     const target = Number(targetWeight);
     const hasTarget = Number.isFinite(target) && target >= 20 && target <= 200;
-    const directionMatches = lossGoal ? latestWeight > target : gainGoal ? latestWeight < target : true;
-    const difference = latestWeight && hasTarget && directionMatches ? Math.abs(latestWeight - target) : 0;
-    const weeksFor = (rate) => difference <= 0 ? 0 : Math.max(1, Math.ceil(difference / rate));
+    const difference = latestWeight && hasTarget ? Math.abs(latestWeight - target) : 0;
+    const recentRate = getWeeklyTrend(recentLogs);
+    const historicalRate = getWeeklyTrend(uniqueWeightedLogs);
+    const measuredRate = recentRate ?? historicalRate;
+    const rateSource = recentRate !== null
+      ? "recent"
+      : historicalRate !== null
+        ? "historical"
+        : "planning";
+    const goalDirection = latestWeight != null && hasTarget
+      ? Math.sign(target - latestWeight)
+      : 0;
+    const rawRateTowardTarget = measuredRate == null ? null : measuredRate * goalDirection;
+    const isProgressing = rawRateTowardTarget > 0;
+    const rateLimit = goalDirection < 0 ? MAX_WEIGHT_LOSS_RATE : MAX_WEIGHT_GAIN_RATE;
+    const baselineRate = goalDirection < 0
+      ? Math.min(MAX_WEIGHT_LOSS_RATE, Math.max(0.25, latestWeight * 0.005))
+      : Math.min(MAX_WEIGHT_GAIN_RATE, Math.max(0.1, latestWeight * 0.001));
+    const weeklyRate = isProgressing
+      ? Math.min(rawRateTowardTarget, rateLimit)
+      : baselineRate;
+    const rateWasCapped = isProgressing && rawRateTowardTarget > rateLimit;
+    const weeksFor = (rate) => difference === 0 ? 0 : Math.ceil(difference / rate);
     return {
       latestWeight,
       weeklyRate,
-      observedRate,
-      target: hasTarget && directionMatches ? target : null,
-      consistentWeeks: weeksFor(weeklyRate),
-      irregularWeeks: weeksFor(weeklyRate * 0.45),
+      rawRateTowardTarget,
+      target: hasTarget ? target : null,
+      rateSource,
+      isProgressing,
+      rateWasCapped,
+      consistentWeeks: latestWeight != null && hasTarget ? weeksFor(weeklyRate) : null,
+      irregularWeeks: latestWeight != null && hasTarget ? weeksFor(weeklyRate * 0.65) : null,
     };
   }, [logs, profile, targetWeight]);
 
   const getTargetDate = (weeks) => {
-    const date = new Date();
-    date.setDate(date.getDate() + weeks * 7);
-    return new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(date);
+    const targetDate = new Date(dateKeyToUtc(philippinesDateString()) + weeks * 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    return formatPhilippinesDate(targetDate, { dateStyle: "medium" });
   };
 
   return (
@@ -127,7 +195,7 @@ export default function WeightPredictionPage() {
           ) : (
             <div className="space-y-4">
               <label htmlFor="prediction-current-weight" className="block max-w-md text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Your Current Weight (kg)
+                Latest recorded weight (kg)
                 <input
                   id="prediction-current-weight"
                   type="text"
@@ -160,23 +228,57 @@ export default function WeightPredictionPage() {
               {targetWeight && !isValidWeight(targetWeight) && (
                 <p role="alert" className="text-sm text-red-600 dark:text-red-300">Target weight must be between 20 kg and 200 kg.</p>
               )}
-              {forecast.observedRate > 0
-                ? <p className="text-sm text-slate-600 dark:text-slate-300">Estimated progress rate: {forecast.weeklyRate.toFixed(2)} kg/week based on your records.</p>
-                : <p className="text-sm text-slate-600 dark:text-slate-300">Estimated progress rate: {forecast.weeklyRate.toFixed(2)} kg/week planning assumption until more records are available.</p>}
+              {forecast.target && forecast.latestWeight != null && forecast.latestWeight === forecast.target && (
+                <p role="status" className="text-sm text-green-700 dark:text-green-300">You have reached your target weight.</p>
+              )}
+              {forecast.rateSource === "recent" && forecast.isProgressing && (
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Recent measured trend: {forecast.weeklyRate.toFixed(2)} kg/week toward your target, based on weight logs from the last 8 weeks.
+                  {forecast.rateWasCapped ? " The projection is capped at a safer planning rate." : ""}
+                </p>
+              )}
+              {forecast.rateSource === "historical" && forecast.isProgressing && (
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Estimated rate: {forecast.weeklyRate.toFixed(2)} kg/week toward your target, based on your available weight history.
+                  {forecast.rateWasCapped ? " The projection is capped at a safer planning rate." : ""}
+                </p>
+              )}
               {!forecast.latestWeight && <p className="text-sm text-amber-700 dark:text-amber-300">Add a current weight in your profile to estimate your goal timeline.</p>}
-              {forecast.latestWeight && !forecast.target && (
-                <p className="text-sm text-slate-500">Enter a target in the correct direction for your goal to view an estimate.</p>
+              {forecast.latestWeight && forecast.target && forecast.latestWeight !== forecast.target && forecast.rateSource === "planning" && (
+                <p role="status" className="text-sm text-amber-700 dark:text-amber-300">
+                  Not enough dated weight logs to calculate your personal pace yet. The timelines below use a conservative planning rate; they will update as you log progress.
+                </p>
+              )}
+              {forecast.latestWeight && forecast.target && forecast.rateSource !== "planning" && !forecast.isProgressing && (
+                <p role="status" className="text-sm text-amber-700 dark:text-amber-300">
+                  Your measured weight trend is not moving toward this target. The timelines below use a conservative planning rate instead; continue logging to update the estimate.
+                </p>
               )}
               {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
-              {forecast.latestWeight && forecast.target && (
+              {forecast.latestWeight && forecast.target && forecast.latestWeight !== forecast.target && (
                 <div className="grid gap-3 sm:grid-cols-2">
                   {[
-                    { label: "Consistent progress", weeks: forecast.consistentWeeks, note: "Assumes your recent or baseline pace continues." },
-                    { label: "Irregular updates", weeks: forecast.irregularWeeks, note: "Assumes approximately 45% of that pace." },
+                    {
+                      label: forecast.isProgressing ? "Current progress continues" : "Steady progress",
+                      weeks: forecast.consistentWeeks,
+                      rate: forecast.weeklyRate,
+                      note: forecast.isProgressing
+                        ? forecast.rateSource === "recent"
+                          ? "Based on your measured trend from the last 8 weeks."
+                            : "Based on your historical weight trend, which may not reflect your current pace."
+                        : "Planning scenario until your logs show a trend toward your target.",
+                    },
+                    {
+                      label: "Slower progress",
+                      weeks: forecast.irregularWeeks,
+                      rate: forecast.weeklyRate * 0.65,
+                      note: "Assumes progress continues at 65% of the first scenario.",
+                    },
                   ].map((scenario) => (
                     <article key={scenario.label} className="rounded-2xl bg-slate-50 p-5 dark:bg-white/[0.04]">
                       <p className="font-bold text-slate-900 dark:text-white">{scenario.label}</p>
                       <p className="mt-2 text-2xl font-black text-orange-600 dark:text-orange-400">{scenario.weeks} {scenario.weeks === 1 ? "week" : "weeks"}</p>
+                      <p className="mt-1 text-xs text-slate-500">Assumed pace: {scenario.rate.toFixed(2)} kg/week</p>
                       <p className="mt-1 text-xs text-slate-500">Estimated target date: {getTargetDate(scenario.weeks)}</p>
                       <p className="mt-2 text-xs text-slate-500">{scenario.note}</p>
                     </article>
@@ -184,7 +286,7 @@ export default function WeightPredictionPage() {
                 </div>
               )}
               <p className="text-xs leading-relaxed text-slate-500">
-                These are rough, non-medical estimates. Weight changes vary; the estimate recalculates from actual logged progress. Ask your coach or healthcare professional about a safe target and pace.
+                These are rough, non-medical estimates. Measured rates are capped at 1 kg/week for weight loss and 0.45 kg/week for weight gain; when there is not enough progress history, conservative planning rates are used. Weight changes are not linear, so dates can vary substantially. Ask your coach or healthcare professional about a safe target and pace.
               </p>
             </div>
           )}

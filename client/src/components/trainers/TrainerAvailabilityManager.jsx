@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CalendarClock, Check, ChevronDown, Clock3, Plus, Save, Trash2, X } from "lucide-react";
 import api from "../../services/api";
 import trainerApi from "../../trainerApi";
+import ConfirmDialog from "../ui/ConfirmDialog";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const AVAILABILITY_RANGES = [
@@ -14,6 +15,7 @@ const AVAILABILITY_RANGES = [
 const freshId = () => `${Date.now()}-${Math.random()}`;
 const MIN_AVAILABILITY_TIME = 6 * 60;
 const MAX_AVAILABILITY_TIME = 22 * 60;
+const DEFAULT_MEMBER_LIMIT = 1;
 
 const toClockParts = (value) => {
   const [hours, minutes] = String(value || "").slice(0, 5).split(":").map(Number);
@@ -35,6 +37,58 @@ const formatTime = (value) => {
   const parts = toClockParts(value);
   return `${parts.hour}:${parts.minute} ${parts.period}`;
 };
+
+const getCapacityStatus = (assignedMembers, maxMembers, status = "Active") => {
+  const assigned = Number(assignedMembers) || 0;
+  const capacity = Number(maxMembers) || 0;
+  if (status !== "Active") return "Inactive";
+  if (capacity > 0 && assigned >= capacity) return "Full";
+  if (capacity > 0 && assigned / capacity >= 0.8) return "Near Capacity";
+  return "Available";
+};
+
+const parseMemberLimit = (value) => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return null;
+  return parsed;
+};
+
+function MemberLimitInput({ id, value, onChange }) {
+  const [draft, setDraft] = useState(String(value ?? DEFAULT_MEMBER_LIMIT));
+
+  useEffect(() => {
+    setDraft(String(value ?? DEFAULT_MEMBER_LIMIT));
+  }, [value]);
+
+  return (
+    <label htmlFor={id} className="flex min-w-[7.5rem] flex-col gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+      <span>Members</span>
+      <input
+        id={id}
+        type="number"
+        min={1}
+        max={5}
+        step={1}
+        inputMode="numeric"
+        value={draft}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          setDraft(nextValue);
+          const parsed = parseMemberLimit(nextValue);
+          if (parsed === null) return;
+          onChange(parsed);
+        }}
+        onBlur={() => {
+          const parsed = parseMemberLimit(draft);
+          const safeValue = Number.isInteger(parsed) && parsed >= 1 && parsed <= 5 ? parsed : DEFAULT_MEMBER_LIMIT;
+          setDraft(String(safeValue));
+          onChange(safeValue);
+        }}
+        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-800 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50 dark:border-gray-700 dark:bg-[#111] dark:text-white"
+      />
+    </label>
+  );
+}
 
 function AvailabilityRangePicker({ id, value, options, onChange }) {
   const [open, setOpen] = useState(false);
@@ -205,35 +259,63 @@ export default function TrainerAvailabilityManager({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
+  const [slotToRemove, setSlotToRemove] = useState(null);
+  const [capacity, setCapacity] = useState({ max_members: 15, assigned_member_count: 0, status: "Active" });
+  const [capacityModalOpen, setCapacityModalOpen] = useState(false);
+  const [capacityDraft, setCapacityDraft] = useState("15");
+  const [capacityError, setCapacityError] = useState("");
+  const [capacitySaving, setCapacitySaving] = useState(false);
   const hoursError = getHoursError(slots);
 
   useEffect(() => {
     let active = true;
-    const request = isAdmin
+    const loadAvailability = isAdmin
       ? api.get(`/trainers/${trainerId}/availability`)
       : trainerApi.get("/me/availability");
-    request
+    const loadCapacity = isAdmin
+      ? Promise.resolve({ data: { data: { max_members: 15, assigned_member_count: 0, status: "Active" } } })
+      : trainerApi.get("/me/capacity");
+
+    loadAvailability
       .then(({ data }) => {
-        if (active) {
-          const loadedSlots = (data.data || []).map((slot) => ({
-            ...slot,
-            id: freshId(),
-            custom: !AVAILABILITY_RANGES.some((range) => (
-              range.start_time === String(slot.start_time).slice(0, 5) &&
-              range.end_time === String(slot.end_time).slice(0, 5)
-            )),
-            start_time: String(slot.start_time).slice(0, 5),
-            end_time: String(slot.end_time).slice(0, 5),
-          }));
-          setSlots(loadedSlots);
-          setError(getHoursError(loadedSlots));
-          setHasChanges(false);
-        }
+        if (!active) return;
+        const loadedSlots = (data.data || []).map((slot) => ({
+          ...slot,
+          id: freshId(),
+          member_limit: Number.isInteger(Number(slot.member_limit)) && Number(slot.member_limit) >= 1 && Number(slot.member_limit) <= 5
+            ? Number(slot.member_limit)
+            : DEFAULT_MEMBER_LIMIT,
+          custom: !AVAILABILITY_RANGES.some((range) => (
+            range.start_time === String(slot.start_time).slice(0, 5) &&
+            range.end_time === String(slot.end_time).slice(0, 5)
+          )),
+          start_time: String(slot.start_time).slice(0, 5),
+          end_time: String(slot.end_time).slice(0, 5),
+        }));
+        setSlots(loadedSlots);
+        setError(getHoursError(loadedSlots));
+        setHasChanges(false);
       })
       .catch((err) => {
         if (active) setError(err.response?.data?.message || "Unable to load coach availability.");
+      });
+
+    loadCapacity
+      .then(({ data }) => {
+        if (!active) return;
+        const nextCapacity = data?.data || { max_members: 15, assigned_member_count: 0, status: "Active" };
+        setCapacity({
+          max_members: Number(nextCapacity.max_members) || 15,
+          assigned_member_count: Number(nextCapacity.assigned_member_count) || 0,
+          status: nextCapacity.status || "Active",
+        });
+        setCapacityDraft(String(Number(nextCapacity.max_members) || 15));
+      })
+      .catch(() => {
+        if (active) setCapacity({ max_members: 15, assigned_member_count: 0, status: "Active" });
       })
       .finally(() => active && setLoading(false));
+
     return () => { active = false; };
   }, [isAdmin, trainerId]);
 
@@ -256,6 +338,7 @@ export default function TrainerAvailabilityManager({
         day_of_week: dayOfWeek,
         start_time: newRange.start_time,
         end_time: newRange.end_time,
+        member_limit: DEFAULT_MEMBER_LIMIT,
         custom: !nextRange,
       },
     ];
@@ -301,6 +384,44 @@ export default function TrainerAvailabilityManager({
     setSuccess("");
   };
 
+  const updateSlotMemberLimit = (id, value) => {
+    const safeValue = Number.isInteger(value) && value >= 1 && value <= 5 ? value : DEFAULT_MEMBER_LIMIT;
+    const updatedSlots = slots.map((slot) => slot.id === id ? { ...slot, member_limit: safeValue } : slot);
+    setSlots(updatedSlots);
+    setHasChanges(true);
+    setError(getHoursError(updatedSlots));
+    setSuccess("");
+  };
+
+  const updateCapacityValue = async () => {
+    const nextValue = Number(capacityDraft);
+    if (!Number.isInteger(nextValue) || nextValue < 1 || nextValue > 10000) {
+      setCapacityError("Enter a whole-number capacity between 1 and 10,000.");
+      return;
+    }
+    if (nextValue < capacity.assigned_member_count) {
+      setCapacityError(`Capacity cannot be lower than the ${capacity.assigned_member_count} members already assigned.`);
+      return;
+    }
+    setCapacitySaving(true);
+    setCapacityError("");
+    try {
+      const response = await trainerApi.put("/me/capacity", { max_members: nextValue });
+      const nextCapacity = response.data?.data || { max_members: nextValue, assigned_member_count: capacity.assigned_member_count, status: capacity.status };
+      setCapacity({
+        max_members: Number(nextCapacity.max_members) || nextValue,
+        assigned_member_count: Number(nextCapacity.assigned_member_count) || capacity.assigned_member_count,
+        status: nextCapacity.status || capacity.status,
+      });
+      setCapacityDraft(String(Number(nextCapacity.max_members) || nextValue));
+      setCapacityModalOpen(false);
+    } catch (err) {
+      setCapacityError(err.response?.data?.message || "Unable to update your capacity.");
+    } finally {
+      setCapacitySaving(false);
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     setError("");
@@ -311,10 +432,13 @@ export default function TrainerAvailabilityManager({
       return;
     }
     try {
-      const availability = slots.map(({ day_of_week, start_time, end_time }) => ({
+      const availability = slots.map(({ day_of_week, start_time, end_time, member_limit }) => ({
         day_of_week: Number(day_of_week),
         start_time,
         end_time,
+        member_limit: Number.isInteger(Number(member_limit)) && Number(member_limit) >= 1 && Number(member_limit) <= 5
+          ? Number(member_limit)
+          : DEFAULT_MEMBER_LIMIT,
       }));
       const response = isAdmin
         ? await api.put(`/trainers/${trainerId}/availability`, { availability })
@@ -322,6 +446,9 @@ export default function TrainerAvailabilityManager({
       setSlots((response.data.data || []).map((slot) => ({
         ...slot,
         id: freshId(),
+        member_limit: Number.isInteger(Number(slot.member_limit)) && Number(slot.member_limit) >= 1 && Number(slot.member_limit) <= 5
+          ? Number(slot.member_limit)
+          : DEFAULT_MEMBER_LIMIT,
         custom: !AVAILABILITY_RANGES.some((range) => (
           range.start_time === String(slot.start_time).slice(0, 5) &&
           range.end_time === String(slot.end_time).slice(0, 5)
@@ -341,6 +468,37 @@ export default function TrainerAvailabilityManager({
 
   const content = (
     <div className="space-y-5">
+      {!isAdmin && (
+        <div className="rounded-2xl border border-slate-800 bg-[#171717] p-4 text-white shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-300">Member capacity</p>
+          <div className="mt-4 flex items-center justify-between gap-4">
+            <div className="text-2xl font-black tracking-tight text-white sm:text-[2rem]">
+              {capacity.assigned_member_count}/{capacity.max_members} members
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCapacityDraft(String(capacity.max_members || 15));
+                setCapacityError("");
+                setCapacityModalOpen(true);
+              }}
+              className="rounded-lg bg-transparent px-2.5 py-1.5 text-sm font-bold text-orange-400 hover:bg-orange-500/10"
+            >
+              Edit
+            </button>
+          </div>
+          <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-slate-700">
+            <div
+              className={`h-full rounded-full ${getCapacityStatus(capacity.assigned_member_count, capacity.max_members, capacity.status) === "Full" ? "bg-red-500" : getCapacityStatus(capacity.assigned_member_count, capacity.max_members, capacity.status) === "Near Capacity" ? "bg-orange-500" : "bg-green-500"}`}
+              style={{ width: `${Math.min((Number(capacity.assigned_member_count || 0) / Math.max(Number(capacity.max_members) || 1, 1)) * 100, 100)}%` }}
+            />
+          </div>
+          <div className="mt-3 inline-flex rounded-full bg-green-500/15 px-3 py-1.5 text-sm font-bold text-green-300">
+            {getCapacityStatus(capacity.assigned_member_count, capacity.max_members, capacity.status)}
+          </div>
+        </div>
+      )}
+
       <div>
         <div className="flex items-center gap-2">
           <CalendarClock size={20} className="text-orange-500" />
@@ -384,9 +542,14 @@ export default function TrainerAvailabilityManager({
                       <div key={slot.id} className="flex flex-wrap items-start gap-2">
                         <div className="min-w-0 flex-1 space-y-2">
                           {isAdmin ? (
-                            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-white/[0.04] dark:text-slate-200">
-                              {formatTime(slot.start_time)} – {formatTime(slot.end_time)}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-white/[0.04]">
+                              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                                {formatTime(slot.start_time)} – {formatTime(slot.end_time)}
+                              </p>
+                              <span className="rounded-full bg-orange-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">
+                                {slot.member_limit ?? DEFAULT_MEMBER_LIMIT} members max
+                              </span>
+                            </div>
                           ) : (
                             <>
                               <label className="sr-only" htmlFor={`range-${slot.id}`}>{day} availability time</label>
@@ -417,10 +580,19 @@ export default function TrainerAvailabilityManager({
                               />
                             </div>
                           )}
+                          {!isAdmin && (
+                            <div className="flex items-end justify-end">
+                              <MemberLimitInput
+                                id={`member-limit-${slot.id}`}
+                                value={slot.member_limit ?? DEFAULT_MEMBER_LIMIT}
+                                onChange={(value) => updateSlotMemberLimit(slot.id, value)}
+                              />
+                            </div>
+                          )}
                         </div>
                         {!isAdmin && <button
                           type="button"
-                          onClick={() => removeSlot(slot.id)}
+                          onClick={() => setSlotToRemove(slot)}
                           aria-label={`Remove ${day} time slot`}
                           className="mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
                         >
@@ -459,17 +631,58 @@ export default function TrainerAvailabilityManager({
     </div>
   );
 
-  if (!isAdmin) return <div className="mx-auto max-w-3xl">{content}</div>;
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-[#151515] sm:p-7" onClick={(event) => event.stopPropagation()}>
-        <div className="mb-4 flex justify-end">
-          <button type="button" onClick={onClose} aria-label="Close availability editor" className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10">
-            <X size={18} />
-          </button>
+    <>
+      {slotToRemove && (
+        <ConfirmDialog
+          title={`Remove ${DAYS[Number(slotToRemove.day_of_week)]} availability?`}
+          description={`${formatTime(slotToRemove.start_time)}–${formatTime(slotToRemove.end_time)} will be removed from your unsaved availability changes.`}
+          confirmLabel="Remove time slot"
+          onCancel={() => setSlotToRemove(null)}
+          onConfirm={() => {
+            removeSlot(slotToRemove.id);
+            setSlotToRemove(null);
+          }}
+        />
+      )}
+      {!isAdmin && capacityModalOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-4" onClick={() => setCapacityModalOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="coach-capacity-title" className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-[#151515]" onClick={(event) => event.stopPropagation()}>
+            <h2 id="coach-capacity-title" className="text-xl font-bold text-slate-900 dark:text-white">Coach member capacity</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">You currently have {capacity.assigned_member_count} assigned member(s).</p>
+            <label htmlFor="coach-max-members" className="mt-5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Maximum members</label>
+            <input
+              id="coach-max-members"
+              type="number"
+              min={1}
+              max={10000}
+              step={1}
+              value={capacityDraft}
+              onChange={(event) => setCapacityDraft(event.target.value)}
+              className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-white"
+            />
+            {capacityError && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{capacityError}</p>}
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setCapacityModalOpen(false)} disabled={capacitySaving} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 disabled:opacity-50 dark:border-white/10 dark:text-slate-300">Cancel</button>
+              <button type="button" onClick={updateCapacityValue} disabled={capacitySaving} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50">{capacitySaving ? "Saving..." : "Save capacity"}</button>
+            </div>
+          </div>
         </div>
-        {content}
-      </div>
-    </div>
+      )}
+      {!isAdmin ? (
+        <div className="mx-auto max-w-3xl">{content}</div>
+      ) : (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+          <div role="dialog" aria-modal="true" className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-[#151515] sm:p-7" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex justify-end">
+              <button type="button" onClick={onClose} aria-label="Close availability editor" className="grid h-9 w-9 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10">
+                <X size={18} />
+              </button>
+            </div>
+            {content}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

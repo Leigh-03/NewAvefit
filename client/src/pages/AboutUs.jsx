@@ -4,6 +4,7 @@ import { useState } from "react";
 import userApi from "../userApi";
 
 const GYM_ADDRESS = "34 A Mabini Tanauan Batangas, Mabini Ave, Tanauan City, Batangas";
+const GYM_MAP_QUERY = encodeURIComponent(`Avenue Power and Fitness Gym, ${GYM_ADDRESS}`);
 
 const APP_FEATURES = [
   {
@@ -35,7 +36,6 @@ const GYM_INFO = [
 ];
 
 export default function AboutUs() {
-  const mapQuery = encodeURIComponent(GYM_ADDRESS);
   const [rating, setRating] = useState(0);
   const [hovered, setHovered] = useState(0);
   const [feedback, setFeedback] = useState({ message: "" });
@@ -160,7 +160,7 @@ export default function AboutUs() {
                 <h2 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Gym location</h2>
               </div>
               <a
-                href={`https://www.google.com/maps/search/?api=1&query=${mapQuery}`}
+                href={`https://www.google.com/maps/search/?api=1&query=${GYM_MAP_QUERY}`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-orange-200 px-3 text-xs font-semibold text-orange-700 transition hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-orange-500/30 dark:text-orange-300 dark:hover:bg-orange-500/10"
@@ -170,7 +170,7 @@ export default function AboutUs() {
             </div>
             <iframe
               title="Map showing Avenue Power and Fitness Gym in Tanauan City, Batangas"
-              src={`https://maps.google.com/maps?q=${mapQuery}&output=embed`}
+              src={`https://maps.google.com/maps?q=${GYM_MAP_QUERY}&z=18&output=embed`}
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
               className="h-64 w-full border-0 sm:h-72"

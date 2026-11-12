@@ -136,7 +136,11 @@
   height: 100%;
 }
 
-.home-hero-image { object-fit: cover; object-position: center 52%; }
+.home-hero-image {
+  object-fit: cover;
+  object-position: center center;
+  filter: saturate(.8) contrast(1.06);
+}
 
 .home-hero-shade {
   background: linear-gradient(90deg, rgba(14, 15, 13, .88) 0%, rgba(14, 15, 13, .67) 43%, rgba(14, 15, 13, .12) 100%), linear-gradient(0deg, rgba(14, 15, 13, .35), transparent 35%);

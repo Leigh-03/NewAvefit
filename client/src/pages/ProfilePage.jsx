@@ -3,6 +3,7 @@ import { Activity, Save, LogOut, ChevronRight, Camera, CircleUserRound, Dumbbell
 import { useNavigate } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import { PasswordField } from "../components/ui/Form";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 import userApi from "../userApi";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 import WeeklyWorkoutAvailability from "../components/WeeklyWorkoutAvailability";
@@ -81,6 +82,7 @@ export default function ProfilePage() {
   const [passwordNotice, setPasswordNotice] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [changeRequests, setChangeRequests] = useState([]);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const bmiCategory = getBmiCategory(bmi);
 
   useEffect(() => {
@@ -325,6 +327,15 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
+      {confirmLogout && (
+        <ConfirmDialog
+          title="Log out of AveFit?"
+          description="You will need to sign in again to access your account."
+          confirmLabel="Log out"
+          onCancel={() => setConfirmLogout(false)}
+          onConfirm={handleLogout}
+        />
+      )}
       {/* Header */}
       <div className="ave-page-hero border-b border-orange-100 px-5 pb-8 pt-8 text-center dark:border-white/5 sm:px-8">
         <button
@@ -674,7 +685,7 @@ export default function ProfilePage() {
           {saving ? "Submitting..." : hasPendingProfileChange ? "Profile Request Pending" : "Submit Profile Changes"}
         </button>
 
-        <button type="button" onClick={handleLogout}
+        <button type="button" onClick={() => setConfirmLogout(true)}
           className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/30 py-3.5 font-semibold text-red-600 transition hover:bg-red-500/10 dark:text-red-400">
           <LogOut size={18} />
           Log Out

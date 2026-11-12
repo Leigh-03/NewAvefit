@@ -5,6 +5,7 @@ import ExercisePicker from "./ExercisePicker";
 import ProgramPicker from "./ProgramPicker";
 import { philippinesDateString } from "../../utils/philippinesDate";
 import { getWorkoutGoalRules } from "../../utils/workoutGoalRules";
+import ConfirmDialog from "../ui/ConfirmDialog";
 import {
   exerciseMatchesProgram,
   getExerciseDose,
@@ -67,6 +68,7 @@ export default function MemberWorkoutPlanRequestModal({
   const [loadingExercises, setLoadingExercises] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [removeExerciseIndex, setRemoveExerciseIndex] = useState(null);
 
   const selectedWeek = getWeekDateRange(sessionDate);
   const scheduledExerciseIds = new Set(
@@ -331,6 +333,19 @@ export default function MemberWorkoutPlanRequestModal({
   };
 
   return (
+    <>
+    {removeExerciseIndex !== null && (
+      <ConfirmDialog
+        title={`Remove exercise ${removeExerciseIndex + 1}?`}
+        description={`“${exercises.find((exercise) => String(exercise.exercise_id) === String(sessions[removeExerciseIndex]?.exercise_id))?.exercise_name || "This exercise"}” will be removed from your workout request.`}
+        confirmLabel="Remove exercise"
+        onCancel={() => setRemoveExerciseIndex(null)}
+        onConfirm={() => {
+          setSessions((current) => current.filter((_, itemIndex) => itemIndex !== removeExerciseIndex));
+          setRemoveExerciseIndex(null);
+        }}
+      />
+    )}
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
       <section role="dialog" aria-modal="true" aria-labelledby="member-plan-request-title" className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111]" onClick={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b border-slate-200 p-5 dark:border-slate-800 sm:p-6">
@@ -517,7 +532,7 @@ export default function MemberWorkoutPlanRequestModal({
                       Reps
                       <input type="number" min={getDoseRulesForExercise(session.exercise_id).reps[0]} max={getDoseRulesForExercise(session.exercise_id).reps[1]} step="1" value={session.reps} onChange={(event) => updateSession(index, "reps", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
                     </label>
-                    <button type="button" onClick={() => setSessions((current) => current.filter((_, itemIndex) => itemIndex !== index))} disabled={sessions.length <= 3} aria-label={`Remove exercise ${index + 1}`} className="col-span-2 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-30 sm:col-span-1">
+                    <button type="button" onClick={() => setRemoveExerciseIndex(index)} disabled={sessions.length <= 3} aria-label={`Remove exercise ${index + 1}`} className="col-span-2 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-30 sm:col-span-1">
                       <X size={16} />
                     </button>
                   </div>
@@ -548,5 +563,6 @@ export default function MemberWorkoutPlanRequestModal({
         </form>
       </section>
     </div>
+    </>
   );
 }

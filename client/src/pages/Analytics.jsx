@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement,
-  LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler,
+  LineElement, BarElement, Title, Tooltip, Legend, Filler,
 } from "chart.js";
-import { Line, Bar, Doughnut } from "react-chartjs-2";
+import { Line, Bar } from "react-chartjs-2";
 import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter, BarChart3, ChevronDown } from "lucide-react";
 import api from "../services/api";
 import TrainingPulse from "../components/TrainingPulse";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444"];
 
@@ -135,14 +135,6 @@ export default function Analytics() {
       backgroundColor: "rgba(59,130,246,0.08)",
       fill: true, tension: 0.4,
       pointBackgroundColor: "#3b82f6", pointRadius: 5,
-    }],
-  };
-
-  const goalChart = {
-    labels: data?.goalDistribution.map((g) => g.goal) || [],
-    datasets: [{
-      data: data?.goalDistribution.map((g) => parseInt(g.count)) || [],
-      backgroundColor: COLORS, borderWidth: 0,
     }],
   };
 
@@ -394,19 +386,11 @@ export default function Analytics() {
       </section>
 
       {/* Charts Row 1 */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6 xl:col-span-2">
-          <h3 className="mb-4 text-base font-black text-slate-900 dark:text-white">Member growth</h3>
-          {memberGrowthChart.labels.length > 0
-            ? <div className="h-72"><Line data={memberGrowthChart} options={chartOptions} /></div>
-            : <p className="py-12 text-center text-sm text-slate-500">No member growth data available yet.</p>}
-        </div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
-          <h3 className="mb-4 text-base font-black text-slate-900 dark:text-white">Weight goal distribution</h3>
-          {goalChart.labels.length > 0
-            ? <div className="h-72"><Doughnut data={goalChart} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { color: "#737373" } } } }} /></div>
-            : <p className="py-12 text-center text-sm text-slate-500">No member goals recorded yet.</p>}
-        </div>
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+        <h3 className="mb-4 text-base font-black text-slate-900 dark:text-white">Member growth</h3>
+        {memberGrowthChart.labels.length > 0
+          ? <div className="h-72"><Line data={memberGrowthChart} options={chartOptions} /></div>
+          : <p className="py-12 text-center text-sm text-slate-500">No member growth data available yet.</p>}
       </div>
 
       {/* Charts Row 2 */}

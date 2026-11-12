@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bell, CheckCheck, Trash2, Circle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createNotificationsApi } from "../services/notificationsApi";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 
 const typeColors = {
   workout: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
@@ -38,6 +39,8 @@ export default function Notifications({ audience = "admin" }) {
   const [fetchError, setFetchError] = useState("");
   const [actionError, setActionError] = useState("");
   const [busyAction, setBusyAction] = useState("");
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleteError, setDeleteError] = useState("");
 
   const fetchNotifications = useCallback(() => {
     setLoading(true);
@@ -79,27 +82,23 @@ export default function Notifications({ audience = "admin" }) {
     }
   };
 
-  const handleDelete = async (id) => {
-    setActionError("");
-    setBusyAction(String(id));
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
+    const { kind, notification } = pendingDelete;
+    const busyKey = kind === "read" ? "delete-read" : String(notification.notification_id);
+    setDeleteError("");
+    setBusyAction(busyKey);
     try {
-      await notificationsApi.delete(`/${id}`);
-      setNotifications((prev) => prev.filter((n) => n.notification_id !== id));
+      if (kind === "read") {
+        await notificationsApi.delete("/read");
+        setNotifications((prev) => prev.filter((item) => !item.is_read));
+      } else {
+        await notificationsApi.delete(`/${notification.notification_id}`);
+        setNotifications((prev) => prev.filter((item) => item.notification_id !== notification.notification_id));
+      }
+      setPendingDelete(null);
     } catch (err) {
-      setActionError(err.response?.data?.message || "Unable to delete this notification.");
-    } finally {
-      setBusyAction("");
-    }
-  };
-
-  const handleDeleteRead = async () => {
-    setActionError("");
-    setBusyAction("delete-read");
-    try {
-      await notificationsApi.delete("/read");
-      setNotifications((prev) => prev.filter((notification) => !notification.is_read));
-    } catch (err) {
-      setActionError(err.response?.data?.message || "Unable to delete read notifications.");
+      setDeleteError(err.response?.data?.message || (kind === "read" ? "Unable to delete read notifications." : "Unable to delete this notification."));
     } finally {
       setBusyAction("");
     }
@@ -143,6 +142,24 @@ export default function Notifications({ audience = "admin" }) {
 
   return (
     <div className="space-y-6">
+      {pendingDelete && (
+        <ConfirmDialog
+          title={pendingDelete.kind === "read" ? "Delete all read notifications?" : "Delete this notification?"}
+          description={pendingDelete.kind === "read"
+            ? `This will permanently delete ${readCount} read notifications. This action cannot be undone.`
+            : `“${pendingDelete.notification.message}” will be permanently deleted.`}
+          confirmLabel={pendingDelete.kind === "read" ? "Delete all read" : "Delete notification"}
+          isLoading={busyAction !== ""}
+          error={deleteError}
+          onCancel={() => {
+            if (!busyAction) {
+              setPendingDelete(null);
+              setDeleteError("");
+            }
+          }}
+          onConfirm={handleDelete}
+        />
+      )}
       {fetchError && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           ⚠️ {fetchError}
@@ -193,7 +210,10 @@ export default function Notifications({ audience = "admin" }) {
         </div>
         <button
           type="button"
-          onClick={handleDeleteRead}
+          onClick={() => {
+            setDeleteError("");
+            setPendingDelete({ kind: "read" });
+          }}
           disabled={busyAction !== "" || readCount === 0}
           title="Delete all read notifications"
           className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10"
@@ -284,7 +304,10 @@ export default function Notifications({ audience = "admin" }) {
                     </button>
                   )}
                   <button
-                    onClick={() => handleDelete(notif.notification_id)}
+                    onClick={() => {
+                      setDeleteError("");
+                      setPendingDelete({ kind: "single", notification: notif });
+                    }}
                     disabled={busyAction !== ""}
                     aria-label={`Delete notification: ${notif.message}`}
                     className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition"

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BadgeCheck, Briefcase, ChevronLeft, ChevronRight, Sparkles, User, X } from "lucide-react";
 import ScrollReveal from "../components/ScrollReveal";
 import userApi from "../userApi";
+import { formatWorkoutTime } from "../utils/workoutSchedule";
 
 const aliases = {
   "Weight Loss": ["weight loss", "weight management", "hiit", "circuit training", "group fitness", "conditioning"],
@@ -26,11 +27,23 @@ function expertise(t) {
 
 function TrainerPhoto({ trainer, className = "", fit = "contain" }) {
   return (
-    <div className={`relative overflow-hidden ${fit === "contain" ? "bg-slate-950" : "bg-transparent"} ${className}`}>
+    <div className={`relative isolate flex items-center justify-center overflow-hidden ${fit === "contain" ? "bg-gradient-to-br from-slate-900 via-slate-950 to-orange-950" : "bg-transparent"} ${className}`}>
       {trainer.photo_url ? (
-        <img src={trainer.photo_url} alt={trainer.full_name} className={`absolute inset-0 h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`} />
+        <>
+          {fit === "contain" && (
+            <>
+              <img src={trainer.photo_url} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-35 blur-2xl" />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/45 via-slate-950/10 to-slate-950/25" />
+            </>
+          )}
+          <img
+            src={trainer.photo_url}
+            alt={trainer.full_name}
+            className={`absolute inset-0 z-10 h-full w-full transition-transform duration-500 ${fit === "contain" ? "object-contain p-3 sm:p-5 group-hover/card:scale-[1.02]" : "object-cover"}`}
+          />
+        </>
       ) : (
-        <div className="w-full h-full flex items-center justify-center"><User size={96} className="text-orange-500" /></div>
+        <div className="flex h-full w-full items-center justify-center"><User size={96} className="text-orange-500" /></div>
       )}
     </div>
   );
@@ -122,7 +135,9 @@ function TrainerProfileModal({ trainer, goal, assigned, onClose }) {
                 {trainer.availability.map((slot, index) => (
                   <div key={`${slot.day_of_week}-${slot.start_time}-${index}`} className="flex justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm dark:border-white/10 dark:bg-white/[0.03]">
                     <span className="font-medium text-slate-700 dark:text-slate-200">{DAY_NAMES[Number(slot.day_of_week)] || "Day"}</span>
-                    <span className="text-right text-slate-500 dark:text-slate-400">{slot.start_time}–{slot.end_time}</span>
+                    <span className="text-right text-slate-500 dark:text-slate-400">
+                      {formatWorkoutTime(slot.start_time) || slot.start_time}–{formatWorkoutTime(slot.end_time) || slot.end_time}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -252,7 +267,7 @@ export default function Coaches() {
           <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500 dark:text-slate-400">Coach profiles will appear here when they are available. Please check back later or contact the gym team for help.</p>
         </div>
       ) : (
-        <section aria-label="Browse coach profiles" aria-roledescription="carousel" className="mx-auto max-w-3xl">
+        <section aria-label="Browse coach profiles" aria-roledescription="carousel" className="mx-auto max-w-5xl">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach spotlight</p>
@@ -263,30 +278,39 @@ export default function Coaches() {
             </span>
           </div>
           <div className="relative px-2 sm:px-5">
-          <button type="button" onClick={() => setI((i - 1 + ranked.length) % ranked.length)} disabled={ranked.length < 2} aria-label="Show previous coach" className="absolute left-0 top-[38%] z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white text-orange-600 shadow-lg transition hover:scale-105 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#1b1b1b] dark:text-orange-400 dark:hover:bg-[#282828]"><ChevronLeft /></button>
-          <button type="button" onClick={() => setI((i + 1) % ranked.length)} disabled={ranked.length < 2} aria-label="Show next coach" className="absolute right-0 top-[38%] z-20 flex h-11 w-11 translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white text-orange-600 shadow-lg transition hover:scale-105 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#1b1b1b] dark:text-orange-400 dark:hover:bg-[#282828]"><ChevronRight /></button>
+          <button type="button" onClick={() => setI((i - 1 + ranked.length) % ranked.length)} disabled={ranked.length < 2} aria-label="Show previous coach" className="absolute left-0 top-1/2 z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white text-orange-600 shadow-lg transition hover:scale-105 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#1b1b1b] dark:text-orange-400 dark:hover:bg-[#282828]"><ChevronLeft /></button>
+          <button type="button" onClick={() => setI((i + 1) % ranked.length)} disabled={ranked.length < 2} aria-label="Show next coach" className="absolute right-0 top-1/2 z-20 flex h-11 w-11 translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white text-orange-600 shadow-lg transition hover:scale-105 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#1b1b1b] dark:text-orange-400 dark:hover:bg-[#282828]"><ChevronRight /></button>
           <ScrollReveal key={t.trainer_id}>
-          <div onTouchStart={swipeStart} onTouchEnd={swipeEnd} onClick={() => setProfileTrainer(t)} role="group" aria-label={`Coach profile: ${t.full_name}`} className="coach-card-interactive group cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-[#111] md:grid md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <div
+            onTouchStart={swipeStart}
+            onTouchEnd={swipeEnd}
+            onClick={() => setProfileTrainer(t)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setProfileTrainer(t);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={`View ${t.full_name}'s coach profile`}
+            className="coach-card-interactive group/card cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl shadow-slate-900/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:shadow-black/30 md:grid md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"
+          >
             <div className="relative">
-              <TrainerPhoto trainer={t} className="h-[300px] sm:h-[360px] md:h-full md:min-h-[440px]" />
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-black/75 to-transparent md:hidden" />
-              <div className="absolute left-4 top-4 z-10 flex flex-wrap gap-2 sm:left-6 sm:top-6">
-                {i === 0 && <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg"><Sparkles size={13} /> Best match</span>}
-                {assignedTrainerId === t.trainer_id && <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg"><BadgeCheck size={14} /> Assigned Coach</span>}
+              <TrainerPhoto trainer={t} className="h-[320px] sm:h-[400px] md:h-full md:min-h-[500px]" />
+              <div className="absolute left-4 top-4 z-20 flex flex-wrap gap-2 sm:left-6 sm:top-6">
+                {i === 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-3 py-1.5 text-xs font-bold text-white shadow-lg backdrop-blur-md"><Sparkles size={13} className="text-orange-300" /> Best match</span>}
+                {assignedTrainerId === t.trainer_id && <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-green-600/90 px-3 py-1.5 text-xs font-bold text-white shadow-lg backdrop-blur-md"><BadgeCheck size={14} /> Assigned Coach</span>}
               </div>
-              <p className="absolute bottom-4 left-5 right-5 z-10 text-xs font-semibold text-white drop-shadow-md sm:bottom-5 sm:left-7 md:hidden">{formatGoalSpecialty(t.goal_specialty) || "General Fitness Coach"}</p>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-24 bg-gradient-to-t from-black/45 to-transparent" />
+              <p className="absolute bottom-4 left-5 right-5 z-20 text-xs font-bold uppercase tracking-wider text-white drop-shadow-md sm:bottom-5 sm:left-7">{formatGoalSpecialty(t.goal_specialty) || "General Fitness Coach"}</p>
             </div>
-            <div className="flex flex-col justify-center p-5 sm:p-7">
+            <div className="flex flex-col justify-center bg-gradient-to-br from-white to-orange-50/40 p-5 dark:from-[#111] dark:to-orange-950/10 sm:p-8 lg:p-10">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach profile</p>
-                  <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">{t.full_name}</h2>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-orange-600 dark:text-orange-400">Coach profile</p>
+                  <h2 className="mt-1 text-3xl font-black tracking-tight text-slate-900 dark:text-white sm:text-4xl">{t.full_name}</h2>
                   <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{formatGoalSpecialty(t.goal_specialty) || "General Fitness Coach"}</p>
-                  {score(t, goal) === 0 && (
-                    <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
-                      This coach’s specialty may not match your selected goal. You can still view their profile.
-                    </p>
-                  )}
                 </div>
                 <span className="hidden shrink-0 rounded-xl bg-orange-50 p-3 text-orange-600 dark:bg-orange-500/10 dark:text-orange-400 sm:grid"><Briefcase size={20} /></span>
               </div>
@@ -297,13 +321,13 @@ export default function Coaches() {
                   {expertise(t).length > 0 ? expertise(t).map((x) => <span key={x} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">{x}</span>) : <span className="text-xs text-slate-500">General coaching</span>}
                 </div>
               </div>
-              <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-7 flex flex-col gap-3 border-t border-slate-200 pt-5 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                  {score(t, goal) > 0
-                    ? <>Matched with your <b className="text-slate-700 dark:text-slate-200">{goal}</b> goal</>
-                    : <>Explore this coach’s profile and specialties</>}
+                  Your selected goal: <b className="text-slate-700 dark:text-slate-200">{goal || "General Fitness"}</b>
                 </p>
-                <button type="button" onClick={(e) => { e.stopPropagation(); setProfileTrainer(t); }} className="min-h-11 w-full rounded-xl bg-orange-500 px-5 text-sm font-bold text-white transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111] sm:w-auto">View coach profile</button>
+                <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-bold text-orange-600 dark:text-orange-400">
+                  Select card to view profile <ChevronRight size={15} />
+                </span>
               </div>
             </div>
           </div>

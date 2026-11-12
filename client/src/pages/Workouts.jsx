@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, Dumbbell, Search, Edit2, X, ListOrdered, SlidersHorizontal } from "lucide-react";
 import { getWorkoutGuideExercise } from "../utils/workoutGuide";
 import api from "../services/api";
+import CustomSelect from "../components/ui/CustomSelect";
 
 const difficultyColors = {
   Beginner: "bg-green-500/20 text-green-400",
@@ -139,34 +140,43 @@ function ExerciseModal({ exercise, onClose, onSave }) {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Muscle Group *</label>
-              <select value={form.muscle_group || ""}
-                onChange={(e) => setForm({ ...form, muscle_group: e.target.value })}
-                aria-invalid={Boolean(errors.muscle_group)}
-                className={inputClass(errors.muscle_group)}>
-                <option value="">Select muscle group...</option>
-                {muscleGroupOptions.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
+              <CustomSelect
+                value={form.muscle_group || ""}
+                onChange={(muscle_group) => setForm({ ...form, muscle_group })}
+                ariaLabel="Muscle group"
+                ariaInvalid={Boolean(errors.muscle_group)}
+                className={`${inputClass(errors.muscle_group)} dark:bg-[#111]`}
+                options={[
+                  { value: "", label: "Select muscle group..." },
+                  ...muscleGroupOptions.map((muscleGroup) => ({ value: muscleGroup, label: muscleGroup })),
+                ]}
+              />
               {errors.muscle_group && <p className="mt-1 text-xs text-red-500">{errors.muscle_group}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Equipment *</label>
-              <select value={form.equipment || ""}
-                onChange={(e) => setForm({ ...form, equipment: e.target.value })}
-                aria-invalid={Boolean(errors.equipment)}
-                className={inputClass(errors.equipment)}>
-                <option value="">Select equipment...</option>
-                {equipmentOptions.map((eq) => <option key={eq} value={eq}>{eq}</option>)}
-              </select>
+              <CustomSelect
+                value={form.equipment || ""}
+                onChange={(equipment) => setForm({ ...form, equipment })}
+                ariaLabel="Equipment"
+                ariaInvalid={Boolean(errors.equipment)}
+                className={`${inputClass(errors.equipment)} dark:bg-[#111]`}
+                options={[
+                  { value: "", label: "Select equipment..." },
+                  ...equipmentOptions.map((equipment) => ({ value: equipment, label: equipment })),
+                ]}
+              />
               {errors.equipment && <p className="mt-1 text-xs text-red-500">{errors.equipment}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Difficulty</label>
-              <select value={form.difficulty || "Beginner"} onChange={(e) => setForm({ ...form, difficulty: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
-                <option>Beginner</option>
-                <option>Intermediate</option>
-                <option>Advanced</option>
-              </select>
+              <CustomSelect
+                value={form.difficulty || "Beginner"}
+                onChange={(difficulty) => setForm({ ...form, difficulty })}
+                ariaLabel="Difficulty"
+                className="rounded-lg border-slate-300 px-4 py-2.5 dark:bg-[#111]"
+                options={["Beginner", "Intermediate", "Advanced"].map((difficulty) => ({ value: difficulty, label: difficulty }))}
+              />
             </div>
           </div>
 
