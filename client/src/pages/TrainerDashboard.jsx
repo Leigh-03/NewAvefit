@@ -5,6 +5,7 @@ import { Bar, Doughnut } from "react-chartjs-2";
 import trainerApi from "../trainerApi";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 import TrainingPulse from "../components/TrainingPulse";
+import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const CHART_COLORS = ["#f97316", "#22c55e", "#38bdf8", "#a78bfa", "#f43f5e", "#eab308", "#14b8a6"];
@@ -99,7 +100,10 @@ function MemberProfileModal({ member, onClose, onViewProgress }) {
   if (!member) return null;
   const currentWeight = member.latest_weight ?? member.weight;
   const currentBmi = member.latest_bmi ?? calculateBmi(currentWeight, member.height);
-  const injuries = toHealthNotes(member.injuries);
+  const injuries = toHealthNotes(member.injuries).map((area) => {
+    const level = Number(member.injury_pain_levels?.[area]);
+    return Number.isInteger(level) && level >= 1 && level <= 10 ? `${area} (Pain ${level}/10)` : area;
+  });
   const conditions = toHealthNotes(member.health_conditions);
   return <div className="fixed inset-0 z-[80] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
     <div className="w-full max-w-2xl max-h-[94vh] overflow-y-auto rounded-3xl bg-white dark:bg-[#111] border border-slate-200 dark:border-slate-800 shadow-2xl" onClick={e=>e.stopPropagation()}>
@@ -124,7 +128,7 @@ function MemberProfileModal({ member, onClose, onViewProgress }) {
             <ul className="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
               {member.weekly_availability.map((slot) => (
                 <li key={slot.day_of_week}>
-                  <span className="font-semibold">{slot.day_of_week}:</span> {slot.start_time}–{slot.end_time}
+                <span className="font-semibold">{slot.day_of_week}:</span> {formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"}
                 </li>
               ))}
             </ul>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BadgeCheck, Briefcase, ChevronLeft, ChevronRight, Sparkles, User, X } from "lucide-react";
 import ScrollReveal from "../components/ScrollReveal";
 import userApi from "../userApi";
-import { formatWorkoutTime } from "../utils/workoutSchedule";
+import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 
 const aliases = {
   "Weight Loss": ["weight loss", "weight management", "hiit", "circuit training", "group fitness", "conditioning"],
@@ -136,7 +136,7 @@ function TrainerProfileModal({ trainer, goal, assigned, onClose }) {
                   <div key={`${slot.day_of_week}-${slot.start_time}-${index}`} className="flex justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm dark:border-white/10 dark:bg-white/[0.03]">
                     <span className="font-medium text-slate-700 dark:text-slate-200">{DAY_NAMES[Number(slot.day_of_week)] || "Day"}</span>
                     <span className="text-right text-slate-500 dark:text-slate-400">
-                      {formatWorkoutTime(slot.start_time) || slot.start_time}–{formatWorkoutTime(slot.end_time) || slot.end_time}
+                      {formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"}
                     </span>
                   </div>
                 ))}

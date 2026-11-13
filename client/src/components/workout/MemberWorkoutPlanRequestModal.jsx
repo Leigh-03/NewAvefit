@@ -8,6 +8,7 @@ import { getWorkoutGoalRules } from "../../utils/workoutGoalRules";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import {
   exerciseMatchesProgram,
+  getExerciseLimitForExperience,
   getExerciseDose,
   getProgramForDate,
   getScheduledPrograms,
@@ -22,6 +23,8 @@ const blankExercise = (goal) => ({
   sets: String(getWorkoutGoalRules(goal).sets[0]),
   reps: String(getWorkoutGoalRules(goal).reps[0]),
 });
+
+const isBlankValue = (value) => value === null || value === undefined || String(value).trim() === "";
 
 const programLabel = (program) => program === "Full Body" ? program : `${program} day`;
 
@@ -153,6 +156,8 @@ export default function MemberWorkoutPlanRequestModal({
   const isKeepCurrentProgram = requestType === "keep_current_program";
   const isSpecificWorkout = requestType === "specific_workout";
   const isProgramSwitch = selectedProgram !== defaultProgram;
+  const experienceLimit = getExerciseLimitForExperience(experienceLevel);
+  const maxExercises = experienceLimit.max;
   const requestNeedsExerciseEditor = isKeepCurrentProgram || isProgramChange;
   const visibleExercises = exercises.filter((exercise) => (
     exerciseMatchesProgram(exercise, selectedProgram || defaultProgram) &&
@@ -259,8 +264,8 @@ export default function MemberWorkoutPlanRequestModal({
       setError("Workout requests are only available for future dates. Choose a day after today.");
       return;
     }
-    if (requestType === "program_change" && sessions.length > 30) {
-      setError("A program-change request can include up to 30 exercises.");
+    if (requestNeedsExerciseEditor && sessions.length > maxExercises) {
+      setError(`${experienceLimit.label} workouts can include up to ${maxExercises} exercises.`);
       return;
     }
     if (requestType === "specific_workout" && sessions.length > 30) {
@@ -271,7 +276,9 @@ export default function MemberWorkoutPlanRequestModal({
       setError("Add at least 3 exercises for your coach to review.");
       return;
     }
-    if (requestNeedsExerciseEditor && sessions.some((session) => !session.exercise_id || !session.sets || !session.reps)) {
+    if (requestNeedsExerciseEditor && sessions.some((session) => (
+      isBlankValue(session.exercise_id) || isBlankValue(session.sets) || isBlankValue(session.reps)
+    ))) {
       setError("Choose an exercise and enter sets and reps for every row.");
       return;
     }
@@ -293,8 +300,11 @@ export default function MemberWorkoutPlanRequestModal({
     }
     if (requestNeedsExerciseEditor && sessions.some((session) => {
       const rules = getDoseRulesForExercise(session.exercise_id);
-      return Number(session.sets) < rules.sets[0] || Number(session.sets) > rules.sets[1]
-        || Number(session.reps) < rules.reps[0] || Number(session.reps) > rules.reps[1];
+      const sets = Number(session.sets);
+      const reps = Number(session.reps);
+      return !Number.isFinite(sets) || !Number.isFinite(reps)
+        || sets < rules.sets[0] || sets > rules.sets[1]
+        || reps < rules.reps[0] || reps > rules.reps[1];
     })) {
       setError("Use the displayed sets and reps range for each exercise.");
       return;
@@ -370,7 +380,7 @@ export default function MemberWorkoutPlanRequestModal({
                     handleRequestTypeChange("keep_current_program");
                   }
                 }}
-                className={`block rounded-xl border p-3 transition-colors ${isKeepCurrentProgram ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}
+                className={`block rounded-xl border p-3 transition-colors ${isKeepCurrentProgram ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10" : "border-slate-200 bg-white dark:border-white/10 dark:bg-[#171717]"}`}
               >
                 <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
                   <input
@@ -395,7 +405,7 @@ export default function MemberWorkoutPlanRequestModal({
                     handleRequestTypeChange("program_change");
                   }
                 }}
-                className={`block rounded-xl border p-3 transition-colors ${isProgramChange ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}
+                className={`block rounded-xl border p-3 transition-colors ${isProgramChange ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10" : "border-slate-200 bg-white dark:border-white/10 dark:bg-[#171717]"}`}
               >
                 <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
                   <input
@@ -431,7 +441,7 @@ export default function MemberWorkoutPlanRequestModal({
                     handleRequestTypeChange("specific_workout");
                   }
                 }}
-                className={`block rounded-xl border p-3 transition-colors ${isSpecificWorkout ? "border-orange-500 bg-white dark:bg-white/5" : "border-slate-200 dark:border-white/10"}`}
+                className={`block rounded-xl border p-3 transition-colors ${isSpecificWorkout ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10" : "border-slate-200 bg-white dark:border-white/10 dark:bg-[#171717]"}`}
               >
                 <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
                   <input
@@ -481,10 +491,20 @@ export default function MemberWorkoutPlanRequestModal({
                 <h3 className="text-sm font-bold text-slate-800 dark:text-white">My Personalized Suggested Workout Routine</h3>
                 <p className="mt-1 text-xs text-slate-500">{isProgramChange ? `Add your proposed ${selectedProgram || "selected program"} exercises for coach approval.` : `Add your preferred exercises and sets/reps for your trainer to review.`}</p>
               </div>
-              <button type="button" onClick={() => setSessions((current) => [...current, blankExercise(initialGoal)])} disabled={sessions.length >= 30} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-orange-500/30 px-3 text-xs font-semibold text-orange-600 hover:bg-orange-500/10 disabled:opacity-50 dark:text-orange-300">
+              <button
+                type="button"
+                onClick={() => setSessions((current) => (
+                  current.length >= maxExercises ? current : [...current, blankExercise(initialGoal)]
+                ))}
+                disabled={sessions.length >= maxExercises}
+                className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-orange-500/30 px-3 text-xs font-semibold text-orange-600 hover:bg-orange-500/10 disabled:opacity-50 dark:text-orange-300"
+              >
                 <Plus size={14} /> Add exercise
               </button>
             </div>
+            <p className="mb-3 text-xs text-slate-500">
+              Choose 3 to {maxExercises} exercises for your {experienceLimit.label} level.
+            </p>
             {loadingExercises ? <p className="py-6 text-center text-sm text-slate-500">Loading exercises...</p> : (
               visibleExercises.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">

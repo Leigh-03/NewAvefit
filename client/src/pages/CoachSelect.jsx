@@ -1,9 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import OnboardingShell from "../components/layout/OnboardingShell";
 import ScrollReveal from "../components/ScrollReveal";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, Briefcase, CalendarClock, Search, Sparkles, User, X } from "lucide-react";
+import { AlertCircle, Briefcase, CalendarDays, Search, Sparkles, User, X } from "lucide-react";
 import userApi from "../userApi";
+import {
+  coachSlotMatchesMemberSlot,
+  evaluateCoachAvailability,
+  getMemberAvailabilitySlots,
+  timeToMinutes,
+} from "../utils/availabilityMatching";
 
 const GOAL_ALIASES = {
   "Weight Loss": ["weight loss", "weight management", "cardio", "conditioning", "hiit", "circuit training", "group fitness"],
@@ -13,69 +20,15 @@ const GOAL_ALIASES = {
   "General Fitness": ["general fitness", "fitness", "functional fitness", "group fitness", "conditioning", "hiit", "circuit training"],
 };
 
-const DAY_INDEX = {
-  Sunday: 0,
-  Monday: 1,
-  Tuesday: 2,
-  Wednesday: 3,
-  Thursday: 4,
-  Friday: 5,
-  Saturday: 6,
-};
-const formatGoalSpecialty = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
-
-const PREFERRED_TIME_WINDOWS = {
-  Morning: [6 * 60, 12 * 60],
-  Afternoon: [12 * 60, 17 * 60],
-  Evening: [17 * 60, 22 * 60],
-  Flexible: [6 * 60, 22 * 60],
-};
-
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-function timeToMinutes(value) {
-  if (typeof value !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return null;
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
-}
+const formatGoalSpecialty = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
 
-function isAvailableForMember(trainer, preferences) {
-  if (!Array.isArray(trainer.availability)) return false;
-  const duration = Number.parseInt(String(preferences.duration ?? ""), 10);
-  const requiredDays = Number(preferences.daysPerWeek);
-
-  const memberSlots = Array.isArray(preferences.availability) && preferences.availability.length
-    ? preferences.availability.map((slot) => {
-      const day = DAY_INDEX[slot.day_of_week];
-      const window = PREFERRED_TIME_WINDOWS[slot.time_preference];
-      return day === undefined || !window
-        ? null
-        : { day, start: window[0], end: window[1] };
-    }).filter(Boolean)
-    : (preferences.days || []).map((day) => {
-      const dayOfWeek = DAY_INDEX[day];
-      const window = PREFERRED_TIME_WINDOWS[preferences.preferredWorkoutTime];
-      return dayOfWeek === undefined || !window
-        ? null
-        : { day: dayOfWeek, start: window[0], end: window[1] };
-    }).filter(Boolean);
-
-  if (!memberSlots.length || !Number.isInteger(duration) || duration < 1) return false;
-  const workoutDays = Number.isInteger(requiredDays) && requiredDays > 0
-    ? Math.min(requiredDays, memberSlots.length)
-    : memberSlots.length;
-  const compatibleDays = memberSlots.filter((memberSlot) => trainer.availability.some((slot) => {
-    const start = timeToMinutes(slot.start_time);
-    const end = timeToMinutes(slot.end_time);
-    const overlapStart = start === null ? null : Math.max(memberSlot.start, start);
-    const overlapEnd = end === null ? null : Math.min(memberSlot.end, end);
-    return Number(slot.day_of_week) === memberSlot.day &&
-      overlapStart !== null &&
-      overlapEnd !== null &&
-      overlapEnd - overlapStart >= duration;
-  })).length;
-
-  return compatibleDays >= workoutDays;
+function formatTime(value) {
+  const minutes = timeToMinutes(value);
+  if (minutes === null) return "Time not set";
+  const hours = Math.floor(minutes / 60);
+  return `${hours % 12 || 12}:${String(minutes % 60).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
 }
 
 function scoreTrainer(t, goal) {
@@ -106,17 +59,25 @@ function Photo({ trainer, compact = false, fit = "contain", className = "" }) {
   );
 }
 
-function ProfileModal({ trainer, onClose }) {
+function ProfileModal({ trainer, memberAvailability, onClose, onEditAvailability }) {
   const [photoOpen, setPhotoOpen] = useState(false);
   if (!trainer) return null;
+  const memberSlots = getMemberAvailabilitySlots(memberAvailability);
+  const workoutDuration = Number.parseInt(String(memberAvailability.duration ?? 60), 10);
+  const assignedMembers = Number(trainer.assigned_member_count) || 0;
+  const maxMembers = Number(trainer.max_members) || 0;
+  const memberCapacityFull = maxMembers > 0 && assignedMembers >= maxMembers;
+  const capacityPercent = maxMembers > 0
+    ? Math.min((assignedMembers / maxMembers) * 100, 100)
+    : 0;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4" onClick={onClose}>
       <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="selection-coach-profile-title"
-            className="relative grid max-h-[92vh] w-full max-w-5xl grid-rows-[minmax(200px,28vh)_minmax(0,1fr)] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111] lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:grid-rows-1"
+            className="relative grid h-[92vh] max-h-[48rem] w-full max-w-5xl grid-rows-[minmax(200px,28vh)_minmax(0,1fr)] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111] lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:grid-rows-1"
             onClick={(e) => e.stopPropagation()}
       >
             <button
@@ -157,16 +118,111 @@ function ProfileModal({ trainer, onClose }) {
                     )) : <p className="text-sm text-slate-500 dark:text-slate-400">No specializations listed.</p>}
                   </div>
                 </section>
+                <section aria-label="Coach member capacity" className="rounded-2xl border border-orange-500/20 bg-orange-500/[0.04] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Total member capacity</h3>
+                    <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                      {maxMembers > 0 ? `${assignedMembers} / ${maxMembers} members` : `${assignedMembers} members · Capacity not set`}
+                    </span>
+                  </div>
+                  {maxMembers > 0 && (
+                    <>
+                      <div
+                        role="progressbar"
+                        aria-label="Coach member capacity used"
+                        aria-valuemin={0}
+                        aria-valuemax={maxMembers}
+                        aria-valuenow={Math.min(assignedMembers, maxMembers)}
+                        className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10"
+                      >
+                        <div
+                          className={`h-full rounded-full transition-all ${assignedMembers >= maxMembers ? "bg-red-500" : "bg-orange-500"}`}
+                          style={{ width: `${capacityPercent}%` }}
+                        />
+                      </div>
+                      <p className={`mt-2 text-xs font-semibold ${assignedMembers >= maxMembers ? "text-red-600 dark:text-red-300" : "text-slate-500 dark:text-slate-400"}`}>
+                        {assignedMembers >= maxMembers ? "Capacity full" : `${maxMembers - assignedMembers} member spots available`}
+                      </p>
+                    </>
+                  )}
+                </section>
                 <section>
-                  <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">Weekly availability</h3>
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Weekly availability</h3>
+                    <button
+                      type="button"
+                      onClick={() => onEditAvailability(trainer)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-orange-500 px-3 py-2 text-xs font-bold text-orange-700 transition hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:text-orange-300 dark:hover:bg-orange-500/10"
+                    >
+                      <CalendarDays size={15} aria-hidden="true" />
+                      Edit my weekly workout availability
+                    </button>
+                  </div>
+                  <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                    A green border means your schedule matches and this time still has member capacity.
+                  </p>
                   {trainer.availability?.length ? (
                     <div className="grid gap-2 sm:grid-cols-2">
-                      {trainer.availability.map((slot, index) => (
-                        <div key={`${slot.day_of_week}-${slot.start_time}-${index}`} className="flex justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.03]">
-                          <span className="font-medium text-slate-700 dark:text-slate-200">{DAY_NAMES[Number(slot.day_of_week)] || "Day"}</span>
-                          <span className="text-slate-500 dark:text-slate-400">{slot.start_time}–{slot.end_time}</span>
+                      {trainer.availability.map((slot, index) => {
+                        const slotMembers = Number(slot.assigned_member_count) || 0;
+                        const slotLimit = Number(slot.member_limit) || 0;
+                        const slotPercent = slotLimit > 0
+                          ? Math.min((slotMembers / slotLimit) * 100, 100)
+                          : 0;
+                        const slotFull = slotLimit > 0 && slotMembers >= slotLimit;
+                        const slotMatchesSchedule = Number.isInteger(workoutDuration) && workoutDuration > 0 &&
+                          memberSlots.some((memberSlot) => coachSlotMatchesMemberSlot(slot, memberSlot, workoutDuration));
+                        const slotMatchesAndHasCapacity = slotMatchesSchedule &&
+                          slotLimit > slotMembers &&
+                          !memberCapacityFull;
+                        const slotMatchesButIsFull = slotMatchesSchedule && (memberCapacityFull || slotFull);
+                        return (
+                        <div
+                          key={`${slot.day_of_week}-${slot.start_time}-${index}`}
+                          className={`rounded-xl px-3 py-3 ${
+                            slotMatchesAndHasCapacity
+                              ? "border-2 border-emerald-500 bg-emerald-50/70 ring-1 ring-emerald-500/20 dark:border-emerald-400 dark:bg-emerald-500/10"
+                              : slotMatchesButIsFull
+                                ? "border-2 border-red-400 bg-red-50/50 dark:border-red-400 dark:bg-red-500/10"
+                                : "border border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/[0.03]"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">{DAY_NAMES[Number(slot.day_of_week)] || "Day"}</span>
+                            <span className="text-sm text-slate-500 dark:text-slate-400">{formatTime(slot.start_time)}–{formatTime(slot.end_time)}</span>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+                            <span className="text-slate-500 dark:text-slate-400">Members for this time</span>
+                            <span className={`font-semibold ${slotFull ? "text-red-600 dark:text-red-300" : "text-slate-700 dark:text-slate-200"}`}>
+                              {slotLimit > 0 ? `${slotMembers} / ${slotLimit}` : `${slotMembers} / —`}
+                            </span>
+                          </div>
+                          {slotLimit > 0 && (
+                            <>
+                              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+                                <div
+                                  className={`h-full rounded-full ${slotFull ? "bg-red-500" : "bg-orange-500"}`}
+                                  style={{ width: `${slotPercent}%` }}
+                                />
+                              </div>
+                              <p className={`mt-1 text-[11px] ${slotFull ? "font-semibold text-red-600 dark:text-red-300" : "text-slate-500 dark:text-slate-400"}`}>
+                                {slotFull ? "Member limit reached" : `${slotLimit - slotMembers} spots available`}
+                              </p>
+                            </>
+                          )}
+                          {slotMatchesAndHasCapacity && (
+                            <p className="mt-2 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                              Matches your schedule and has capacity
+                            </p>
+                          )}
+                          {slotMatchesButIsFull && (
+                            <p className="mt-2 text-xs font-bold text-red-600 dark:text-red-300">
+                              {memberCapacityFull ? "Coach’s total member capacity is full" : "This time has reached its member limit"}
+                            </p>
+                          )}
                         </div>
-                      ))}
+                      );
+                    })}
                     </div>
                   ) : <p className="text-sm text-slate-500 dark:text-slate-400">Availability has not been posted yet.</p>}
                 </section>
@@ -194,96 +250,30 @@ function ProfileModal({ trainer, onClose }) {
           />
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 
-function ScheduleMismatchModal({ trainer, onCancel, onContinue }) {
-  const cancelButtonRef = useRef(null);
-
-  useEffect(() => {
-    cancelButtonRef.current?.focus();
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onCancel]);
-
-  return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onCancel();
-      }}
-    >
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="schedule-mismatch-title"
-        aria-describedby="schedule-mismatch-description"
-        className="w-full max-w-md overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#151515]"
-      >
-        <div className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-br from-amber-50 via-white to-orange-50 px-6 pb-5 pt-6 dark:border-white/10 dark:from-amber-500/10 dark:via-[#151515] dark:to-orange-500/10">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-black/5 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:hover:bg-white/10 dark:hover:text-white"
-            aria-label="Close schedule warning"
-          >
-            <X size={18} />
-          </button>
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
-            <CalendarClock size={24} aria-hidden="true" />
-          </span>
-          <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
-            Schedule mismatch
-          </p>
-          <h2 id="schedule-mismatch-title" className="mt-1 pr-8 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Check coach availability
-          </h2>
-        </div>
-
-        <div className="px-6 py-5">
-          <p id="schedule-mismatch-description" className="text-sm leading-6 text-slate-600 dark:text-slate-300">
-            <span className="font-semibold text-slate-900 dark:text-white">{trainer.full_name}</span>
-            {"’s available times don’t fully match your preferred workout schedule. "}
-            You can choose another coach or continue with this coach and confirm your schedule later.
-          </p>
-          <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs leading-5 text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
-            <span>Your coach assignment can still be submitted, but your preferred workout times may need to change.</span>
-          </div>
-        </div>
-
-        <div className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/80 p-4 sm:flex-row sm:justify-end dark:border-white/10 dark:bg-white/[0.03]">
-          <button
-            ref={cancelButtonRef}
-            type="button"
-            onClick={onCancel}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-white/15 dark:text-slate-200 dark:hover:bg-white/[0.06]"
-          >
-            Choose another coach
-          </button>
-          <button
-            type="button"
-            onClick={onContinue}
-            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 text-sm font-bold text-white shadow-lg shadow-orange-500/20 transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#151515]"
-          >
-            Continue anyway
-            <ArrowRight size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+function getCoachLockReason(trainer) {
+  if (trainer.member_capacity_full) return "This coach has reached their total member capacity.";
+  if (!trainer.schedule_compatible) return "This coach’s schedule does not match your selected workout days and times.";
+  if (trainer.day_capacity_full) {
+    return trainer.full_days.length
+      ? `This coach has reached the member limit on ${trainer.full_days.join(", ")}.`
+      : "This coach has reached the member limit for your selected days.";
+  }
+  return "";
 }
 
 function CoachCard({ trainer, recommended, goalMatch, selected, onProfile, onSelect }) {
+  const lockReason = getCoachLockReason(trainer);
+  const expertise = expertiseFor(trainer);
+
   return (
-    <div className="coach-card-interactive overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-orange-500/60 dark:bg-[#171717] dark:border-slate-800">
+    <div className={`coach-card-interactive flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition dark:bg-[#171717] dark:border-slate-800 ${trainer.can_select ? "hover:border-orange-500/60" : "opacity-80"}`}>
       <Photo trainer={trainer} compact />
-      <div className="p-4">
+      <div className="flex flex-1 flex-col p-4">
         <div className="flex flex-wrap gap-2 mb-2">
           {recommended && (
             <span className="inline-flex items-center gap-1 rounded-full bg-orange-500 text-white px-2.5 py-1 text-[11px] font-bold">
@@ -298,16 +288,34 @@ function CoachCard({ trainer, recommended, goalMatch, selected, onProfile, onSel
             This coach’s specialty may not match your selected goal.
           </p>
         )}
-        {!trainer.schedule_compatible && (
-          <p className="mt-2 rounded-lg border border-amber-300/50 bg-amber-50 px-2.5 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
-            This coach’s available times do not match your selected schedule. You can still choose this coach.
+        {lockReason && (
+          <p className="mt-2 rounded-lg border border-red-300/50 bg-red-50 px-2.5 py-2 text-xs text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200">
+            {lockReason}
           </p>
         )}
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 line-clamp-2 min-h-[32px]">
           {trainer.bio || "This coach has not added a profile description yet."}
         </p>
-        <div className="flex gap-2 mt-4">
+        <div className="mt-3">
+          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">Expertise</p>
+          {expertise.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {expertise.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-[11px] font-semibold text-orange-700 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 dark:text-slate-400">No specializations listed.</p>
+          )}
+        </div>
+        <div className="mt-auto flex gap-2 pt-4">
           <button
+            type="button"
             onClick={() => onProfile(trainer)}
             className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold hover:border-orange-500 hover:text-orange-500 transition"
           >
@@ -315,11 +323,13 @@ function CoachCard({ trainer, recommended, goalMatch, selected, onProfile, onSel
           </button>
           <button
             type="button"
+            disabled={!trainer.can_select}
             onClick={() => onSelect(trainer)}
             aria-pressed={selected}
-            className={`flex-1 rounded-xl py-2.5 text-xs font-bold transition ${selected ? "bg-orange-600 text-white" : "border border-orange-500 text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-500/10"}`}
+            title={lockReason || undefined}
+            className={`flex-1 rounded-xl py-2.5 text-xs font-bold transition disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-500 dark:disabled:border-white/10 dark:disabled:bg-white/[0.04] dark:disabled:text-slate-400 ${selected ? "bg-orange-600 text-white" : "border border-orange-500 text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-500/10"}`}
           >
-            {selected ? "Selected" : "Choose Coach"}
+            {selected ? "Selected" : trainer.can_select ? "Choose Coach" : "Unavailable"}
           </button>
         </div>
       </div>
@@ -337,7 +347,6 @@ export default function CoachSelect() {
   const [availability, setAvailability] = useState({});
   const [search, setSearch] = useState("");
   const [selectedTrainerId, setSelectedTrainerId] = useState("");
-  const [showScheduleConfirmation, setShowScheduleConfirmation] = useState(false);
 
   useEffect(() => {
     const readSessionValue = (key, fallback) => {
@@ -355,16 +364,25 @@ export default function CoachSelect() {
     setSelectedTrainerId(String(selectedTrainer.trainer_id || ""));
 
     userApi.get("/trainers")
-      .then((res) => setTrainers((res.data?.data || []).map((trainer) => ({
+      .then((res) => {
+      const nextTrainers = (res.data?.data || []).map((trainer) => ({
         ...trainer,
-        schedule_compatible: isAvailableForMember(trainer, availabilityData),
-      }))))
+        ...evaluateCoachAvailability(trainer, availabilityData),
+      }));
+        setTrainers(nextTrainers);
+        const previouslySelected = nextTrainers.find((trainer) => String(trainer.trainer_id) === String(selectedTrainer.trainer_id || ""));
+        if (selectedTrainer.trainer_id && !previouslySelected?.can_select) {
+          setSelectedTrainerId("");
+          sessionStorage.removeItem("avefit_trainer");
+        }
+      })
       .catch(() => setError("Couldn't load coach profiles right now."))
       .finally(() => setLoading(false));
   }, []);
 
   const ranked = useMemo(
     () => trainers.slice().sort((a, b) =>
+      Number(b.can_select) - Number(a.can_select) ||
       Number(b.schedule_compatible) - Number(a.schedule_compatible) ||
       scoreTrainer(b, goal) - scoreTrainer(a, goal)
     ),
@@ -382,8 +400,14 @@ export default function CoachSelect() {
   const otherCoaches = visibleCoaches.slice(1);
   const selectedDays = Array.isArray(availability.days) ? availability.days : [];
   const selectedTrainer = trainers.find((trainer) => String(trainer.trainer_id) === selectedTrainerId);
+  const allCoachesLocked = trainers.length > 0 && trainers.every((trainer) => !trainer.can_select);
+  const allSchedulesMismatch = allCoachesLocked && trainers.every((trainer) => !trainer.schedule_compatible);
+  const allCoachesAtCapacity = allCoachesLocked && trainers.every((trainer) => (
+    trainer.member_capacity_full || trainer.day_capacity_full
+  ));
 
   const handleSelectCoach = (trainer) => {
+    if (!trainer.can_select) return;
     setSelectedTrainerId(String(trainer.trainer_id));
     sessionStorage.setItem("avefit_trainer", JSON.stringify({
       trainer_id: trainer.trainer_id,
@@ -393,12 +417,24 @@ export default function CoachSelect() {
   };
 
   const handleContinue = () => {
-    if (selectedTrainer && !selectedTrainer.schedule_compatible) {
-      setShowScheduleConfirmation(true);
-      return;
-    }
+    if (!selectedTrainer?.can_select) return;
     navigate("/user/confirm");
   };
+  const handleEditAvailability = (trainer) => {
+    setProfile(null);
+    navigate("/user/availability", {
+      state: {
+        comparisonCoach: {
+          trainer_id: trainer.trainer_id,
+          full_name: trainer.full_name,
+          availability: trainer.availability,
+          assigned_member_count: trainer.assigned_member_count,
+          max_members: trainer.max_members,
+        },
+      },
+    });
+  };
+  const canContinue = !loading && Boolean(selectedTrainer?.can_select);
 
   return (
     <>
@@ -411,7 +447,10 @@ export default function CoachSelect() {
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Your training team</p>
           <h2 className="mt-1 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Meet Your Coaches</h2>
           <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
-            Browse and choose your preferred coach. You can still continue when their available times do not match your schedule.
+            Coaches can only be selected when their schedule and member limits fit your workout plan.
+          </p>
+          <p className="mt-3 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-sm leading-6 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-200">
+            Click "View Full Profile" to compare a coach's available times with your weekly workout schedule. From the profile, you can also edit your own weekly availability.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300">
@@ -440,6 +479,43 @@ export default function CoachSelect() {
             />
           </label>
         </div>
+
+        {allSchedulesMismatch && (
+          <div role="alert" className="mb-6 flex items-start gap-4 rounded-2xl border-2 border-orange-500 bg-orange-50 p-4 shadow-lg shadow-orange-500/10 dark:border-orange-400 dark:bg-orange-950/60 sm:p-5">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white">
+              <CalendarDays size={22} aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-extrabold uppercase tracking-wider text-orange-700 dark:text-orange-300">Action needed</p>
+              <h3 className="mt-1 text-lg font-extrabold text-slate-900 dark:text-white">No coach matches your weekly workout availability.</h3>
+              <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-200">
+                Pick or edit your weekly workout availability to find a coach with a matching schedule.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate("/user/availability")}
+                className="mt-3 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-orange-950"
+              >
+                Pick or edit weekly availability
+              </button>
+            </div>
+          </div>
+        )}
+
+        {allCoachesAtCapacity && (
+          <div role="alert" className="mb-6 flex items-start gap-4 rounded-2xl border-2 border-red-500 bg-red-50 p-4 shadow-lg shadow-red-500/10 dark:border-red-400 dark:bg-red-950/60 sm:p-5">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-red-600 text-white">
+              <AlertCircle size={23} aria-hidden="true" />
+            </span>
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-wider text-red-700 dark:text-red-300">No coaches available</p>
+              <h3 className="mt-1 text-lg font-extrabold text-slate-900 dark:text-white">All coaches are at capacity for your selected workout days or their total member limit.</h3>
+              <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-200">
+                Please go to the gym administrator’s office for assistance.
+              </p>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="space-y-4">
@@ -470,8 +546,12 @@ export default function CoachSelect() {
             <section className="scroll-mt-6">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-orange-500 font-bold">Your best match</p>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">Recommended Coach</h3>
+                  <p className="text-xs uppercase tracking-wider text-orange-500 font-bold">
+                    {recommended.can_select ? "Your best match" : "Availability check"}
+                  </p>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">
+                    {recommended.can_select ? "Recommended Coach" : "Closest Match"}
+                  </h3>
                 </div>
                 <Sparkles className="text-orange-500" size={22} />
               </div>
@@ -481,7 +561,7 @@ export default function CoachSelect() {
                   <div className="relative">
                     <Photo trainer={recommended} className="h-64 sm:h-72 md:h-full md:min-h-[390px]" />
                     <div className="absolute top-4 left-4 z-20 inline-flex items-center gap-1.5 rounded-full bg-orange-500 text-white px-3 py-1.5 text-xs font-bold shadow-lg">
-                      <Sparkles size={13} /> Recommended for You
+                      <Sparkles size={13} /> {recommended.can_select ? "Recommended for You" : "Closest Match"}
                     </div>
                   </div>
 
@@ -495,9 +575,9 @@ export default function CoachSelect() {
                           This coach’s specialty may not match your selected goal.
                         </p>
                       )}
-                      {!recommended.schedule_compatible && (
-                        <p className="mt-2 rounded-lg border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
-                          The coach’s available times do not match your selected schedule. You may still choose this coach.
+                      {getCoachLockReason(recommended) && (
+                        <p className="mt-2 rounded-lg border border-red-300/50 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-200">
+                          {getCoachLockReason(recommended)}
                         </p>
                       )}
                     </div>
@@ -524,6 +604,7 @@ export default function CoachSelect() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
                     <button
+                      type="button"
                       onClick={() => setProfile(recommended)}
                       className="w-full py-3 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold hover:border-orange-500 hover:text-orange-500 transition"
                     >
@@ -531,11 +612,13 @@ export default function CoachSelect() {
                     </button>
                     <button
                       type="button"
+                      disabled={!recommended.can_select}
                       onClick={() => handleSelectCoach(recommended)}
                       aria-pressed={selectedTrainerId === String(recommended.trainer_id)}
-                      className={`w-full rounded-xl py-3 font-bold transition ${selectedTrainerId === String(recommended.trainer_id) ? "bg-orange-600 text-white" : "border border-orange-500 text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-500/10"}`}
+                      title={getCoachLockReason(recommended) || undefined}
+                      className={`w-full rounded-xl py-3 font-bold transition disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-500 dark:disabled:border-white/10 dark:disabled:bg-white/[0.04] dark:disabled:text-slate-400 ${selectedTrainerId === String(recommended.trainer_id) ? "bg-orange-600 text-white" : "border border-orange-500 text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-500/10"}`}
                     >
-                      {selectedTrainerId === String(recommended.trainer_id) ? "Selected Coach" : "Choose This Coach"}
+                      {selectedTrainerId === String(recommended.trainer_id) ? "Selected Coach" : recommended.can_select ? "Choose This Coach" : "Unavailable"}
                     </button>
                   </div>
                   </div>
@@ -550,9 +633,9 @@ export default function CoachSelect() {
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">Other Available Coaches</h3>
                 </div>
 
-                <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 sm:grid sm:grid-cols-2 sm:overflow-visible">
+                <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 sm:grid sm:grid-cols-2 sm:[grid-auto-rows:1fr] sm:overflow-visible">
                   {otherCoaches.map((trainer, index) => (
-                    <ScrollReveal key={trainer.trainer_id} delay={Math.min(index + 1, 4) * 100} className="w-[min(85vw,22rem)] shrink-0 snap-start sm:w-auto sm:shrink">
+                    <ScrollReveal key={trainer.trainer_id} delay={Math.min(index + 1, 4) * 100} className="h-full w-[min(85vw,22rem)] shrink-0 snap-start sm:w-auto sm:shrink">
                       <CoachCard
                         trainer={trainer}
                         recommended={false}
@@ -570,34 +653,25 @@ export default function CoachSelect() {
         )}
 
         {error && <p className="text-red-500 text-xs mt-4">{error}</p>}
-        {selectedTrainer && !selectedTrainer.schedule_compatible && (
-          <p role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-            Schedule warning: {selectedTrainer.full_name} may not be available during all of your selected workout times. You can continue and submit this coach choice anyway.
-          </p>
-        )}
-
         <button
+          type="button"
+          disabled={!canContinue}
           onClick={handleContinue}
-          className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3.5 rounded-xl transition mt-7 shadow-lg shadow-orange-500/10"
+          className={`w-full font-bold py-3.5 rounded-xl transition mt-7 ${canContinue ? "bg-orange-500 hover:bg-orange-600 text-white shadow-lg shadow-orange-500/10" : "cursor-not-allowed bg-slate-200 text-slate-500 dark:bg-white/10 dark:text-slate-400"}`}
         >
           Continue to Confirmation →
         </button>
         <p className="text-center text-xs text-slate-400 mt-3">
-          {selectedTrainer ? `Preferred coach: ${selectedTrainer.full_name}.` : "You can choose a preferred coach before continuing."}
+          {selectedTrainer ? `Preferred coach: ${selectedTrainer.full_name}.` : "Choose an available coach to continue to confirmation."}
         </p>
       </OnboardingShell>
 
       {profile && (
         <ProfileModal
           trainer={profile}
+          memberAvailability={availability}
           onClose={() => setProfile(null)}
-        />
-      )}
-      {showScheduleConfirmation && selectedTrainer && (
-        <ScheduleMismatchModal
-          trainer={selectedTrainer}
-          onCancel={() => setShowScheduleConfirmation(false)}
-          onContinue={() => navigate("/user/confirm")}
+          onEditAvailability={handleEditAvailability}
         />
       )}
     </>

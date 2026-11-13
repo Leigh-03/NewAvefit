@@ -57,9 +57,6 @@ export default function SetupConfirmation() {
             current_weight: p.weight,
             target_weight: goal.targetWeight,
             height: p.height,
-            days_per_week: avail.daysPerWeek,
-            intensity: 3,
-            experience: health.experience,
           });
           setPrediction(predictionResponse?.data?.data || null);
         } catch (err) {
@@ -96,6 +93,7 @@ export default function SetupConfirmation() {
         intensity: 3,
         injuries: healthData.injuries?.length ? healthData.injuries : ["None"],
         health_conditions: healthData.healthConditions?.length ? healthData.healthConditions : ["None"],
+        injury_pain_levels: healthData.injuryPainLevels || {},
         setup_completed: true,
       });
 
@@ -154,7 +152,13 @@ export default function SetupConfirmation() {
         <div className="bg-slate-50 rounded-2xl p-4 mb-4">
           <h3 className="text-sm font-semibold text-slate-600 mb-2">Health &amp; Experience</h3>
           <Row label="Experience Level" value={healthData.experience || "—"} />
-          <Row label="Injuries" value={(healthData.injuries || []).join(", ") || "None"} />
+          <Row
+            label="Injuries"
+            value={(healthData.injuries || [])
+              .filter((area) => area !== "None")
+              .map((area) => `${area} (Pain ${healthData.injuryPainLevels?.[area] || "—"}/10)`)
+              .join(", ") || "None"}
+          />
           <Row label="Health Conditions" value={(healthData.healthConditions || []).join(", ") || "None"} />
         </div>
 
@@ -192,20 +196,24 @@ export default function SetupConfirmation() {
         {prediction && (
           <div className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 mb-4">
             <h3 className="text-sm font-semibold text-orange-500 mb-3 flex items-center gap-2">
-              <TrendingUp size={14} /> Predicted Timeline
+              <TrendingUp size={14} /> Estimated Timeline
             </h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-50 rounded-xl p-3 text-center">
-                <p className="text-2xl font-bold text-green-400">{prediction.weeks_needed_consistent}w</p>
-                <p className="text-xs text-slate-500 mt-1">If consistent</p>
-                <p className="text-[11px] text-slate-500">(~{prediction.months_needed_consistent} mo)</p>
+            {prediction.mode === "target-weight" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-green-400">{prediction.weeks_needed_consistent}w</p>
+                  <p className="text-sm text-green-600 mt-1">Consistent</p>
+                  <p className="text-[11px] text-slate-500">(~{prediction.months_needed_consistent} mo)</p>
+                  <p className="text-[11px] text-slate-500">{prediction.weekly_rate_kg} kg/week</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-yellow-400">{prediction.weeks_needed_inconsistent}w</p>
+                  <p className="text-sm text-yellow-600 mt-1">Inconsistent</p>
+                  <p className="text-[11px] text-slate-500">(~{prediction.months_needed_inconsistent} mo)</p>
+                  <p className="text-[11px] text-slate-500">{prediction.slower_weekly_rate_kg} kg/week</p>
+                </div>
               </div>
-              <div className="bg-slate-50 rounded-xl p-3 text-center">
-                <p className="text-2xl font-bold text-yellow-400">{prediction.weeks_needed_inconsistent}w</p>
-                <p className="text-xs text-slate-500 mt-1">If inconsistent</p>
-                <p className="text-[11px] text-slate-500">(~{prediction.months_needed_inconsistent} mo)</p>
-              </div>
-            </div>
+            )}
             {prediction.note && <p className="text-xs text-slate-500 mt-3">{prediction.note}</p>}
           </div>
         )}

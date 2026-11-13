@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { CalendarDays, ClipboardList, Dumbbell, Eye, LockKeyhole, Pencil, Plus, Search, Target, Trash2, UserRound, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Eye, LockKeyhole, Pencil, Plus, Search, Target, Trash2, UserRound, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 import ExercisePicker from "../components/workout/ExercisePicker";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import { getWorkoutGoalRules } from "../utils/workoutGoalRules";
+import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 import {
   exerciseMatchesProgram,
+  getExerciseLimitForExperience,
   getProgramForDate,
   requiresConservativeWorkout,
 } from "../utils/trainingPrograms";
@@ -24,6 +26,8 @@ const getPlanDisplayName = (plan) => (
 
 function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onApproveDeletion, onRejectDeletion }) {
   const sessions = Array.isArray(plan.sessions) ? plan.sessions : [];
+  const exerciseLimit = getExerciseLimitForExperience(plan.activity_level);
+  const exceedsExperienceLimit = sessions.length > exerciseLimit.max;
   const isInitialCoachRequest = plan.request_type === "coach_created" && sessions.length === 0;
   const hasPendingApproval = plan.approval_status === "Pending" && !isInitialCoachRequest;
   const injuries = toList(plan.injuries).filter((item) => item !== "None");
@@ -102,6 +106,11 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onApproveDeletion,
               <p className="mt-2 text-xs text-slate-500">Review any requested exercise adjustment with the member and defer medical restrictions to their healthcare professional.</p>
             </section>
           )}
+          {hasPendingApproval && exceedsExperienceLimit && (
+            <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+              This {exerciseLimit.label} workout exceeds the {exerciseLimit.max}-exercise limit. Edit the request before approving it.
+            </p>
+          )}
           {sessions.length ? sessions.map((session, index) => (
             <article key={`${session.exercise_id}-${index}`} className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -131,7 +140,19 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onApproveDeletion,
             {hasPendingApproval && (
               <>
               <button type="button" onClick={onEdit} className="rounded-lg border border-orange-500/30 px-3 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-500/10 dark:text-orange-400">Edit request</button>
-              <button type="button" onClick={onApprove} disabled={sessions.length < 3} title={sessions.length < 3 ? "Create at least 3 exercises before approval." : undefined} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50">Approve</button>
+              <button
+                type="button"
+                onClick={onApprove}
+                disabled={sessions.length < 3 || exceedsExperienceLimit}
+                title={sessions.length < 3
+                  ? "Create at least 3 exercises before approval."
+                  : exceedsExperienceLimit
+                    ? `${exerciseLimit.label} workouts can include up to ${exerciseLimit.max} exercises.`
+                    : undefined}
+                className="rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Approve
+              </button>
               </>
             )}
             {plan.deletion_request_status === "Pending" && (
@@ -303,6 +324,7 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
   const selectedMember = members.find((member) => String(member.user_id) === form.user_id);
   const isMemberRequestedWorkout = plan?.request_type === "coach_created";
   const doseRules = getWorkoutGoalRules(selectedMember?.fitness_goal);
+  const experienceLimit = getExerciseLimitForExperience(selectedMember?.activity_level);
   const keepingExistingDate = plan
     && String(plan.scheduled_date || "").slice(0, 10) === form.session_date;
   const existingPlanOnDate = !keepingExistingDate && plans.find((item) =>
@@ -333,7 +355,7 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
   const getSessionDoseRules = (session) => {
     const exercise = exercises.find((item) => String(item.exercise_id) === String(session.exercise_id));
     if (exercise && requiresConservativeWorkout(exercise, toList(selectedMember?.injuries), toList(selectedMember?.health_conditions))) {
-      return plan ? { sets: [1, 6], reps: [3, 16] } : { sets: [1, 2], reps: [6, 10] };
+      return { sets: [1, 2], reps: [6, 10] };
     }
     return doseRules || { sets: [1, 6], reps: [3, 16] };
   };
@@ -382,6 +404,9 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
       nextErrors.session_date = "A workout plan already exists for this member on that date. Edit the existing plan instead.";
     }
     if (form.sessions.length < 3) nextErrors.sessions = "Add at least 3 exercises.";
+    if (form.sessions.length > experienceLimit.max) {
+      nextErrors.sessions = `${experienceLimit.label} workouts can include up to ${experienceLimit.max} exercises.`;
+    }
 
     form.sessions.forEach((session, index) => {
       Object.assign(nextErrors, getSessionErrors(session, index));
@@ -428,17 +453,11 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
   ) : null;
 
   const updateSessionField = (index, field, value) => {
-    const chosenExercise = field === "exercise_id"
-      ? exercises.find((exercise) => String(exercise.exercise_id) === String(value))
-      : null;
-    const injuryAdjusted = chosenExercise && requiresConservativeWorkout(
-      chosenExercise,
-      toList(selectedMember?.injuries),
-      toList(selectedMember?.health_conditions)
-    );
-    const nextDose = injuryAdjusted && !plan
-      ? { sets: [1, 2], reps: [6, 10] }
-      : doseRules || { sets: [1, 6], reps: [3, 16] };
+    const nextSession = {
+      ...form.sessions[index],
+      ...(field === "exercise_id" ? { exercise_id: value } : {}),
+    };
+    const nextDose = getSessionDoseRules(nextSession);
     setForm((current) => ({
       ...current,
       sessions: current.sessions.map((session, sessionIndex) =>
@@ -580,7 +599,10 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                 ))}
               </div>
               <div className="mt-3 grid gap-2 border-t border-orange-500/20 pt-3 text-xs sm:grid-cols-2">
-                <p className="text-amber-500"><strong>Injuries / pain:</strong> {toList(selectedMember.injuries).join(", ") || "None recorded"}</p>
+                <p className="text-amber-500"><strong>Injuries / pain:</strong> {toList(selectedMember.injuries).filter((area) => area !== "None").map((area) => {
+                  const level = Number(selectedMember.injury_pain_levels?.[area]);
+                  return Number.isInteger(level) && level >= 1 && level <= 10 ? `${area} (Pain ${level}/10)` : area;
+                }).join(", ") || "None recorded"}</p>
                 <p className="text-amber-500"><strong>Health conditions:</strong> {toList(selectedMember.health_conditions).join(", ") || "None recorded"}</p>
               </div>
               {toList(selectedMember.weekly_availability).length > 0 && (
@@ -589,7 +611,7 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                   <div className="flex flex-wrap gap-2">
                     {toList(selectedMember.weekly_availability).map((slot) => (
                       <span key={slot.day_of_week} className="rounded-lg bg-white px-2.5 py-1.5 text-xs text-slate-700 dark:bg-white/5 dark:text-slate-300">
-                        {slot.day_of_week}: {slot.time_preference || `${slot.start_time}–${slot.end_time}`}
+                        {slot.day_of_week}: {slot.time_preference || formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"}
                       </span>
                     ))}
                   </div>
@@ -647,7 +669,7 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
           <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-slate-800 dark:text-white">Routine Exercises (minimum 3)</p>
+                <p className="text-sm font-semibold text-slate-800 dark:text-white">Routine Exercises (3–{experienceLimit.max})</p>
                 <p className="text-xs text-slate-500">
                   {selectedMember
                     ? preferredDifficulty
@@ -659,9 +681,13 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                       : "This member has no supported experience level for exercise filtering."
                     : "Select a member to see exercises that match their experience level."}
                 </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Maximum {experienceLimit.max} exercises for {experienceLimit.label} members.
+                </p>
               </div>
               <button
                 type="button"
+                disabled={form.sessions.length >= experienceLimit.max}
                 onClick={() => {
                   const lastIndex = form.sessions.length - 1;
                   if (lastIndex >= 0) {
@@ -685,7 +711,7 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                   setFieldError("sessions", "");
                   setError("");
                 }}
-                className="flex items-center gap-1 rounded-lg border border-orange-500/30 px-3 py-2 text-xs font-semibold text-orange-500 hover:bg-orange-500/10"
+                className="flex items-center gap-1 rounded-lg border border-orange-500/30 px-3 py-2 text-xs font-semibold text-orange-500 hover:bg-orange-500/10 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus size={14} /> Add Exercise
               </button>
@@ -804,6 +830,7 @@ export default function TrainerWorkoutPlans() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [rosterFilter, setRosterFilter] = useState("All");
+  const [currentPage, setCurrentPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
   const [initialMemberId, setInitialMemberId] = useState("");
@@ -1000,6 +1027,16 @@ export default function TrainerWorkoutPlans() {
     plan.member_name?.toLowerCase().includes(query)
   ).filter((plan) => statusFilter === "All" || getPlanDisplayStatuses(plan).includes(statusFilter))
     .filter((plan) => rosterFilter === "All" || String(plan.user_id) === rosterFilter);
+  const totalPages = Math.ceil(filtered.length / 10);
+  const displayedPage = Math.min(currentPage, Math.max(totalPages, 1));
+  const firstVisiblePage = Math.max(1, Math.min(displayedPage - 1, totalPages - 2));
+  const visiblePages = Array.from(
+    { length: Math.min(totalPages, firstVisiblePage + 2) - firstVisiblePage + 1 },
+    (_, index) => firstVisiblePage + index
+  );
+  const paginatedPlans = filtered.slice((displayedPage - 1) * 10, displayedPage * 10);
+  const firstPlanIndex = filtered.length ? (displayedPage - 1) * 10 + 1 : 0;
+  const lastPlanIndex = Math.min(displayedPage * 10, filtered.length);
   const requestAlreadyReviewed = fetchError === "This workout plan request has already been reviewed.";
 
   return (
@@ -1182,16 +1219,19 @@ export default function TrainerWorkoutPlans() {
           aria-label="Search workout plans"
           placeholder="Search plan, goal, or member..."
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setCurrentPage(1);
+          }}
           className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"
         />
       </label>
       <label className="sr-only" htmlFor="trainer-plan-status">Filter plans by status</label>
-      <select id="trainer-plan-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
+      <select id="trainer-plan-status" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setCurrentPage(1); }} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
         {["All", ...statusFilterOptions].map((status) => <option key={status} value={status}>{status === "All" ? "All Status" : status}</option>)}
       </select>
       <label className="sr-only" htmlFor="trainer-plan-roster">Filter by My Roster</label>
-      <select id="trainer-plan-roster" value={rosterFilter} onChange={(event) => setRosterFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
+      <select id="trainer-plan-roster" value={rosterFilter} onChange={(event) => { setRosterFilter(event.target.value); setCurrentPage(1); }} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
         <option value="All">My Roster · All members</option>
         {members.map((member) => (
           <option key={member.user_id} value={String(member.user_id)}>{member.first_name} {member.last_name}</option>
@@ -1227,7 +1267,7 @@ export default function TrainerWorkoutPlans() {
                       <p className="mt-1 text-sm text-slate-500">{plans.length ? "Try a different search or status." : "Create a plan to start building a member's routine."}</p>
                     </td>
                   </tr>
-                ) : filtered.map((plan) => {
+                ) : paginatedPlans.map((plan) => {
                   const pastWorkoutDate = isPastWorkoutPlan(plan);
                   const pendingApproval = plan.approval_status === "Pending"
                     && plan.deletion_request_status !== "Pending"
@@ -1384,9 +1424,51 @@ export default function TrainerWorkoutPlans() {
             </table>
           </div>
         )}
-        <div className="border-t border-slate-200 px-5 py-3 text-sm text-slate-500 dark:border-slate-800">
-          Showing {filtered.length} of {plans.length} plans
-        </div>
+        {!loading && (
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Showing {firstPlanIndex}–{lastPlanIndex} of {filtered.length} plans
+            </p>
+            {totalPages > 1 && (
+              <nav aria-label="Workout plan pagination" className="flex flex-wrap items-center justify-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(displayedPage - 1)}
+                  disabled={displayedPage === 1}
+                  className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
+                >
+                  <ChevronLeft size={16} />
+                  Previous
+                </button>
+                {visiblePages.map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => setCurrentPage(page)}
+                    aria-current={displayedPage === page ? "page" : undefined}
+                    aria-label={`Page ${page}`}
+                    className={`grid h-9 min-w-9 place-items-center rounded-lg border px-2 text-sm font-semibold transition ${
+                      displayedPage === page
+                        ? "border-orange-500 bg-orange-500 text-white"
+                        : "border-slate-200 text-slate-700 hover:bg-slate-100 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(displayedPage + 1)}
+                  disabled={displayedPage === totalPages}
+                  className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
+                >
+                  Next
+                  <ChevronRight size={16} />
+                </button>
+              </nav>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

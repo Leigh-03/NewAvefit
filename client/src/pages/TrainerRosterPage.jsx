@@ -3,6 +3,7 @@ import { AlertTriangle, Search, TrendingUp, Users, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 import CustomSelect from "../components/ui/CustomSelect";
+import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -61,7 +62,10 @@ function MemberProfileModal({ member, onClose, onViewProgress }) {
   if (!member) return null;
   const currentWeight = member.latest_weight ?? member.weight;
   const currentBmi = member.latest_bmi ?? calculateBmi(currentWeight, member.height);
-  const injuries = toHealthNotes(member.injuries);
+  const injuries = toHealthNotes(member.injuries).map((area) => {
+    const level = Number(member.injury_pain_levels?.[area]);
+    return Number.isInteger(level) && level >= 1 && level <= 10 ? `${area} (Pain ${level}/10)` : area;
+  });
   const conditions = toHealthNotes(member.health_conditions);
 
   return (
@@ -131,7 +135,7 @@ function MemberProfileModal({ member, onClose, onViewProgress }) {
             {Array.isArray(member.weekly_availability) && member.weekly_availability.length > 0 && (
               <ul className="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
                 {member.weekly_availability.map((slot) => (
-                  <li key={slot.day_of_week}><span className="font-semibold">{slot.day_of_week}:</span> {slot.start_time}–{slot.end_time}</li>
+                  <li key={slot.day_of_week}><span className="font-semibold">{slot.day_of_week}:</span> {formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"}</li>
                 ))}
               </ul>
             )}

@@ -59,7 +59,7 @@ export default function Homepage() {
         <section className="home-hero" aria-labelledby="home-title">
           <img
             className="home-hero-image"
-            src="/images/avefit-gym-bg.png"
+            src="/images/avefit-gym-bg.jpg"
             alt="Strength training equipment and a gym trainer inside a modern gym"
             fetchPriority="high"
           />
@@ -143,7 +143,7 @@ export default function Homepage() {
               </div>
               <div className="home-about-detail">
                 <Clock3 size={19} aria-hidden="true" />
-                <p>Monday–Saturday: 5:00 AM–10:00 PM<br />Sunday: 7:00 AM–6:00 PM</p>
+                <p>Monday–Sunday: 6:00 AM–10:00 PM</p>
               </div>
               <a
                 className="home-button home-button-orange home-directions"

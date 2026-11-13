@@ -7,6 +7,7 @@ const {
 const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutGoalRules");
 const {
   TRAINING_PROGRAMS,
+  getExerciseLimitForExperience,
   exerciseMatchesProgram,
   isExerciseAllowedForExperience,
   getProgramForDate,
@@ -170,6 +171,15 @@ const requestWorkoutPlan = async (req, res) => {
       return res.status(403).json({ success: false, message: "An active member account is required to request a workout plan." });
     }
     const member = memberResult.rows[0];
+    const exerciseLimit = getExerciseLimitForExperience(member.activity_level);
+    if (sessions.length > exerciseLimit.max) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `${exerciseLimit.label} workouts can include up to ${exerciseLimit.max} exercises.`,
+      });
+    }
     if (!member.trainer_id || !member.trainer_email) {
       await client.query("ROLLBACK");
       transactionStarted = false;

@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import AuthFrame from "./AuthFrame";
 import { Brand } from "./AppShell";
 
@@ -13,30 +12,27 @@ const ONBOARDING_STEPS = [
 
 function Stepper({ current }) {
   return (
-    <nav aria-label="Setup progress" className="mb-6">
+    <div role="group" aria-label="Setup progress" className="mb-6">
       <ol className="flex items-center gap-1.5">
         {ONBOARDING_STEPS.map((step, i) => {
           const state = i + 1 < current ? "done" : i + 1 === current ? "current" : "todo";
           return (
-            <li key={step.to} className="flex-1">
-              <Link
-                to={step.to}
-                aria-current={state === "current" ? "step" : undefined}
-                title={step.label}
-                className="block rounded-full py-2 transition hover:bg-orange-500/10"
-              >
-                <span className="sr-only">
-                  Step {i + 1}: {step.label}
-                </span>
-                <span
-                  aria-hidden="true"
-                  className={`block h-1.5 rounded-full transition-colors ${
-                    state === "todo"
-                      ? "bg-slate-100 dark:bg-white/10"
-                      : "bg-orange-500"
-                  }`}
-                />
-              </Link>
+            <li
+              key={step.to}
+              className="flex-1"
+              aria-current={state === "current" ? "step" : undefined}
+            >
+              <span className="sr-only">
+                Step {i + 1}: {step.label}
+              </span>
+              <span
+                aria-hidden="true"
+                className={`block h-1.5 rounded-full transition-colors ${
+                  state === "todo"
+                    ? "bg-slate-100 dark:bg-white/10"
+                    : "bg-orange-500"
+                }`}
+              />
             </li>
           );
         })}
@@ -44,7 +40,7 @@ function Stepper({ current }) {
       <p className="mt-2.5 text-xs font-semibold text-slate-500">
         Step {current} of {ONBOARDING_STEPS.length} &middot; {ONBOARDING_STEPS[current - 1].label}
       </p>
-    </nav>
+    </div>
   );
 }
 

@@ -1,48 +1,34 @@
 import { useState } from "react";
 import OnboardingShell from "../components/layout/OnboardingShell";
+import HealthAssessmentFields from "../components/HealthAssessmentFields";
+import { HEALTH_CONDITION_OPTIONS, INJURY_OPTIONS } from "../utils/healthAssessment";
 import { useNavigate } from "react-router-dom";
 
-const injuryOptions = ["Knee", "Back", "Shoulder", "Hip", "Ankle", "Wrist", "Neck", "None"];
-const healthOptions = ["Heart Condition", "Diabetes", "Asthma", "High Blood Pressure", "Arthritis", "None"];
 const experienceLevels = ["Beginner", "Intermediate", "Advanced"];
-
-function Chip({ label, selected, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-4 py-2 rounded-xl text-sm font-medium border-2 transition ${
-        selected
-          ? "border-orange-500 bg-orange-500/20 text-orange-500"
-          : "border-slate-200 text-slate-500 hover:border-slate-300"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
 
 export default function HealthConditions() {
   const navigate = useNavigate();
   const [experience, setExperience] = useState("Beginner");
   const [injuries, setInjuries] = useState(["None"]);
   const [healthConditions, setHealthConditions] = useState(["None"]);
+  const [injuryPainLevels, setInjuryPainLevels] = useState({});
   const [validationError, setValidationError] = useState("");
 
-  const toggleChip = (value, list, setList) => {
-    if (value === "None") { setList(["None"]); return; }
-    const filtered = list.filter((i) => i !== "None");
-    if (filtered.includes(value)) {
-      setList(filtered.filter((i) => i !== value));
-    } else {
-      setList([...filtered, value]);
-    }
+  const handleInjuriesChange = (nextInjuries) => {
+    setInjuries(nextInjuries);
+    setInjuryPainLevels((current) => Object.fromEntries(
+      nextInjuries
+        .filter((area) => area !== "None" && Object.prototype.hasOwnProperty.call(current, area))
+        .map((area) => [area, current[area]])
+    ));
+    setValidationError("");
   };
 
   const handleContinue = () => {
     const savedInjuries = injuries.length ? injuries : ["None"];
     const savedHealthConditions = healthConditions.length ? healthConditions : ["None"];
-    const selectedAllInjuries = savedInjuries.filter((item) => item !== "None").length === injuryOptions.length - 1;
-    const selectedAllConditions = savedHealthConditions.filter((item) => item !== "None").length === healthOptions.length - 1;
+    const selectedAllInjuries = savedInjuries.filter((item) => item !== "None").length === INJURY_OPTIONS.length - 1;
+    const selectedAllConditions = savedHealthConditions.filter((item) => item !== "None").length === HEALTH_CONDITION_OPTIONS.length - 1;
     if ((selectedAllInjuries || selectedAllConditions) && !window.confirm(
       "You selected every listed " +
       [selectedAllInjuries && "injury area", selectedAllConditions && "health condition"].filter(Boolean).join(" and ") +
@@ -51,11 +37,20 @@ export default function HealthConditions() {
       return;
     }
 
+    const missingPainLevels = savedInjuries
+      .filter((area) => area !== "None")
+      .some((area) => !Number.isInteger(Number(injuryPainLevels[area])) || Number(injuryPainLevels[area]) < 1 || Number(injuryPainLevels[area]) > 10);
+    if (missingPainLevels) {
+      setValidationError("Choose a pain level from 1 to 10 for each selected injury or pain area.");
+      return;
+    }
+
     setValidationError("");
     sessionStorage.setItem("avefit_health", JSON.stringify({
       experience,
       injuries: savedInjuries,
       healthConditions: savedHealthConditions,
+      injuryPainLevels,
     }));
     navigate("/user/availability");
   };
@@ -89,26 +84,15 @@ export default function HealthConditions() {
       </div>
     </div>
 
-    {/* Injury Areas */}
-    <div className="mb-6">
-      <label className="block text-sm font-medium text-slate-600 mb-3">Injury or Pain Areas</label>
-      <div className="flex flex-wrap gap-2">
-        {injuryOptions.map((opt) => (
-          <Chip key={opt} label={opt} selected={injuries.includes(opt)}
-            onClick={() => { toggleChip(opt, injuries, setInjuries); setValidationError(""); }} />
-        ))}
-      </div>
-    </div>
-
-    {/* Health Conditions */}
     <div className="mb-8">
-      <label className="block text-sm font-medium text-slate-600 mb-3">Health Conditions</label>
-      <div className="flex flex-wrap gap-2">
-        {healthOptions.map((opt) => (
-          <Chip key={opt} label={opt} selected={healthConditions.includes(opt)}
-            onClick={() => { toggleChip(opt, healthConditions, setHealthConditions); setValidationError(""); }} />
-        ))}
-      </div>
+      <HealthAssessmentFields
+        injuries={injuries}
+        healthConditions={healthConditions}
+        injuryPainLevels={injuryPainLevels}
+        onInjuriesChange={handleInjuriesChange}
+        onHealthConditionsChange={(next) => { setHealthConditions(next); setValidationError(""); }}
+        onPainLevelChange={(area, level) => { setInjuryPainLevels((current) => ({ ...current, [area]: level })); setValidationError(""); }}
+      />
     </div>
 
     <button

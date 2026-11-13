@@ -25,7 +25,7 @@ const {
   sendUserCoachAssignedEmail,
 } = require("../utils/mailer");
 const { notifyNewUser, createNotification } = require("../utils/notifications");
-const { getCapacityStatus } = require("../utils/coachAssignment");
+const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const {
   buildProfileChangePayload,
@@ -34,6 +34,53 @@ const {
   getUserChangeRequests,
 } = require("./profileChangeController");
 const googleClient = new OAuth2Client();
+const allowedInjuries = new Set(["Neck", "Shoulder", "Back", "Wrist", "Elbow", "Hip", "Knee", "Ankle", "None"]);
+const allowedHealthConditions = new Set(["Hypertension", "Asthma", "Diabetes", "Heart Disease", "Arthritis", "None"]);
+
+const normalizeHealthSelection = (value, allowed, label, defaultToNone = false) => {
+  if (value === undefined || value === null) return defaultToNone ? ["None"] : null;
+  if (!Array.isArray(value)) {
+    throw Object.assign(new Error(`Choose valid ${label}.`), { status: 400 });
+  }
+  const selection = [...new Set(value)];
+  if (!selection.length) return ["None"];
+  if (selection.some((item) => typeof item !== "string" || !allowed.has(item))) {
+    throw Object.assign(new Error(`Choose valid ${label}.`), { status: 400 });
+  }
+  if (selection.includes("None") && selection.length > 1) {
+    throw Object.assign(new Error(`Choose None or specific ${label}, not both.`), { status: 400 });
+  }
+  return selection;
+};
+
+const normalizeInjuryPainLevels = (value, injuries) => {
+  if (injuries === null) {
+    if (value === undefined || value === null) return null;
+    throw Object.assign(new Error("Choose injury or pain areas before setting pain levels."), { status: 400 });
+  }
+  const areas = (injuries || []).filter((area) => area !== "None");
+  if (!areas.length) {
+    if (value === undefined || value === null || (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0)) {
+      return {};
+    }
+    throw Object.assign(new Error("Pain levels must be empty when None is selected."), { status: 400 });
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw Object.assign(new Error("Choose a pain level from 1 to 10 for each injury or pain area."), { status: 400 });
+  }
+  const painAreas = Object.keys(value);
+  if (painAreas.length !== areas.length || painAreas.some((area) => !areas.includes(area))) {
+    throw Object.assign(new Error("Choose a pain level for every selected injury or pain area."), { status: 400 });
+  }
+  return Object.fromEntries(areas.map((area) => {
+    const level = Number(value[area]);
+    if (!Number.isInteger(level) || level < 1 || level > 10) {
+      throw Object.assign(new Error("Pain levels must be whole numbers from 1 to 10."), { status: 400 });
+    }
+    return [area, level];
+  }));
+};
+
 const {
   generateVerificationCode,
   VERIFICATION_CODE_TTL_MINUTES,
@@ -1311,6 +1358,7 @@ const getProfile = async (req, res) => {
         intensity,
         injuries,
         health_conditions,
+        injury_pain_levels,
         trainer_id,
         setup_completed,
         account_status,
@@ -1370,16 +1418,13 @@ const updateProfile = async (req, res) => {
       intensity,
       injuries,
       health_conditions,
+      injury_pain_levels,
       trainer_id,
       setup_completed,
     } = req.body;
-    const normalizeHealthSelections = (value) => {
-      if (value === undefined || value === null) return setup_completed ? ["None"] : null;
-      if (!Array.isArray(value)) return ["None"];
-      return value.length ? value : ["None"];
-    };
-    const normalizedInjuries = normalizeHealthSelections(injuries);
-    const normalizedHealthConditions = normalizeHealthSelections(health_conditions);
+    const normalizedInjuries = normalizeHealthSelection(injuries, allowedInjuries, "injury or pain areas", setup_completed === true);
+    const normalizedHealthConditions = normalizeHealthSelection(health_conditions, allowedHealthConditions, "health conditions", setup_completed === true);
+    const normalizedInjuryPainLevels = normalizeInjuryPainLevels(injury_pain_levels, normalizedInjuries);
 
     if (
       first_name !== undefined &&
@@ -1537,7 +1582,84 @@ const updateProfile = async (req, res) => {
         "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
         [selectedTrainerId]
       );
-      selectedCoach.assigned_member_count = assignedCountResult.rows[0].count;
+      selectedCoach.assigned_member_count = Number(assignedCountResult.rows[0].count) || 0;
+      const maxMembers = Number(selectedCoach.max_members) || 0;
+      if (maxMembers > 0 && selectedCoach.assigned_member_count >= maxMembers) {
+        return res.status(409).json({
+          success: false,
+          message: "This coach has reached their total member capacity. Choose another coach.",
+        });
+      }
+
+      const memberAvailabilityResult = await pool.query(
+        `SELECT day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
+                TO_CHAR(end_time, 'HH24:MI') AS end_time
+         FROM user_workout_availability
+         WHERE user_id = $1`,
+        [req.user.user_id]
+      );
+      const memberForSchedule = {
+        ...current.rows[0],
+        preferred_days: preferred_days ?? current.rows[0].preferred_days,
+        preferred_workout_time: preferred_workout_time ?? current.rows[0].preferred_workout_time,
+      };
+      const memberSlots = getMemberAvailability(memberForSchedule, memberAvailabilityResult.rows);
+      const requiredDays = Number(
+        workout_days_per_week ??
+        current.rows[0].workout_days_per_week ??
+        memberSlots.length
+      );
+      const sessionDuration = Number(normalizedWorkoutDuration || current.rows[0].workout_duration || 60);
+      const coachAvailabilityResult = await pool.query(
+        `SELECT ta.day_of_week,
+                TO_CHAR(ta.start_time, 'HH24:MI') AS start_time,
+                TO_CHAR(ta.end_time, 'HH24:MI') AS end_time,
+                ta.member_limit,
+                (
+                  SELECT COUNT(DISTINCT assigned_member.user_id)::integer
+                  FROM users assigned_member
+                  JOIN user_workout_availability member_slot
+                    ON member_slot.user_id = assigned_member.user_id
+                  WHERE assigned_member.trainer_id = ta.trainer_id
+                    AND CASE member_slot.day_of_week
+                      WHEN 'Sunday' THEN 0
+                      WHEN 'Monday' THEN 1
+                      WHEN 'Tuesday' THEN 2
+                      WHEN 'Wednesday' THEN 3
+                      WHEN 'Thursday' THEN 4
+                      WHEN 'Friday' THEN 5
+                      WHEN 'Saturday' THEN 6
+                      ELSE -1
+                    END = ta.day_of_week
+                    AND member_slot.start_time < ta.end_time
+                    AND member_slot.end_time > ta.start_time
+                ) AS assigned_member_count
+         FROM trainer_availability ta
+         WHERE ta.trainer_id = $1`,
+        [selectedTrainerId]
+      );
+      const coachSlots = coachAvailabilityResult.rows;
+      const scheduleMatch = getScheduleMatch(
+        memberSlots,
+        coachSlots,
+        sessionDuration,
+        requiredDays
+      );
+      if (!scheduleMatch.compatible) {
+        return res.status(409).json({
+          success: false,
+          message: "This coach's schedule does not match your selected workout days and times. Choose another coach.",
+        });
+      }
+      const slotsWithCapacity = coachSlots.filter((slot) => (
+        Number(slot.assigned_member_count) < Number(slot.member_limit)
+      ));
+      if (!getScheduleMatch(memberSlots, slotsWithCapacity, sessionDuration, requiredDays).compatible) {
+        return res.status(409).json({
+          success: false,
+          message: "This coach has reached the member limit on your selected workout days. Choose another coach.",
+        });
+      }
     }
 
     const currentEmail =
@@ -1605,11 +1727,12 @@ const updateProfile = async (req, res) => {
           intensity=COALESCE($17, intensity),
           injuries=COALESCE($18, injuries),
           health_conditions=COALESCE($19, health_conditions),
-          setup_completed=COALESCE($20, setup_completed),
-          profile_image=COALESCE($21, profile_image),
-          trainer_id=COALESCE($22, trainer_id),
+          injury_pain_levels=COALESCE($20::jsonb, injury_pain_levels),
+          setup_completed=COALESCE($21, setup_completed),
+          profile_image=COALESCE($22, profile_image),
+          trainer_id=COALESCE($23, trainer_id),
           updated_at=NOW()
-      WHERE user_id=$23
+      WHERE user_id=$24
       `,
       [
         first_name !== undefined && first_name !== null
@@ -1637,6 +1760,7 @@ const updateProfile = async (req, res) => {
         intensity ?? currentUser.intensity,
         normalizedInjuries ?? currentUser.injuries,
         normalizedHealthConditions ?? currentUser.health_conditions,
+        normalizedInjuryPainLevels,
         typeof setup_completed === "boolean" ? setup_completed : currentUser.setup_completed,
         profile_image ?? currentUser.profile_image,
         selectedTrainerId ?? currentUser.trainer_id,
@@ -1894,30 +2018,26 @@ const updateProfile = async (req, res) => {
 };
 
 const updateHealthAssessment = async (req, res) => {
-  const { injuries, health_conditions } = req.body;
-  const allowedInjuries = new Set(["Knee", "Back", "Shoulder", "Hip", "Ankle", "Wrist", "Neck", "None"]);
-  const allowedConditions = new Set(["Heart Condition", "Diabetes", "Asthma", "High Blood Pressure", "Arthritis", "None"]);
+  const { injuries, health_conditions, injury_pain_levels } = req.body;
   const hasInjuries = Object.prototype.hasOwnProperty.call(req.body, "injuries");
   const hasHealthConditions = Object.prototype.hasOwnProperty.call(req.body, "health_conditions");
-  if (!hasInjuries && !hasHealthConditions) {
+  const hasPainLevels = Object.prototype.hasOwnProperty.call(req.body, "injury_pain_levels");
+  if (!hasInjuries && !hasHealthConditions && !hasPainLevels) {
     return res.status(400).json({ success: false, message: "Choose an injury or health condition update to save." });
   }
-  const normalizeSelection = (value, allowed, label) => {
-    if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== "string" || !allowed.has(item))) {
-      throw Object.assign(new Error(`Choose valid ${label}.`), { status: 400 });
-    }
-    const selection = [...new Set(value)];
-    if (selection.includes("None") && selection.length > 1) {
-      return ["None"];
-    }
-    return selection;
-  };
+  if (hasInjuries !== hasPainLevels) {
+    return res.status(400).json({ success: false, message: "Save injury areas and their pain levels together." });
+  }
 
   let normalizedInjuries = null;
   let normalizedConditions = null;
+  let normalizedPainLevels = null;
   try {
-    if (hasInjuries) normalizedInjuries = normalizeSelection(injuries, allowedInjuries, "injury or pain areas");
-    if (hasHealthConditions) normalizedConditions = normalizeSelection(health_conditions, allowedConditions, "health conditions");
+    if (hasInjuries) {
+      normalizedInjuries = normalizeHealthSelection(injuries, allowedInjuries, "injury or pain areas");
+      normalizedPainLevels = normalizeInjuryPainLevels(injury_pain_levels, normalizedInjuries);
+    }
+    if (hasHealthConditions) normalizedConditions = normalizeHealthSelection(health_conditions, allowedHealthConditions, "health conditions");
   } catch (error) {
     return res.status(error.status || 400).json({ success: false, message: error.message });
   }
@@ -1925,13 +2045,14 @@ const updateHealthAssessment = async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE users
-       SET injuries = CASE WHEN $1::boolean THEN $2::text ELSE injuries END,
-           health_conditions = CASE WHEN $3::boolean THEN $4::text ELSE health_conditions END,
+       SET injuries = CASE WHEN $1::boolean THEN $2::text[] ELSE injuries END,
+           health_conditions = CASE WHEN $3::boolean THEN $4::text[] ELSE health_conditions END,
+           injury_pain_levels = CASE WHEN $5::boolean THEN $6::jsonb ELSE injury_pain_levels END,
            updated_at = NOW()
-       WHERE user_id = $5
+       WHERE user_id = $7
          AND LOWER(COALESCE(account_status, 'pending')) = 'active'
-       RETURNING injuries, health_conditions`,
-      [hasInjuries, normalizedInjuries, hasHealthConditions, normalizedConditions, req.user.user_id]
+       RETURNING injuries, health_conditions, injury_pain_levels`,
+      [hasInjuries, normalizedInjuries, hasHealthConditions, normalizedConditions, hasPainLevels, normalizedPainLevels, req.user.user_id]
     );
     if (!result.rowCount) {
       return res.status(403).json({ success: false, message: "An active member account is required to update health information." });

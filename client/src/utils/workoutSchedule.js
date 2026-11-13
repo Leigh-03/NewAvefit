@@ -82,3 +82,9 @@ export function formatWorkoutTime(value) {
   const suffix = hours >= 12 ? "PM" : "AM";
   return `${hours % 12 || 12}:${String(minutes % 60).padStart(2, "0")} ${suffix}`;
 }
+
+export function formatWorkoutTimeRange(start, end) {
+  const formattedStart = formatWorkoutTime(start);
+  const formattedEnd = formatWorkoutTime(end);
+  return formattedStart && formattedEnd ? `${formattedStart}–${formattedEnd}` : "";
+}

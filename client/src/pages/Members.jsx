@@ -3,6 +3,7 @@ import { Search, Check, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound
 import api from "../services/api";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
+import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 
 const statusColors = {
   Active: "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400",
@@ -40,7 +41,7 @@ const formatChangeValue = (value) => {
   const schedule = typeof value === "object" ? value.weekly_availability || value : null;
   if (schedule && Array.isArray(schedule.availability)) {
     const days = schedule.availability.map((slot) => (
-      `${slot.day_of_week} (${slot.time_preference || `${slot.start_time}-${slot.end_time}`})`
+      `${slot.day_of_week} (${slot.time_preference || formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"})`
     ));
     const frequency = schedule.workout_days_per_week ? `${schedule.workout_days_per_week} workout days/week` : "";
     const level = schedule.activity_level || "";
@@ -238,7 +239,10 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
   const selectedCoach = recommendations.find((coach) => String(coach.trainer_id) === String(selectedTrainer));
   const coachChanged = String(selectedTrainer || "") !== String(member.trainer_id || "");
   const hasChanges = membershipChanged || coachChanged;
-  const injuries = toHealthNotes(member.injuries);
+  const injuries = toHealthNotes(member.injuries).map((area) => {
+    const level = Number(member.injury_pain_levels?.[area]);
+    return Number.isInteger(level) && level >= 1 && level <= 10 ? `${area} (Pain ${level}/10)` : area;
+  });
   const healthConditions = toHealthNotes(member.health_conditions);
 
   return (
@@ -302,7 +306,7 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
               <ul className="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
                 {member.weekly_availability.map((slot) => (
                   <li key={slot.day_of_week}>
-                    <span className="font-semibold">{slot.day_of_week}:</span> {slot.start_time}–{slot.end_time}
+                    <span className="font-semibold">{slot.day_of_week}:</span> {formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"}
                   </li>
                 ))}
               </ul>
@@ -416,7 +420,7 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                       </div>
                       <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
                         Availability: {coach.availability?.length
-                          ? coach.availability.map((slot) => `${slot.day_of_week} ${slot.start_time}-${slot.end_time}`).join(" · ")
+                          ? coach.availability.map((slot) => `${slot.day_of_week} ${formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"}`).join(" · ")
                           : "No schedule set"}
                       </p>
                     </button>
@@ -652,6 +656,11 @@ export default function Members() {
   const matchingMembers=members.filter(m=>{const q=search.toLowerCase();const displayStatus=getMembershipStatus(m)==="Inactive"&&String(m.status||"").trim().toLowerCase()==="active"?"inactive":String(m.status||"").trim().toLowerCase();return (m.full_name?.toLowerCase().includes(q)||m.email?.toLowerCase().includes(q))&&(filter==="All"||displayStatus===filter.toLowerCase());});
   const totalPages = Math.ceil(matchingMembers.length / 10);
   const displayedPage = Math.min(currentPage, Math.max(totalPages, 1));
+  const firstVisiblePage = Math.max(1, Math.min(displayedPage - 1, totalPages - 2));
+  const visiblePages = Array.from(
+    { length: Math.min(totalPages, firstVisiblePage + 2) - firstVisiblePage + 1 },
+    (_, index) => firstVisiblePage + index
+  );
   const filtered = matchingMembers.slice((displayedPage - 1) * 10, displayedPage * 10);
   const paginatedMembers = filtered;
   const firstMemberIndex = matchingMembers.length ? (displayedPage - 1) * 10 + 1 : 0;
@@ -825,7 +834,7 @@ export default function Members() {
             <ChevronLeft size={16} />
             Previous
           </button>
-          {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
+          {visiblePages.map((page) => (
             <button
               key={page}
               type="button"

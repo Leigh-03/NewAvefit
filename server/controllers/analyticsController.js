@@ -474,6 +474,107 @@ const getAnalytics = async (req, res) => {
       ORDER BY months.month_start ASC
     `);
 
+    const memberProgress = await pool.query(`
+      WITH bounds AS (
+        SELECT
+          DATE_TRUNC('year', NOW() AT TIME ZONE 'Asia/Manila')::date AS start_date,
+          DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Manila')::date AS current_month,
+          (DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '1 month')::date AS end_date
+      ),
+      months AS (
+        SELECT generated.month_start::date AS month_start
+        FROM bounds
+        CROSS JOIN LATERAL GENERATE_SERIES(
+          bounds.start_date,
+          bounds.current_month,
+          INTERVAL '1 month'
+        ) AS generated(month_start)
+      ),
+      latest_monthly_progress AS (
+        SELECT DISTINCT ON (progress.user_id, DATE_TRUNC('month', progress.log_date)::date)
+          DATE_TRUNC('month', progress.log_date)::date AS month_start,
+          progress.user_id,
+          progress.weight,
+          progress.bmi,
+          users.target_weight
+        FROM progress_logs progress
+        JOIN users ON users.user_id = progress.user_id
+          AND LOWER(COALESCE(users.account_status, 'pending')) = 'active'
+        CROSS JOIN bounds
+        WHERE progress.log_date >= bounds.start_date
+          AND progress.log_date < bounds.end_date
+        ORDER BY
+          progress.user_id,
+          DATE_TRUNC('month', progress.log_date)::date,
+          progress.log_date DESC,
+          progress.progress_id DESC
+      ),
+      monthly_averages AS (
+        SELECT
+          month_start,
+          COUNT(*)::int AS member_count,
+          ROUND(AVG(weight)::numeric, 1) AS average_weight,
+          ROUND(AVG(target_weight)::numeric, 1) AS average_goal_weight,
+          ROUND(AVG(bmi)::numeric, 1) AS average_bmi
+        FROM latest_monthly_progress
+        GROUP BY month_start
+      )
+      SELECT
+        TO_CHAR(months.month_start, 'Mon YYYY') AS label,
+        COALESCE(monthly_averages.member_count, 0)::int AS member_count,
+        monthly_averages.average_weight,
+        monthly_averages.average_goal_weight,
+        monthly_averages.average_bmi
+      FROM months
+      LEFT JOIN monthly_averages USING (month_start)
+      ORDER BY months.month_start
+    `);
+
+    const monthlyWorkoutProgress = await pool.query(`
+      WITH bounds AS (
+        SELECT
+          DATE_TRUNC('year', NOW() AT TIME ZONE 'Asia/Manila')::date AS start_date,
+          (DATE_TRUNC('year', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '1 year')::date AS end_date
+      ),
+      months AS (
+        SELECT generated.month_start::date AS month_start
+        FROM bounds
+        CROSS JOIN LATERAL GENERATE_SERIES(
+          bounds.start_date,
+          bounds.end_date - INTERVAL '1 month',
+          INTERVAL '1 month'
+        ) AS generated(month_start)
+      ),
+      monthly_workouts AS (
+        SELECT
+          SUBSTRING(sessions.session_date FROM 1 FOR 7) AS month_key,
+          COUNT(*)::int AS planned_exercises,
+          COUNT(*) FILTER (WHERE sessions.completed IS TRUE)::int AS completed_exercises,
+          COUNT(*) FILTER (WHERE sessions.completed IS NOT TRUE)::int AS remaining_exercises,
+          COUNT(DISTINCT users.user_id)::int AS active_members
+        FROM workout_sessions sessions
+        JOIN workout_plans plans ON plans.workout_plan_id = sessions.workout_plan_id
+        JOIN users ON users.user_id = plans.user_id
+          AND LOWER(COALESCE(users.account_status, 'pending')) = 'active'
+        CROSS JOIN bounds
+        WHERE plans.approval_status = 'Approved'
+          AND sessions.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+          AND sessions.session_date >= TO_CHAR(bounds.start_date, 'YYYY-MM-DD')
+          AND sessions.session_date < TO_CHAR(bounds.end_date, 'YYYY-MM-DD')
+        GROUP BY SUBSTRING(sessions.session_date FROM 1 FOR 7)
+      )
+      SELECT
+        TO_CHAR(months.month_start, 'Mon YYYY') AS label,
+        COALESCE(monthly_workouts.planned_exercises, 0)::int AS planned_exercises,
+        COALESCE(monthly_workouts.completed_exercises, 0)::int AS completed_exercises,
+        COALESCE(monthly_workouts.remaining_exercises, 0)::int AS remaining_exercises,
+        COALESCE(monthly_workouts.active_members, 0)::int AS active_members
+      FROM months
+      LEFT JOIN monthly_workouts
+        ON monthly_workouts.month_key = TO_CHAR(months.month_start, 'YYYY-MM')
+      ORDER BY months.month_start
+    `);
+
     const createdAtManila = `CASE
       WHEN pg_typeof(created_at) = 'timestamp with time zone'::regtype
         THEN created_at AT TIME ZONE 'Asia/Manila'
@@ -722,6 +823,8 @@ const getAnalytics = async (req, res) => {
           totalNutritionPlans: parseInt(totalMealPlans.rows[0].count),
         },
         memberGrowth: memberGrowth.rows,
+        memberProgress: memberProgress.rows,
+        monthlyWorkoutProgress: monthlyWorkoutProgress.rows,
         growthOverview: growthOverview.rows,
         goalDistribution: goalDistribution.rows,
         bmiDistribution: bmiDistribution.rows,

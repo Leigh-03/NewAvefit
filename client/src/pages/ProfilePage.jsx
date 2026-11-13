@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import { PasswordField } from "../components/ui/Form";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+import HealthAssessmentFields from "../components/HealthAssessmentFields";
 import userApi from "../userApi";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 import WeeklyWorkoutAvailability from "../components/WeeklyWorkoutAvailability";
@@ -22,9 +23,6 @@ const normalizePhoneNumber = (phone) => {
   const digits = String(phone || "").replace(/\D/g, "");
   return digits.startsWith("09") ? digits.slice(0, 11) : `09${digits.slice(-9)}`;
 };
-const injuryOptions = ["Knee", "Back", "Shoulder", "Hip", "Ankle", "Wrist", "Neck", "None"];
-const healthConditionOptions = ["Heart Condition", "Diabetes", "Asthma", "High Blood Pressure", "Arthritis", "None"];
-
 const toSelectionList = (value) => {
   let items = value;
   if (typeof items === "string") {
@@ -47,13 +45,19 @@ const toSelectionList = (value) => {
     : selected;
 };
 
-const toggleHealthSelection = (selection, value) => {
-  if (value === "None") return ["None"];
-  const selected = selection.filter((item) => item !== "None");
-  const updated = selected.includes(value)
-    ? selected.filter((item) => item !== value)
-    : [...selected, value];
-  return updated.length ? updated : ["None"];
+const toPainLevelMap = (value) => {
+  let levels = value;
+  if (typeof levels === "string") {
+    try {
+      levels = JSON.parse(levels);
+    } catch {
+      return {};
+    }
+  }
+  if (!levels || typeof levels !== "object" || Array.isArray(levels)) return {};
+  return Object.fromEntries(Object.entries(levels)
+    .map(([area, level]) => [area, Number(level)])
+    .filter(([, level]) => Number.isInteger(level) && level >= 1 && level <= 10));
 };
 
 export default function ProfilePage() {
@@ -65,7 +69,7 @@ export default function ProfilePage() {
     first_name: "", last_name: "", email: "", phone: "",
     gender: "", birth_date: "", height: "", weight: "",
     fitness_goal: "", activity_level: "",
-    injuries: ["None"], health_conditions: ["None"],
+    injuries: ["None"], health_conditions: ["None"], injury_pain_levels: {},
   });
   const [photo, setPhoto] = useState(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -105,6 +109,7 @@ export default function ProfilePage() {
           activity_level: d.activity_level || "",
           injuries: toSelectionList(d.injuries),
           health_conditions: toSelectionList(d.health_conditions),
+          injury_pain_levels: toPainLevelMap(d.injury_pain_levels),
         };
         originalFormRef.current = profileForm;
         setForm(profileForm);
@@ -168,36 +173,26 @@ export default function ProfilePage() {
     });
   };
 
-  const handleHealthSelection = async (key, value) => {
+  const saveHealthAssessment = async (updates, previous) => {
     if (savingHealth) return;
-    const previousInjuries = form.injuries;
-    const previousConditions = form.health_conditions;
-    const nextInjuries = key === "injuries"
-      ? toggleHealthSelection(previousInjuries, value)
-      : previousInjuries;
-    const nextConditions = key === "health_conditions"
-      ? toggleHealthSelection(previousConditions, value)
-      : previousConditions;
-    const updatedSelection = key === "injuries" ? nextInjuries : nextConditions;
-    setForm((current) => ({
-      ...current,
-      injuries: nextInjuries,
-      health_conditions: nextConditions,
-    }));
     setSavingHealth(true);
     setHealthSaveMessage("Saving...");
 
     try {
-      const response = await userApi.put("/profile/health", { [key]: updatedSelection });
+      const response = await userApi.put("/profile/health", updates);
+      const savedHealth = {
+        injuries: toSelectionList(response.data.data.injuries),
+        health_conditions: toSelectionList(response.data.data.health_conditions),
+        injury_pain_levels: toPainLevelMap(response.data.data.injury_pain_levels),
+      };
       setForm((current) => ({
         ...current,
-        injuries: key === "injuries" ? toSelectionList(response.data.data.injuries) : current.injuries,
-        health_conditions: key === "health_conditions" ? toSelectionList(response.data.data.health_conditions) : current.health_conditions,
+        ...savedHealth,
       }));
       if (originalFormRef.current) {
         originalFormRef.current = {
           ...originalFormRef.current,
-          [key]: updatedSelection,
+          ...savedHealth,
         };
       }
       setHealthSaveMessage("Saved");
@@ -205,13 +200,77 @@ export default function ProfilePage() {
       console.error("Health assessment save failed:", error);
       setForm((current) => ({
         ...current,
-        injuries: previousInjuries,
-        health_conditions: previousConditions,
+        ...previous,
       }));
       setHealthSaveMessage(error.response?.data?.message || "Unable to save health information. Please try again.");
     } finally {
       setSavingHealth(false);
     }
+  };
+
+  const handleInjuriesChange = (nextInjuries) => {
+    if (savingHealth) return;
+    const previous = {
+      injuries: form.injuries,
+      health_conditions: form.health_conditions,
+      injury_pain_levels: form.injury_pain_levels,
+    };
+    const nextPainLevels = Object.fromEntries(
+      nextInjuries
+        .filter((area) => area !== "None")
+        .map((area) => [area, form.injury_pain_levels[area] ?? ""])
+    );
+    setForm((current) => ({ ...current, injuries: nextInjuries, injury_pain_levels: nextPainLevels }));
+    const selectedAreas = nextInjuries.filter((area) => area !== "None");
+    const allPainLevelsSelected = selectedAreas.every((area) => (
+      Number.isInteger(Number(nextPainLevels[area])) &&
+      Number(nextPainLevels[area]) >= 1 &&
+      Number(nextPainLevels[area]) <= 10
+    ));
+    if (!allPainLevelsSelected) {
+      setHealthSaveMessage("Select a pain level for each chosen area to save.");
+      return;
+    }
+    saveHealthAssessment(
+      { injuries: nextInjuries, injury_pain_levels: nextPainLevels },
+      previous
+    );
+  };
+
+  const handlePainLevelChange = (area, level) => {
+    if (savingHealth) return;
+    const previous = {
+      injuries: form.injuries,
+      health_conditions: form.health_conditions,
+      injury_pain_levels: form.injury_pain_levels,
+    };
+    const nextPainLevels = { ...form.injury_pain_levels, [area]: level };
+    setForm((current) => ({ ...current, injury_pain_levels: nextPainLevels }));
+    const selectedAreas = form.injuries.filter((item) => item !== "None");
+    const allPainLevelsSelected = selectedAreas.every((item) => (
+      Number.isInteger(Number(nextPainLevels[item])) &&
+      Number(nextPainLevels[item]) >= 1 &&
+      Number(nextPainLevels[item]) <= 10
+    ));
+    if (!allPainLevelsSelected) {
+      setHealthSaveMessage("Select a pain level for each chosen area to save.");
+      return;
+    }
+    saveHealthAssessment(
+      { injuries: form.injuries, injury_pain_levels: nextPainLevels },
+      previous
+    );
+  };
+
+  const handleHealthConditionsChange = (nextConditions) => {
+    if (savingHealth) return;
+    const previous = {
+      injuries: form.injuries,
+      health_conditions: form.health_conditions,
+      injury_pain_levels: form.injury_pain_levels,
+    };
+    setForm((current) => ({ ...current, health_conditions: nextConditions }));
+    saveHealthAssessment({ health_conditions: nextConditions }, previous);
   };
 
   const handleSave = async () => {
@@ -223,7 +282,7 @@ export default function ProfilePage() {
     setMsg("");
     try {
       const profileChanges = Object.fromEntries(
-        Object.entries(form).filter(([key]) => !["email", "injuries", "health_conditions"].includes(key))
+        Object.entries(form).filter(([key]) => !["email", "injuries", "health_conditions", "injury_pain_levels"].includes(key))
       );
       const res = await userApi.put("/profile", profileChanges);
       if (res.data.request) {
@@ -524,35 +583,15 @@ export default function ProfilePage() {
               Changes save immediately and are shared with your coach and gym administrator.
             </p>
           </div>
-          {[
-            { label: "Injury or pain areas", key: "injuries", options: injuryOptions },
-            { label: "Health conditions", key: "health_conditions", options: healthConditionOptions },
-          ].map(({ label, key, options }) => (
-            <fieldset key={key}>
-              <legend className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</legend>
-              <div className="flex flex-wrap gap-2">
-                {options.map((option) => {
-                  const selected = form[key].includes(option);
-                  return (
-                    <button
-                      key={option}
-                      type="button"
-                      aria-pressed={selected}
-                      disabled={savingHealth}
-                      onClick={() => handleHealthSelection(key, option)}
-                      className={`rounded-xl border px-3.5 py-2 text-sm font-medium transition disabled:cursor-wait disabled:opacity-60 ${
-                        selected
-                          ? "border-orange-500 bg-orange-500/10 text-orange-700 dark:text-orange-300"
-                          : "border-slate-200 text-slate-600 hover:border-orange-300 dark:border-white/10 dark:text-slate-300 dark:hover:border-orange-500/50"
-                      }`}
-                    >
-                      {option}
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
-          ))}
+          <HealthAssessmentFields
+            injuries={form.injuries}
+            healthConditions={form.health_conditions}
+            injuryPainLevels={form.injury_pain_levels}
+            disabled={savingHealth}
+            onInjuriesChange={handleInjuriesChange}
+            onHealthConditionsChange={handleHealthConditionsChange}
+            onPainLevelChange={handlePainLevelChange}
+          />
           {healthSaveMessage && (
             <p role={healthSaveMessage === "Saved" ? "status" : "alert"} className={`text-xs ${
               healthSaveMessage === "Saved" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-300"
