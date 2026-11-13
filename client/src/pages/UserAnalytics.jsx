@@ -90,6 +90,10 @@ export default function UserAnalytics() {
 
   const injuries = parseList(profile?.injuries);
   const healthConditions = parseList(profile?.health_conditions);
+  const injurySummary = injuries.map((area) => {
+    const level = Number(profile?.injury_pain_levels?.[area]);
+    return Number.isInteger(level) && level >= 1 && level <= 10 ? `${area} (Pain ${level}/10)` : area;
+  });
   const currentWeightChange = metrics.latestWeight != null && metrics.baselineWeight != null
     ? metrics.latestWeight - metrics.baselineWeight
     : null;
@@ -134,7 +138,7 @@ export default function UserAnalytics() {
       ? `Keep logging progress and completed sessions to compare actual results with your ${profile.fitness_goal.toLowerCase()} goal.`
       : "Set a fitness goal in your profile to personalize progress comparisons.",
     injuries.length
-      ? `You recorded ${injuries.join(", ")} as injury or pain areas. Use the beginner-level, reduced-volume options shown in workout requests and ask your coach to review any discomfort.`
+      ? `You recorded ${injurySummary.join(", ")} as injury or pain areas. Use the beginner-level, reduced-volume options shown in workout requests and ask your coach to review any discomfort.`
       : "Increase training gradually and let your coach know if an exercise causes pain or unusual symptoms.",
     healthConditions.length
       ? `Your profile lists ${healthConditions.join(", ")}. Confirm exercise intensity and any health-related restrictions with your healthcare professional and coach.`

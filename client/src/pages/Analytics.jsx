@@ -25,6 +25,23 @@ const chartOptions = {
   },
 };
 
+const weightProgressChartOptions = {
+  ...chartOptions,
+  scales: {
+    ...chartOptions.scales,
+    y: { ...chartOptions.scales.y, beginAtZero: false },
+  },
+};
+
+const monthlyWorkoutProgressChartOptions = {
+  ...chartOptions,
+  scales: {
+    ...chartOptions.scales,
+    x: { ...chartOptions.scales.x, stacked: true },
+    y: { ...chartOptions.scales.y, stacked: true },
+  },
+};
+
 const formatHour = (hour) => {
   const value = Number(hour);
   if (!Number.isInteger(value) || value < 0 || value > 23) return "";
@@ -145,6 +162,52 @@ export default function Analytics() {
       data: data?.attendance.map((a) => parseInt(a.count)) || [],
       backgroundColor: "#10b981", borderRadius: 6,
     }],
+  };
+
+  const memberProgress = data?.memberProgress || [];
+  const memberProgressChart = {
+    labels: memberProgress.map((row) => row.label),
+    datasets: [
+      {
+        label: "Average logged weight (kg)",
+        data: memberProgress.map((row) => row.average_weight == null ? null : Number(row.average_weight)),
+        borderColor: "#f97316",
+        backgroundColor: "rgba(249,115,22,0.08)",
+        fill: true,
+        tension: 0.4,
+        pointBackgroundColor: "#f97316",
+        pointRadius: 4,
+      },
+      {
+        label: "Average goal weight (kg)",
+        data: memberProgress.map((row) => row.average_goal_weight == null ? null : Number(row.average_goal_weight)),
+        borderColor: "#3b82f6",
+        backgroundColor: "transparent",
+        borderDash: [6, 4],
+        tension: 0.4,
+        pointBackgroundColor: "#3b82f6",
+        pointRadius: 3,
+      },
+    ],
+  };
+
+  const monthlyWorkoutProgress = data?.monthlyWorkoutProgress || [];
+  const monthlyWorkoutProgressChart = {
+    labels: monthlyWorkoutProgress.map((row) => row.label),
+    datasets: [
+      {
+        label: "Completed exercises",
+        data: monthlyWorkoutProgress.map((row) => Number(row.completed_exercises)),
+        backgroundColor: "#10b981",
+        borderRadius: 5,
+      },
+      {
+        label: "Not completed",
+        data: monthlyWorkoutProgress.map((row) => Number(row.remaining_exercises)),
+        backgroundColor: "#f97316",
+        borderRadius: 5,
+      },
+    ],
   };
 
   const peakHours = data?.peakHours || [];
@@ -383,6 +446,34 @@ export default function Analytics() {
               : <p className="py-12 text-center text-sm text-slate-500">No preferred workout-day availability has been recorded yet.</p>}
           </div>
         </div>
+      </section>
+
+      <section
+        aria-labelledby="member-progress-heading"
+        className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6"
+      >
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Member health</p>
+        <h2 id="member-progress-heading" className="mt-1 text-lg font-black text-slate-900 dark:text-white">Member weight progress</h2>
+        <p className="mb-4 mt-1 text-xs text-slate-500">
+          Monthly average of each active member&apos;s latest weight check-in compared with their goal weight, from January through the current month.
+        </p>
+        {memberProgress.some((row) => Number(row.member_count) > 0)
+          ? <div className="h-72"><Line data={memberProgressChart} options={weightProgressChartOptions} /></div>
+          : <p className="py-12 text-center text-sm text-slate-500">No member progress check-ins have been recorded this year.</p>}
+      </section>
+
+      <section
+        aria-labelledby="monthly-workout-progress-heading"
+        className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6"
+      >
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Training activity</p>
+        <h2 id="monthly-workout-progress-heading" className="mt-1 text-lg font-black text-slate-900 dark:text-white">Workout progress by month</h2>
+        <p className="mb-4 mt-1 text-xs text-slate-500">
+          Approved exercise entries completed versus not completed from January through December. Future workout dates remain planned.
+        </p>
+        {monthlyWorkoutProgress.some((row) => Number(row.planned_exercises) > 0)
+          ? <div className="h-72"><Bar data={monthlyWorkoutProgressChart} options={monthlyWorkoutProgressChartOptions} /></div>
+          : <p className="py-12 text-center text-sm text-slate-500">No workout plans have been scheduled this year.</p>}
       </section>
 
       {/* Charts Row 1 */}

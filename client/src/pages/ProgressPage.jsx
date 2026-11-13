@@ -195,6 +195,7 @@ export default function ProgressPage() {
   const [logError, setLogError] = useState("");
   const [goalRenewalSaving, setGoalRenewalSaving] = useState(false);
   const [goalRenewalError, setGoalRenewalError] = useState("");
+  const [dismissedGoalRenewalKey, setDismissedGoalRenewalKey] = useState("");
 
   const fetchProgress = useCallback(async () => {
     setLoading(true);
@@ -351,6 +352,7 @@ export default function ProgressPage() {
     : null;
   const targetWeight = profile?.target_weight == null ? null : Number(profile.target_weight);
   const goal = profile?.fitness_goal || "Your fitness goal";
+  const goalRenewalKey = `${goal}:${targetWeight ?? ""}`;
   const goalWeight = latestWeight ?? (profile?.weight == null ? null : Number(profile.weight));
   const goalDirection = /lose|loss|reduce/i.test(goal) ? "loss" : /gain|muscle/i.test(goal) ? "gain" : "maintain";
   const goalAchieved = !loading && goalWeight !== null && targetWeight !== null &&
@@ -753,13 +755,14 @@ export default function ProgressPage() {
           </div>
         )}
       </div>
-      {goalAchieved && (
+      {goalAchieved && dismissedGoalRenewalKey !== goalRenewalKey && (
         <GoalRenewalModal
           currentWeight={goalWeight}
           height={profile?.height ?? user?.height}
           saving={goalRenewalSaving}
           error={goalRenewalError}
           onSave={handleGoalRenewalSave}
+          onClose={() => setDismissedGoalRenewalKey(goalRenewalKey)}
         />
       )}
     </div>

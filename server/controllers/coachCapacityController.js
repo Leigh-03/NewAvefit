@@ -48,8 +48,8 @@ const updateCapacity = async (req, res) => {
   if (!Number.isInteger(trainerId) || trainerId < 1) {
     return res.status(400).json({ success: false, message: "Invalid coach ID." });
   }
-  if (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > 10000) {
-    return res.status(400).json({ success: false, message: "Coach capacity must be a whole number between 1 and 10,000." });
+  if (!Number.isInteger(maxMembers) || maxMembers < 15 || maxMembers > 30) {
+    return res.status(400).json({ success: false, message: "Coach capacity must be a whole number between 15 and 30." });
   }
 
   const client = await pool.connect();

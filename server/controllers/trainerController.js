@@ -18,6 +18,8 @@ const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutG
 const {
   TRAINING_PROGRAMS,
   exerciseMatchesProgram,
+  getExerciseLimitForExperience,
+  isExerciseAllowedForExperience,
   getProgramForDate,
   requiresConservativeWorkout,
 } = require("../utils/trainingPrograms");
@@ -1032,13 +1034,39 @@ const getActiveTrainers = async (req, res) => {
         photo_url,
         bio,
         phone,
+        max_members,
+        (
+          SELECT COUNT(*)::integer
+          FROM users assigned_member
+          WHERE assigned_member.trainer_id = trainers.trainer_id
+        ) AS assigned_member_count,
         (
           SELECT COALESCE(
             json_agg(
               json_build_object(
                 'day_of_week', ta.day_of_week,
                 'start_time', TO_CHAR(ta.start_time, 'HH24:MI'),
-                'end_time', TO_CHAR(ta.end_time, 'HH24:MI')
+                'end_time', TO_CHAR(ta.end_time, 'HH24:MI'),
+                'member_limit', ta.member_limit,
+                'assigned_member_count', (
+                  SELECT COUNT(DISTINCT assigned_member.user_id)::integer
+                  FROM users assigned_member
+                  JOIN user_workout_availability member_slot
+                    ON member_slot.user_id = assigned_member.user_id
+                  WHERE assigned_member.trainer_id = trainers.trainer_id
+                    AND CASE member_slot.day_of_week
+                      WHEN 'Sunday' THEN 0
+                      WHEN 'Monday' THEN 1
+                      WHEN 'Tuesday' THEN 2
+                      WHEN 'Wednesday' THEN 3
+                      WHEN 'Thursday' THEN 4
+                      WHEN 'Friday' THEN 5
+                      WHEN 'Saturday' THEN 6
+                      ELSE -1
+                    END = ta.day_of_week
+                    AND member_slot.start_time < ta.end_time
+                    AND member_slot.end_time > ta.start_time
+                )
               )
               ORDER BY ta.day_of_week, ta.start_time
             ),
@@ -1098,6 +1126,7 @@ const getTrainerRoster = async (req, res) => {
         u.activity_level,
         u.intensity,
         u.injuries,
+        u.injury_pain_levels,
         u.health_conditions,
         u.preferred_days,
         u.preferred_workout_time,
@@ -1326,6 +1355,7 @@ const getMyRoster = async (req, res) => {
         u.activity_level,
         u.intensity,
         u.injuries,
+        u.injury_pain_levels,
         u.health_conditions,
         u.preferred_days,
         u.preferred_workout_time,
@@ -1506,6 +1536,7 @@ const getMyWorkoutPlans = async (req, res) => {
         wp.plan_name,
         wp.goal,
         u.fitness_goal,
+        u.activity_level,
         u.target_weight,
         wp.training_program,
         wp.previous_training_program,
@@ -1520,6 +1551,7 @@ const getMyWorkoutPlans = async (req, res) => {
         wp.created_at,
         u.user_id,
         u.injuries,
+        u.injury_pain_levels,
         u.health_conditions,
         COALESCE(plan_sessions.scheduled_date, wp.requested_session_date::text) AS scheduled_date,
         wp.scheduled_start_time,
@@ -1670,6 +1702,15 @@ const createMyWorkoutPlan = async (req, res) => {
     }
 
     const memberPreferences = member.rows[0];
+    const exerciseLimit = getExerciseLimitForExperience(memberPreferences.activity_level);
+    if (sessions.length > exerciseLimit.max) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `${exerciseLimit.label} workouts can include up to ${exerciseLimit.max} exercises.`,
+      });
+    }
     if (memberPreferences.membership_end_date
       && String(memberPreferences.membership_end_date).slice(0, 10) < today.rows[0].today) {
       await client.query("ROLLBACK");
@@ -1822,6 +1863,14 @@ const createMyWorkoutPlan = async (req, res) => {
     const exerciseById = new Map(exercises.rows.map((exercise) => [Number(exercise.exercise_id), exercise]));
     for (const session of sessions) {
       const exercise = exerciseById.get(Number(session.exercise_id));
+      if (!isExerciseAllowedForExperience(exercise, memberPreferences.activity_level || "Beginner")) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: "Choose exercises that match this member's experience level.",
+        });
+      }
       if (!exerciseMatchesProgram(exercise, trainingProgram)) {
         await client.query("ROLLBACK");
         transactionStarted = false;
@@ -1974,7 +2023,7 @@ const reviewMemberWorkoutPlan = async (req, res) => {
     const planResult = await client.query(
       `SELECT wp.workout_plan_id, wp.user_id, wp.plan_name, wp.approval_status,
               wp.deletion_request_status, wp.request_type,
-              u.first_name, u.last_name, u.email, u.workout_days_per_week,
+              u.first_name, u.last_name, u.email, u.workout_days_per_week, u.activity_level,
               COALESCE(MIN(ws.session_date)::text, wp.requested_session_date::text) AS session_date,
               COUNT(ws.session_id)::int AS session_count
        FROM workout_plans wp
@@ -2006,6 +2055,15 @@ const reviewMemberWorkoutPlan = async (req, res) => {
       return res.status(409).json({
         success: false,
         message: "Add at least 3 exercises to this requested workout before approving it.",
+      });
+    }
+    const exerciseLimit = getExerciseLimitForExperience(plan.activity_level);
+    if (decision === "approve" && Number(plan.session_count) > exerciseLimit.max) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        message: `${exerciseLimit.label} workouts can include up to ${exerciseLimit.max} exercises. Edit the request before approving it.`,
       });
     }
 
@@ -2429,6 +2487,16 @@ const updateMyWorkoutPlan = async (req, res) => {
       transactionStarted = false;
       return res.status(403).json({ success: false, message: "This member isn't on your roster." });
     }
+    const memberProfile = member.rows[0];
+    const exerciseLimit = getExerciseLimitForExperience(memberProfile.activity_level);
+    if (sessions.length > exerciseLimit.max) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
+      return res.status(400).json({
+        success: false,
+        message: `${exerciseLimit.label} workouts can include up to ${exerciseLimit.max} exercises.`,
+      });
+    }
 
     const memberAvailability = await client.query(
       `SELECT day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
@@ -2563,14 +2631,32 @@ const updateMyWorkoutPlan = async (req, res) => {
     const exercisesById = new Map(exercises.rows.map((exercise) => [Number(exercise.exercise_id), exercise]));
     for (const session of sessions) {
       const exercise = exercisesById.get(Number(session.exercise_id));
+      if (!isExerciseAllowedForExperience(exercise, memberProfile.activity_level || "Beginner")) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: "Choose exercises that match this member's experience level.",
+        });
+      }
       if (plan.rows[0].training_program && !exerciseMatchesProgram(exercise, plan.rows[0].training_program)) {
         await client.query("ROLLBACK");
         transactionStarted = false;
         return res.status(400).json({ success: false, message: `This workout must stay within the ${plan.rows[0].training_program} program.` });
       }
-      if (!requiresConservativeWorkout(exercise, member.rows[0].injuries || [], member.rows[0].health_conditions || [])
-        && !isWorkoutDoseAllowed(member.rows[0].fitness_goal, session.sets, session.reps)) {
-        const rules = getWorkoutGoalRules(member.rows[0].fitness_goal);
+      if (requiresConservativeWorkout(exercise, memberProfile.injuries || [], memberProfile.health_conditions || [])) {
+        if (String(exercise.difficulty || "").toLowerCase() !== "beginner"
+          || Number(session.sets) < 1 || Number(session.sets) > 2
+          || Number(session.reps) < 6 || Number(session.reps) > 10) {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(400).json({
+            success: false,
+            message: "For injury-affected exercises or recorded health conditions, use beginner options with 1–2 sets and 6–10 reps.",
+          });
+        }
+      } else if (!isWorkoutDoseAllowed(memberProfile.fitness_goal, session.sets, session.reps)) {
+        const rules = getWorkoutGoalRules(memberProfile.fitness_goal);
         await client.query("ROLLBACK");
         transactionStarted = false;
         return res.status(400).json({

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
 import {
   GOALS,
   getAvailableGoals,
@@ -14,6 +15,7 @@ export default function GoalRenewalModal({
   saving,
   error,
   onSave,
+  onClose,
 }) {
   const [goal, setGoal] = useState("");
   const [targetWeight, setTargetWeight] = useState(0);
@@ -63,12 +65,26 @@ export default function GoalRenewalModal({
         aria-labelledby="goal-renewal-title"
         className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-[#151515] sm:p-7"
       >
-        <h2 id="goal-renewal-title" className="text-xl font-bold text-slate-900 dark:text-white">
-          You reached your target weight!
-        </h2>
-        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-          Choose your next goal. Your current BMI determines which goals are available, just like your assessment.
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="goal-renewal-title" className="text-xl font-bold text-slate-900 dark:text-white">
+              You reached your target weight!
+            </h2>
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+              Choose your next goal. Your current BMI determines which goals are available, just like your assessment.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            aria-label="Close goal renewal"
+            title="Close"
+            className="shrink-0 rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white"
+          >
+            <X size={20} />
+          </button>
+        </div>
 
         <div className="mt-5 space-y-3">
           {goalOptions.map((option) => {

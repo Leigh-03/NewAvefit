@@ -158,6 +158,7 @@ const getMembers = async (req, res) => {
     u.intensity,
     u.injuries,
     u.health_conditions,
+    u.injury_pain_levels,
     u.profile_image,
     u.trainer_id,
     u.membership_months,
@@ -272,6 +273,7 @@ const getMemberById = async (req, res) => {
         u.intensity,
         u.injuries,
         u.health_conditions,
+        u.injury_pain_levels,
 
         u.profile_image,
         u.trainer_id,

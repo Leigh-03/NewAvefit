@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock, TrendingUp } from "lucide-react";
 import api from "../services/api";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
+import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 import TrainerAvailabilityManager from "../components/trainers/TrainerAvailabilityManager";
 import ScrollReveal from "../components/ScrollReveal";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
@@ -431,8 +432,8 @@ function CapacityModal({ trainer, onClose, onSaved }) {
 
   const handleSave = async () => {
     const capacity = Number(maxMembers);
-    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 10000) {
-      setError("Enter a whole-number capacity between 1 and 10,000.");
+    if (!Number.isInteger(capacity) || capacity < 15 || capacity > 30) {
+      setError("Enter a whole-number capacity between 15 and 30.");
       return;
     }
     setSaving(true);
@@ -454,7 +455,7 @@ function CapacityModal({ trainer, onClose, onSaved }) {
         <h2 id="coach-capacity-title" className="text-xl font-bold text-slate-900 dark:text-white">Coach member capacity</h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{trainer.full_name} currently has {trainer.assigned_member_count} assigned member(s).</p>
         <label htmlFor="coach-max-members" className="mt-5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Maximum members</label>
-        <input id="coach-max-members" type="number" min="1" max="10000" step="1" value={maxMembers} onChange={(event) => setMaxMembers(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-white" />
+        <input id="coach-max-members" type="text" inputMode="numeric" pattern="[0-9]*" maxLength={2} value={maxMembers} onChange={(event) => setMaxMembers(event.target.value.replace(/\D/g, "").slice(0, 2))} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-white" />
         {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
         <div className="mt-6 flex justify-end gap-3">
           <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 disabled:opacity-50 dark:border-white/10 dark:text-slate-300">Cancel</button>
@@ -603,7 +604,10 @@ function RosterMemberProfileModal({ member, onClose, onViewProgress }) {
     ["Preferred time", member.preferred_workout_time],
   ];
   const availability = Array.isArray(member.weekly_availability) ? member.weekly_availability : [];
-  const injuries = toHealthNotes(member.injuries);
+  const injuries = toHealthNotes(member.injuries).map((area) => {
+    const level = Number(member.injury_pain_levels?.[area]);
+    return Number.isInteger(level) && level >= 1 && level <= 10 ? `${area} (Pain ${level}/10)` : area;
+  });
   const conditions = toHealthNotes(member.health_conditions);
 
   return (
@@ -634,7 +638,7 @@ function RosterMemberProfileModal({ member, onClose, onViewProgress }) {
             <h3 className="text-sm font-bold text-slate-200">Weekly availability</h3>
             {availability.length ? (
               <ul className="mt-2 space-y-1 text-sm text-slate-300">
-                {availability.map((slot) => <li key={slot.day_of_week}><span className="font-semibold">{slot.day_of_week}:</span> {slot.time_preference || `${slot.start_time || "—"}–${slot.end_time || "—"}`}</li>)}
+                {availability.map((slot) => <li key={slot.day_of_week}><span className="font-semibold">{slot.day_of_week}:</span> {slot.time_preference || formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"}</li>)}
               </ul>
             ) : <p className="mt-2 text-sm text-slate-400">{toList(member.preferred_days).join(", ") || "No availability recorded."}</p>}
           </section>
@@ -1001,7 +1005,6 @@ export default function Trainers() {
                       <div className="min-w-36">
                         <div className="flex items-center justify-between gap-3 text-xs">
                           <span className="font-semibold text-slate-700 dark:text-slate-200">{trainer.assigned_member_count ?? 0}/{trainer.max_members ?? 15} members</span>
-                          <button type="button" onClick={() => setCapacityTrainer(trainer)} className="font-semibold text-orange-600 hover:underline dark:text-orange-400" aria-label={`Edit ${trainer.full_name}'s capacity`}>Edit</button>
                         </div>
                         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
                           <div className={`h-full rounded-full ${trainer.capacity_status === "Full" ? "bg-red-500" : trainer.capacity_status === "Near Capacity" ? "bg-orange-500" : trainer.capacity_status === "Inactive" ? "bg-slate-400" : "bg-green-500"}`} style={{ width: `${Math.min(Number(trainer.capacity_percent) || 0, 100)}%` }} />

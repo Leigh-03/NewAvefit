@@ -17,6 +17,18 @@ const TRAINING_PROGRAMS = [
   "Full Body",
 ];
 
+const EXERCISE_LIMITS_BY_EXPERIENCE = {
+  beginner: { label: "Beginner", max: 6 },
+  intermediate: { label: "Intermediate", max: 8 },
+  moderate: { label: "Intermediate", max: 8 },
+  advanced: { label: "Advanced", max: 10 },
+};
+
+const getExerciseLimitForExperience = (experienceLevel) => (
+  EXERCISE_LIMITS_BY_EXPERIENCE[String(experienceLevel || "").trim().toLowerCase()]
+    || EXERCISE_LIMITS_BY_EXPERIENCE.beginner
+);
+
 const PROGRAM_MUSCLES = {
   Upper: ["chest", "back", "shoulder", "bicep", "tricep"],
   Lower: ["leg", "glute", "quad", "hamstring", "calf"],
@@ -41,6 +53,7 @@ const INJURY_MUSCLES = {
   back: ["back"],
   shoulder: ["shoulder"],
   wrist: ["chest", "back", "shoulder", "bicep", "tricep", "arm"],
+  elbow: ["bicep", "tricep", "arm"],
   neck: ["back", "shoulder"],
 };
 
@@ -171,6 +184,7 @@ const getScheduledPrograms = (preferredDays = []) => {
 
 module.exports = {
   TRAINING_PROGRAMS,
+  getExerciseLimitForExperience,
   exerciseMatchesProgram,
   isExerciseAllowedForExperience,
   getProgramForDate,

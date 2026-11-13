@@ -6,6 +6,18 @@ export const PROGRAM_SCHEDULES = {
   6: ["Push", "Pull", "Legs", "Chest & Back", "Shoulders & Arms", "Legs"],
 };
 
+export const EXERCISE_LIMITS_BY_EXPERIENCE = {
+  beginner: { label: "Beginner", max: 6 },
+  intermediate: { label: "Intermediate", max: 8 },
+  moderate: { label: "Intermediate", max: 8 },
+  advanced: { label: "Advanced", max: 10 },
+};
+
+export const getExerciseLimitForExperience = (experienceLevel) => (
+  EXERCISE_LIMITS_BY_EXPERIENCE[String(experienceLevel || "").trim().toLowerCase()]
+    || EXERCISE_LIMITS_BY_EXPERIENCE.beginner
+);
+
 export const TRAINING_PROGRAMS = [
   "Upper",
   "Lower",
@@ -42,6 +54,7 @@ const INJURY_MUSCLES = {
   back: ["back"],
   shoulder: ["shoulder"],
   wrist: ["chest", "back", "shoulder", "bicep", "tricep", "arm"],
+  elbow: ["bicep", "tricep", "arm"],
   neck: ["back", "shoulder"],
 };
 

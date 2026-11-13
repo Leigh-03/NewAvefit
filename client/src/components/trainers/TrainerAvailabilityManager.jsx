@@ -16,6 +16,38 @@ const freshId = () => `${Date.now()}-${Math.random()}`;
 const MIN_AVAILABILITY_TIME = 6 * 60;
 const MAX_AVAILABILITY_TIME = 22 * 60;
 const DEFAULT_MEMBER_LIMIT = 1;
+const DEFAULT_PRESET_MEMBER_LIMIT = 2;
+const MAX_CUSTOM_MEMBER_LIMIT = 3;
+
+const isCustomAvailability = (slot) => slot.custom || !AVAILABILITY_RANGES.some((range) => (
+  range.start_time === String(slot.start_time).slice(0, 5) &&
+  range.end_time === String(slot.end_time).slice(0, 5)
+));
+
+const getMemberLimitMax = (slot) => isCustomAvailability(slot) ? MAX_CUSTOM_MEMBER_LIMIT : 5;
+const getMemberLimitMin = (slot) => isCustomAvailability(slot) ? 1 : DEFAULT_PRESET_MEMBER_LIMIT;
+
+const normalizeAvailabilitySlot = (slot) => {
+  const start_time = String(slot.start_time).slice(0, 5);
+  const end_time = String(slot.end_time).slice(0, 5);
+  const isCustom = Boolean(slot.is_custom) || !AVAILABILITY_RANGES.some((range) => (
+    range.start_time === start_time && range.end_time === end_time
+  ));
+  const memberLimit = Number(slot.member_limit);
+  const minMemberLimit = isCustom ? 1 : DEFAULT_PRESET_MEMBER_LIMIT;
+  const maxMemberLimit = isCustom ? MAX_CUSTOM_MEMBER_LIMIT : 5;
+  return {
+    ...slot,
+    id: freshId(),
+    start_time,
+    end_time,
+    custom: isCustom,
+    is_custom: isCustom,
+    member_limit: Number.isInteger(memberLimit) && memberLimit >= 1
+      ? Math.min(Math.max(memberLimit, minMemberLimit), maxMemberLimit)
+      : minMemberLimit,
+  };
+};
 
 const toClockParts = (value) => {
   const [hours, minutes] = String(value || "").slice(0, 5).split(":").map(Number);
@@ -53,7 +85,7 @@ const parseMemberLimit = (value) => {
   return parsed;
 };
 
-function MemberLimitInput({ id, value, onChange }) {
+function MemberLimitInput({ id, value, min, max, onChange }) {
   const [draft, setDraft] = useState(String(value ?? DEFAULT_MEMBER_LIMIT));
 
   useEffect(() => {
@@ -61,30 +93,31 @@ function MemberLimitInput({ id, value, onChange }) {
   }, [value]);
 
   return (
-    <label htmlFor={id} className="flex min-w-[7.5rem] flex-col gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-      <span>Members</span>
+    <label htmlFor={id} className="flex min-w-[8rem] flex-col gap-1.5 rounded-2xl border border-white/10 bg-[#121314] px-3 py-2.5 text-[11px] font-medium text-slate-300 shadow-inner shadow-black/20">
+      <span className="uppercase tracking-[0.14em] text-slate-400">Members</span>
       <input
         id={id}
-        type="number"
-        min={1}
-        max={5}
-        step={1}
+        type="text"
         inputMode="numeric"
+        pattern="[0-9]*"
+        min={min}
+        maxLength={1}
         value={draft}
         onChange={(event) => {
-          const nextValue = event.target.value;
+          const nextValue = event.target.value.replace(/\D/g, "").slice(0, 1);
           setDraft(nextValue);
+          if (!nextValue) return;
           const parsed = parseMemberLimit(nextValue);
           if (parsed === null) return;
           onChange(parsed);
         }}
         onBlur={() => {
           const parsed = parseMemberLimit(draft);
-          const safeValue = Number.isInteger(parsed) && parsed >= 1 && parsed <= 5 ? parsed : DEFAULT_MEMBER_LIMIT;
+          const safeValue = Number.isInteger(parsed) && parsed >= min ? Math.min(parsed, max) : min;
           setDraft(String(safeValue));
           onChange(safeValue);
         }}
-        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-800 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50 dark:border-gray-700 dark:bg-[#111] dark:text-white"
+        className="rounded-xl border border-white/10 bg-[#0d0d0d] px-2.5 py-2.5 text-base font-semibold text-white shadow-sm outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20"
       />
     </label>
   );
@@ -168,24 +201,24 @@ function TimeOfDaySelect({ id, label, value, onChange }) {
   };
 
   return (
-    <fieldset className="min-w-0">
-      <legend className="mb-1 text-[11px] font-medium text-slate-500">{label}</legend>
-      <div className="flex items-center gap-1">
+    <fieldset className="min-w-0 rounded-2xl border border-white/10 bg-[#121314] p-2.5 shadow-inner shadow-black/20">
+      <legend className="mb-2 block text-[11px] font-medium uppercase tracking-[0.14em] text-slate-400">{label}</legend>
+      <div className="flex items-center gap-1.5">
         <label className="sr-only" htmlFor={`${id}-hour`}>{label} hour</label>
-        <select id={`${id}-hour`} value={parts.hour} onChange={(event) => update("hour", event.target.value)} className={`${selectClass} min-w-0 flex-1`}>
+        <select id={`${id}-hour`} value={parts.hour} onChange={(event) => update("hour", event.target.value)} className="h-12 min-w-0 flex-1 appearance-none rounded-xl border border-white/10 bg-[#0d0d0d] px-2.5 pr-7 text-sm font-semibold text-white shadow-sm outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20">
           {Array.from({ length: 12 }, (_, index) => String(index + 1)).map((hour) => (
             <option key={hour} value={hour}>{hour}</option>
           ))}
         </select>
-        <span aria-hidden="true">:</span>
+        <span aria-hidden="true" className="text-base font-semibold text-slate-500">:</span>
         <label className="sr-only" htmlFor={`${id}-minute`}>{label} minute</label>
-        <select id={`${id}-minute`} value={parts.minute} onChange={(event) => update("minute", event.target.value)} className={`${selectClass} min-w-0 flex-1`}>
+        <select id={`${id}-minute`} value={parts.minute} onChange={(event) => update("minute", event.target.value)} className="h-12 min-w-0 flex-1 appearance-none rounded-xl border border-white/10 bg-[#0d0d0d] px-2.5 pr-7 text-sm font-semibold text-white shadow-sm outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20">
           {Array.from({ length: 60 }, (_, minute) => String(minute).padStart(2, "0")).map((minute) => (
             <option key={minute} value={minute}>{minute}</option>
           ))}
         </select>
         <label className="sr-only" htmlFor={`${id}-period`}>{label} AM or PM</label>
-        <select id={`${id}-period`} value={parts.period} onChange={(event) => update("period", event.target.value)} className={selectClass}>
+        <select id={`${id}-period`} value={parts.period} onChange={(event) => update("period", event.target.value)} className="h-12 appearance-none rounded-xl border border-white/10 bg-[#0d0d0d] px-2.5 pr-7 text-sm font-semibold text-white shadow-sm outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20">
           <option value="AM">AM</option>
           <option value="PM">PM</option>
         </select>
@@ -279,19 +312,7 @@ export default function TrainerAvailabilityManager({
     loadAvailability
       .then(({ data }) => {
         if (!active) return;
-        const loadedSlots = (data.data || []).map((slot) => ({
-          ...slot,
-          id: freshId(),
-          member_limit: Number.isInteger(Number(slot.member_limit)) && Number(slot.member_limit) >= 1 && Number(slot.member_limit) <= 5
-            ? Number(slot.member_limit)
-            : DEFAULT_MEMBER_LIMIT,
-          custom: !AVAILABILITY_RANGES.some((range) => (
-            range.start_time === String(slot.start_time).slice(0, 5) &&
-            range.end_time === String(slot.end_time).slice(0, 5)
-          )),
-          start_time: String(slot.start_time).slice(0, 5),
-          end_time: String(slot.end_time).slice(0, 5),
-        }));
+        const loadedSlots = (data.data || []).map(normalizeAvailabilitySlot);
         setSlots(loadedSlots);
         setError(getHoursError(loadedSlots));
         setHasChanges(false);
@@ -338,8 +359,9 @@ export default function TrainerAvailabilityManager({
         day_of_week: dayOfWeek,
         start_time: newRange.start_time,
         end_time: newRange.end_time,
-        member_limit: DEFAULT_MEMBER_LIMIT,
+        member_limit: nextRange ? DEFAULT_PRESET_MEMBER_LIMIT : DEFAULT_MEMBER_LIMIT,
         custom: !nextRange,
+        is_custom: !nextRange,
       },
     ];
     setSlots(updatedSlots);
@@ -358,7 +380,9 @@ export default function TrainerAvailabilityManager({
 
   const updateSlotRange = (id, rangeValue) => {
     if (rangeValue === "custom") {
-      const updatedSlots = slots.map((slot) => slot.id === id ? { ...slot, custom: true } : slot);
+      const updatedSlots = slots.map((slot) => slot.id === id
+        ? { ...slot, custom: true, is_custom: true, member_limit: Math.min(Number(slot.member_limit) || DEFAULT_MEMBER_LIMIT, MAX_CUSTOM_MEMBER_LIMIT) }
+        : slot);
       setSlots(updatedSlots);
       setHasChanges(true);
       setError(getHoursError(updatedSlots));
@@ -368,7 +392,14 @@ export default function TrainerAvailabilityManager({
     const selectedRange = AVAILABILITY_RANGES.find((range) => range.value === rangeValue);
     if (!selectedRange) return;
     const updatedSlots = slots.map((slot) => slot.id === id
-      ? { ...slot, start_time: selectedRange.start_time, end_time: selectedRange.end_time, custom: false }
+      ? {
+          ...slot,
+          start_time: selectedRange.start_time,
+          end_time: selectedRange.end_time,
+          custom: false,
+          is_custom: false,
+          member_limit: Math.max(Number(slot.member_limit) || DEFAULT_PRESET_MEMBER_LIMIT, DEFAULT_PRESET_MEMBER_LIMIT),
+        }
       : slot);
     setSlots(updatedSlots);
     setHasChanges(true);
@@ -377,7 +408,9 @@ export default function TrainerAvailabilityManager({
   };
 
   const updateSlotTime = (id, field, value) => {
-    const updatedSlots = slots.map((slot) => slot.id === id ? { ...slot, [field]: value, custom: true } : slot);
+    const updatedSlots = slots.map((slot) => slot.id === id
+      ? { ...slot, [field]: value, custom: true, is_custom: true, member_limit: Math.min(Number(slot.member_limit) || DEFAULT_MEMBER_LIMIT, MAX_CUSTOM_MEMBER_LIMIT) }
+      : slot);
     setSlots(updatedSlots);
     setHasChanges(true);
     setError(getHoursError(updatedSlots));
@@ -385,8 +418,15 @@ export default function TrainerAvailabilityManager({
   };
 
   const updateSlotMemberLimit = (id, value) => {
-    const safeValue = Number.isInteger(value) && value >= 1 && value <= 5 ? value : DEFAULT_MEMBER_LIMIT;
-    const updatedSlots = slots.map((slot) => slot.id === id ? { ...slot, member_limit: safeValue } : slot);
+    const updatedSlots = slots.map((slot) => {
+      if (slot.id !== id) return slot;
+      const min = getMemberLimitMin(slot);
+      const max = getMemberLimitMax(slot);
+      const memberLimit = Number.isInteger(value) && value >= min
+        ? Math.min(value, max)
+        : min;
+      return { ...slot, member_limit: memberLimit };
+    });
     setSlots(updatedSlots);
     setHasChanges(true);
     setError(getHoursError(updatedSlots));
@@ -395,8 +435,8 @@ export default function TrainerAvailabilityManager({
 
   const updateCapacityValue = async () => {
     const nextValue = Number(capacityDraft);
-    if (!Number.isInteger(nextValue) || nextValue < 1 || nextValue > 10000) {
-      setCapacityError("Enter a whole-number capacity between 1 and 10,000.");
+    if (!Number.isInteger(nextValue) || nextValue < 15 || nextValue > 30) {
+      setCapacityError("Enter a whole-number capacity between 15 and 30.");
       return;
     }
     if (nextValue < capacity.assigned_member_count) {
@@ -432,30 +472,19 @@ export default function TrainerAvailabilityManager({
       return;
     }
     try {
-      const availability = slots.map(({ day_of_week, start_time, end_time, member_limit }) => ({
-        day_of_week: Number(day_of_week),
-        start_time,
-        end_time,
-        member_limit: Number.isInteger(Number(member_limit)) && Number(member_limit) >= 1 && Number(member_limit) <= 5
-          ? Number(member_limit)
-          : DEFAULT_MEMBER_LIMIT,
+      const availability = slots.map((slot) => ({
+        day_of_week: Number(slot.day_of_week),
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        is_custom: Boolean(slot.custom),
+        member_limit: Number.isInteger(Number(slot.member_limit)) && Number(slot.member_limit) >= getMemberLimitMin(slot)
+          ? Math.min(Number(slot.member_limit), getMemberLimitMax(slot))
+          : getMemberLimitMin(slot),
       }));
       const response = isAdmin
         ? await api.put(`/trainers/${trainerId}/availability`, { availability })
         : await trainerApi.put("/me/availability", { availability });
-      setSlots((response.data.data || []).map((slot) => ({
-        ...slot,
-        id: freshId(),
-        member_limit: Number.isInteger(Number(slot.member_limit)) && Number(slot.member_limit) >= 1 && Number(slot.member_limit) <= 5
-          ? Number(slot.member_limit)
-          : DEFAULT_MEMBER_LIMIT,
-        custom: !AVAILABILITY_RANGES.some((range) => (
-          range.start_time === String(slot.start_time).slice(0, 5) &&
-          range.end_time === String(slot.end_time).slice(0, 5)
-        )),
-        start_time: String(slot.start_time).slice(0, 5),
-        end_time: String(slot.end_time).slice(0, 5),
-      })));
+      setSlots((response.data.data || []).map(normalizeAvailabilitySlot));
       setHasChanges(false);
       setError("");
       setSuccess("Availability saved.");
@@ -508,7 +537,7 @@ export default function TrainerAvailabilityManager({
         </div>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           {isAdmin
-            ? "View the coach's recurring weekly working hours."
+            ? "View recurring working hours and roster members with matching availability."
             : "Choose recurring weekly time windows. You can add more than one non-overlapping time range per day."}
         </p>
       </div>
@@ -538,17 +567,36 @@ export default function TrainerAvailabilityManager({
                   <p className="text-xs text-slate-400">Not available</p>
                 ) : (
                   <div className="space-y-2">
-                    {daySlots.map((slot) => (
+                    {daySlots.map((slot) => {
+                      const showCustomTimeFields = isCustomAvailability(slot);
+                      const matchingMembers = Array.isArray(slot.assigned_members) ? slot.assigned_members : [];
+                      return (
                       <div key={slot.id} className="flex flex-wrap items-start gap-2">
                         <div className="min-w-0 flex-1 space-y-2">
                           {isAdmin ? (
-                            <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-white/[0.04]">
-                              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                                {formatTime(slot.start_time)} – {formatTime(slot.end_time)}
-                              </p>
-                              <span className="rounded-full bg-orange-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">
-                                {slot.member_limit ?? DEFAULT_MEMBER_LIMIT} members max
-                              </span>
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-white/[0.04]">
+                                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                                  {formatTime(slot.start_time)} – {formatTime(slot.end_time)}
+                                </p>
+                                <span className="rounded-full bg-orange-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-orange-700 dark:bg-orange-500/15 dark:text-orange-300">
+                                  {slot.member_limit ?? DEFAULT_MEMBER_LIMIT} members max
+                                </span>
+                              </div>
+                              <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-white/10">
+                                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                  Members with matching availability ({Number(slot.assigned_member_count) || 0})
+                                </p>
+                                {matchingMembers.length ? (
+                                  <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                                    {matchingMembers.map((member) => (
+                                      <li key={member.user_id}>{member.full_name || "Member"}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="mt-1 text-xs text-slate-400">No assigned members match this time.</p>
+                                )}
+                              </div>
                             </div>
                           ) : (
                             <>
@@ -564,29 +612,33 @@ export default function TrainerAvailabilityManager({
                               />
                             </>
                           )}
-                          {!isAdmin && (slot.custom || AVAILABILITY_RANGES.every((range) => range.start_time !== slot.start_time || range.end_time !== slot.end_time)) && (
-                            <div className="grid max-w-[24rem] grid-cols-1 gap-2 sm:grid-cols-2">
-                              <TimeOfDaySelect
-                                id={`range-${slot.id}-start`}
-                                label="Start time"
-                                value={slot.start_time}
-                                onChange={(value) => updateSlotTime(slot.id, "start_time", value)}
-                              />
-                              <TimeOfDaySelect
-                                id={`range-${slot.id}-end`}
-                                label="End time"
-                                value={slot.end_time}
-                                onChange={(value) => updateSlotTime(slot.id, "end_time", value)}
-                              />
-                            </div>
-                          )}
                           {!isAdmin && (
-                            <div className="flex items-end justify-end">
-                              <MemberLimitInput
-                                id={`member-limit-${slot.id}`}
-                                value={slot.member_limit ?? DEFAULT_MEMBER_LIMIT}
-                                onChange={(value) => updateSlotMemberLimit(slot.id, value)}
-                              />
+                            <div className={`grid gap-3 ${showCustomTimeFields ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem] md:items-end" : "sm:grid-cols-[minmax(0,1fr)_9rem] sm:items-end"}`}>
+                              {showCustomTimeFields && (
+                                <>
+                                  <TimeOfDaySelect
+                                    id={`range-${slot.id}-start`}
+                                    label="Start time"
+                                    value={slot.start_time}
+                                    onChange={(value) => updateSlotTime(slot.id, "start_time", value)}
+                                  />
+                                  <TimeOfDaySelect
+                                    id={`range-${slot.id}-end`}
+                                    label="End time"
+                                    value={slot.end_time}
+                                    onChange={(value) => updateSlotTime(slot.id, "end_time", value)}
+                                  />
+                                </>
+                              )}
+                              <div className={showCustomTimeFields ? "" : "sm:col-start-2"}>
+                                <MemberLimitInput
+                                  id={`member-limit-${slot.id}`}
+                                  value={slot.member_limit ?? DEFAULT_MEMBER_LIMIT}
+                                  min={getMemberLimitMin(slot)}
+                                  max={getMemberLimitMax(slot)}
+                                  onChange={(value) => updateSlotMemberLimit(slot.id, value)}
+                                />
+                              </div>
                             </div>
                           )}
                         </div>
@@ -599,7 +651,8 @@ export default function TrainerAvailabilityManager({
                           <Trash2 size={16} />
                         </button>}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </section>
@@ -653,12 +706,12 @@ export default function TrainerAvailabilityManager({
             <label htmlFor="coach-max-members" className="mt-5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Maximum members</label>
             <input
               id="coach-max-members"
-              type="number"
-              min={1}
-              max={10000}
-              step={1}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={2}
               value={capacityDraft}
-              onChange={(event) => setCapacityDraft(event.target.value)}
+              onChange={(event) => setCapacityDraft(event.target.value.replace(/\D/g, "").slice(0, 2))}
               className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-white"
             />
             {capacityError && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{capacityError}</p>}

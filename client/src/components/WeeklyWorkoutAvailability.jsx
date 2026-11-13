@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
+import { LockKeyhole } from "lucide-react";
 import userApi from "../userApi";
+import {
+  coachSlotMatchesMemberSlot,
+  getMemberAvailabilitySlots,
+} from "../utils/availabilityMatching";
+import { formatWorkoutTime } from "../utils/workoutSchedule";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const COACH_DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const TIME_OPTIONS = [
   { value: "Morning", label: "Morning", detail: "6:00 AM – 12:00 PM" },
   { value: "Afternoon", label: "Afternoon", detail: "12:00 PM – 5:00 PM" },
@@ -14,6 +21,17 @@ const EXPERIENCE_RANGES = {
   Advanced: { min: 4, max: 6 },
 };
 
+function isCoachDayFull(coach, day) {
+  const dayIndex = COACH_DAY_NAMES.indexOf(day);
+  const daySlots = (Array.isArray(coach?.availability) ? coach.availability : [])
+    .filter((slot) => Number(slot.day_of_week) === dayIndex);
+
+  return daySlots.length > 0 && daySlots.every((slot) => {
+    const memberLimit = Number(slot.member_limit);
+    return memberLimit > 0 && Number(slot.assigned_member_count) >= memberLimit;
+  });
+}
+
 const readDraft = () => {
   try {
     const raw = sessionStorage.getItem("avefit_availability");
@@ -23,7 +41,104 @@ const readDraft = () => {
   }
 };
 
-export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel, className = "" }) {
+function CoachScheduleComparison({ coach, availability, loading }) {
+  if (!coach) return null;
+  const coachSlots = Array.isArray(coach.availability) ? coach.availability : [];
+  const memberSlots = getMemberAvailabilitySlots({ availability });
+
+  return (
+    <section
+      aria-labelledby="coach-schedule-comparison-heading"
+      className="rounded-2xl border border-orange-500/30 bg-orange-500/[0.04] p-4 sm:p-5 dark:bg-white/[0.03]"
+    >
+      <div className="mb-3">
+        <h3 id="coach-schedule-comparison-heading" className="font-bold text-slate-900 dark:text-white">
+          Compare your schedule with {coach.full_name}
+        </h3>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+          Update your days and time preferences below. Green means a schedule match with space available; red means the matching time is full.
+        </p>
+      </div>
+      {coachSlots.length ? (
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 18rem), 1fr))" }}
+        >
+          {coachSlots.map((slot, index) => {
+            const matchesSchedule = !loading && memberSlots.some((memberSlot) => (
+              coachSlotMatchesMemberSlot(slot, memberSlot, 60)
+            ));
+            const assignedMembers = Number(slot.assigned_member_count) || 0;
+            const memberLimit = Number(slot.member_limit) || 0;
+            const hasCapacityInfo = memberLimit > 0;
+            const hasCapacity = hasCapacityInfo && assignedMembers < memberLimit;
+            const matchesAndHasCapacity = matchesSchedule && hasCapacity;
+            const matchesButIsFull = matchesSchedule && hasCapacityInfo && !hasCapacity;
+            const day = COACH_DAY_NAMES[Number(slot.day_of_week)] || "Day";
+            const startTime = formatWorkoutTime(slot.start_time) || "—";
+            const endTime = formatWorkoutTime(slot.end_time) || "—";
+
+            return (
+              <div
+                key={`${slot.day_of_week}-${slot.start_time}-${index}`}
+                className={`rounded-xl border-2 p-3 ${
+                  matchesAndHasCapacity
+                    ? "border-emerald-500 bg-emerald-50/70 dark:border-emerald-400 dark:bg-emerald-500/10"
+                    : matchesButIsFull
+                      ? "border-red-400 bg-red-50/60 dark:border-red-400 dark:bg-red-500/10"
+                      : "border-slate-200 bg-white dark:border-white/10 dark:bg-[#111]"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-800 dark:text-slate-100">{day}</span>
+                  <span className="whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">{startTime}–{endTime}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300">
+                  <span>Members for this time</span>
+                  <span className="whitespace-nowrap font-semibold text-slate-800 dark:text-slate-100">
+                    {assignedMembers} / {hasCapacityInfo ? memberLimit : "limit not set"}
+                  </span>
+                </div>
+                <p className={`mt-1 text-xs font-semibold ${
+                  loading
+                    ? "text-slate-500 dark:text-slate-400"
+                    : matchesAndHasCapacity
+                      ? "text-emerald-700 dark:text-emerald-300"
+                      : matchesButIsFull
+                        ? "text-red-600 dark:text-red-300"
+                        : matchesSchedule
+                          ? "text-amber-700 dark:text-amber-300"
+                          : "text-slate-500 dark:text-slate-400"
+                }`}>
+                  {loading
+                    ? "Checking your schedule match…"
+                    : matchesAndHasCapacity
+                      ? "Matches your schedule and has capacity"
+                      : matchesButIsFull
+                        ? "Matches your schedule, but this time is full"
+                        : matchesSchedule
+                          ? "Schedule matches; member limit is not set"
+                          : "Does not match your selected schedule"}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          This coach has not posted weekly availability.
+        </p>
+      )}
+    </section>
+  );
+}
+
+export default function WeeklyWorkoutAvailability({
+  onContinue,
+  experienceLevel,
+  comparisonCoach,
+  className = "",
+}) {
   const hasContinue = Boolean(onContinue);
   const [availability, setAvailability] = useState([]);
   const [daysPerWeek, setDaysPerWeek] = useState("");
@@ -180,16 +295,28 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
           You already have a weekly availability change waiting for admin review.
         </p>
       )}
+      <CoachScheduleComparison
+        coach={comparisonCoach}
+        availability={availability}
+        loading={loading}
+      />
 
       {loading ? (
-        <div className="space-y-3" aria-label="Loading weekly availability">
-          {DAYS.slice(0, 4).map((day) => <div key={day} className="h-16 animate-pulse rounded-xl bg-slate-100 dark:bg-white/5" />)}
+        <div role="status" className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-white/10 dark:bg-white/[0.03]">
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Loading your saved weekly availability…</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {DAYS.slice(0, 4).map((day) => <div key={day} className="h-16 animate-pulse rounded-xl bg-slate-200 dark:bg-white/10" />)}
+          </div>
         </div>
       ) : (
         <>
           <div className="grid gap-2 sm:grid-cols-2">
             {DAYS.map((day) => {
               const selected = availability.find((slot) => slot.day_of_week === day);
+              const coachDayFull = Boolean(comparisonCoach) && isCoachDayFull(comparisonCoach, day);
+              const dayDisabled = !selected && (
+                coachDayFull || (frequency > 0 && availability.length >= frequency)
+              );
               return (
                 <div
                   key={day}
@@ -200,19 +327,32 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    <label className={`flex min-h-9 items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100 ${
+                      dayDisabled ? "cursor-not-allowed" : "cursor-pointer"
+                    }`}>
                       <input
                         type="checkbox"
                         checked={Boolean(selected)}
-                        disabled={!selected && frequency > 0 && availability.length >= frequency}
+                        aria-describedby={coachDayFull ? `coach-day-full-${day}` : undefined}
+                        disabled={dayDisabled}
                         onChange={() => toggleDay(day)}
                         className="h-4 w-4 accent-orange-500 disabled:cursor-not-allowed disabled:opacity-40"
                       />
                       {day}
                     </label>
-                    <span className={`text-xs font-medium ${selected ? "text-orange-600 dark:text-orange-300" : "text-slate-500"}`}>
-                      {selected ? "Available" : "Unavailable"}
-                    </span>
+                    {coachDayFull ? (
+                      <span
+                        id={`coach-day-full-${day}`}
+                        className="flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-300"
+                      >
+                        {!selected && <LockKeyhole size={13} aria-hidden="true" />}
+                        Coach day full
+                      </span>
+                    ) : selected ? (
+                      <span className="text-xs font-medium text-orange-600 dark:text-orange-300">
+                        Available
+                      </span>
+                    ) : null}
                   </div>
                   {selected && (
                     <label className="mt-2 block">
@@ -261,7 +401,7 @@ export default function WeeklyWorkoutAvailability({ onContinue, experienceLevel,
           </p>
           {onContinue && (
             <button type="button" onClick={save} disabled={saving} className="w-full rounded-xl bg-orange-500 py-3 font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50">
-              {saving ? "Saving…" : "Continue to Coach Selection →"}
+             {saving ? "Saving…" : comparisonCoach ? "Continue to Confirmation →" : "Continue to Coach Selection →"}
             </button>
           )}
           {!onContinue && (
