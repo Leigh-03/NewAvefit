@@ -73,6 +73,7 @@ const manilaDateString = () => {
 export default function Analytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [equipmentLoading, setEquipmentLoading] = useState(false);
   const [fetchError, setFetchError] = useState("");
   const [equipmentDay, setEquipmentDay] = useState("");
   const [equipmentTimePeriod, setEquipmentTimePeriod] = useState("");
@@ -83,6 +84,7 @@ export default function Analytics() {
   useEffect(() => {
     let active = true;
     const fetchAnalytics = () => {
+      setEquipmentLoading(true);
       const params = {};
       if (appliedEquipmentFilters.day) params.equipment_day = appliedEquipmentFilters.day;
       if (appliedEquipmentFilters.timePeriod) params.equipment_time_period = appliedEquipmentFilters.timePeriod;
@@ -100,7 +102,10 @@ export default function Analytics() {
           }
         })
         .finally(() => {
-          if (active) setLoading(false);
+          if (active) {
+            setLoading(false);
+            setEquipmentLoading(false);
+          }
         });
     };
 
@@ -340,8 +345,12 @@ export default function Analytics() {
               <option value="Flexible">Flexible (6:00 AM – 10:00 PM)</option>
             </select>
           </label>
-          <button type="submit" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-bold text-white transition hover:bg-orange-600">
-            <Filter size={15} /> Apply filters
+          <button
+            type="submit"
+            disabled={equipmentLoading}
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-bold text-white transition hover:bg-orange-600 disabled:cursor-wait disabled:opacity-70"
+          >
+            <Filter size={15} /> {equipmentLoading ? "Applying..." : "Apply filters"}
           </button>
           {(equipmentDay || equipmentTimePeriod || equipmentPeriod !== "today") && (
             <button
@@ -358,6 +367,7 @@ export default function Analytics() {
             </button>
           )}
         </form>
+        {equipmentLoading && <p role="status" className="mb-4 text-xs text-slate-500">Updating equipment insights…</p>}
         {mostUsedEquipment.length ? (
           <>
             <div className="space-y-3" id="equipment-usage-list">

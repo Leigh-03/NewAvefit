@@ -41,16 +41,79 @@ const PROGRAM_MUSCLES = {
   Legs: ["leg", "glute", "quad", "hamstring", "calf"],
 };
 const EXPECTED_AVAILABILITY_ENTRIES = COACHES.length * (5 * 2 + 5 * 4 + 5 * 5);
-const PROGRESS_MONTH_COUNT = 11;
-const PROGRESS_MONTHS = Array.from({ length: PROGRESS_MONTH_COUNT }, (_, index) => ({
-  month: index,
-  day: index === 10 ? 10 : 15,
-}));
+const DEMO_MEMBER_COUNT = MEMBER_CAPACITY * COACHES.length;
+const LEGACY_PROGRESS_DATES = Array.from({ length: 11 }, (_, index) =>
+  new Date(Date.UTC(SEED_YEAR, index, index === 10 ? 10 : 15)).toISOString().slice(0, 10)
+);
 
 const round = (value, places = 1) => Number(value.toFixed(places));
 const bmiFor = (weight, height) => round(weight / ((height / 100) ** 2), 2);
 const emailFor = (coach, memberIndex) =>
   `coach-test-${coach.slug}-member-${String(memberIndex + 1).padStart(2, "0")}@example.test`;
+const getTodayInManila = () => {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+const getWeeklyProgressDatesThrough = (lastDayKey) => {
+  const firstDay = new Date(Date.UTC(SEED_YEAR, 0, 1));
+  const lastDay = new Date(`${lastDayKey}T00:00:00Z`);
+  const dates = [];
+
+  for (let date = firstDay; date <= lastDay; date.setUTCDate(date.getUTCDate() + 7)) {
+    dates.push(date.toISOString().slice(0, 10));
+  }
+  if (dates[dates.length - 1] !== lastDayKey) dates.push(lastDayKey);
+  return dates;
+};
+const getWeeklyProgressDates = () => {
+  const today = getTodayInManila();
+  const yearEnd = `${SEED_YEAR}-12-31`;
+  const lastDayKey = today < `${SEED_YEAR}-01-01`
+    ? `${SEED_YEAR}-01-01`
+    : today > yearEnd
+      ? yearEnd
+      : today;
+  return getWeeklyProgressDatesThrough(lastDayKey);
+};
+const isDemoProgressHistory = (logDates) => {
+  if (JSON.stringify(logDates) === JSON.stringify(LEGACY_PROGRESS_DATES)) return true;
+  if (!logDates.length || logDates[0] !== `${SEED_YEAR}-01-01`) return false;
+  const lastDate = logDates[logDates.length - 1];
+  if (lastDate > getTodayInManila() || lastDate > `${SEED_YEAR}-12-31`) return false;
+  return JSON.stringify(logDates) === JSON.stringify(getWeeklyProgressDatesThrough(lastDate));
+};
+const joinedDateFor = (globalIndex) => {
+  const firstDay = Date.UTC(SEED_YEAR, 0, 1);
+  const today = getTodayInManila();
+  const lastDayKey = today < `${SEED_YEAR}-01-01`
+    ? `${SEED_YEAR}-01-01`
+    : today > `${SEED_YEAR}-12-31`
+      ? `${SEED_YEAR}-12-31`
+      : today;
+  const lastDay = new Date(`${lastDayKey}T00:00:00Z`).getTime();
+  const daySpan = (lastDay - firstDay) / 86_400_000;
+  if (daySpan < DEMO_MEMBER_COUNT - 1) {
+    throw new Error(`At least ${DEMO_MEMBER_COUNT} calendar days are required for unique demo join dates.`);
+  }
+  const dayOffset = Math.floor((globalIndex * daySpan) / (DEMO_MEMBER_COUNT - 1));
+  return new Date(firstDay + dayOffset * 86_400_000).toISOString().slice(0, 10);
+};
+const membershipFor = (joinedDate) => {
+  const endDate = new Date(`${joinedDate}T00:00:00Z`);
+  endDate.setUTCFullYear(endDate.getUTCFullYear() + 1);
+  endDate.setUTCDate(endDate.getUTCDate() - 1);
+  return {
+    months: 12,
+    startDate: joinedDate,
+    endDate: endDate.toISOString().slice(0, 10),
+  };
+};
 const profileFor = (coach, coachIndex, memberIndex) => {
   const globalIndex = coachIndex * MEMBER_CAPACITY + memberIndex;
   const fitnessGoal = FITNESS_GOALS[memberIndex % FITNESS_GOALS.length];
@@ -92,12 +155,10 @@ const profileFor = (coach, coachIndex, memberIndex) => {
   const age = 20 + ((globalIndex * 5) % 36);
   const birthYear = SEED_YEAR - age;
   const birthDate = `${birthYear}-06-15`;
-  const logDates = PROGRESS_MONTHS.map(({ month, day }) =>
-    new Date(Date.UTC(SEED_YEAR, month, day)).toISOString().slice(0, 10)
-  );
-  const progress = PROGRESS_MONTHS.map((_, monthIndex) => {
-    const fraction = monthIndex / (PROGRESS_MONTHS.length - 1);
-    const variation = Math.sin((globalIndex + 1) * (monthIndex + 1)) * Math.sin(Math.PI * fraction);
+  const logDates = getWeeklyProgressDates();
+  const progress = logDates.map((logDate, progressIndex) => {
+    const fraction = progressIndex / Math.max(logDates.length - 1, 1);
+    const variation = Math.sin((globalIndex + 1) * (progressIndex + 1)) * Math.sin(Math.PI * fraction);
     const weight = fitnessGoal === "Maintain Weight"
       ? startingWeight + variation * 0.8
       : startingWeight + (targetWeight - startingWeight) * fraction * progressFraction + variation * 0.35;
@@ -123,7 +184,7 @@ const profileFor = (coach, coachIndex, memberIndex) => {
       weight: roundedWeight,
       bmi: bmiFor(roundedWeight, height),
       body_fat: round(bodyFat),
-      log_date: logDates[monthIndex],
+      log_date: logDate,
       waist: round(waist),
       chest: round(chest),
       hips: round(hips),
@@ -131,7 +192,7 @@ const profileFor = (coach, coachIndex, memberIndex) => {
       right_arm: round(arm + 0.4),
       left_leg: round(leg),
       right_leg: round(leg + 0.5),
-      notes: `Synthetic demo progress check-in for ${logDates[monthIndex]}.`,
+      notes: `Synthetic demo progress check-in for ${logDate}.`,
     };
   });
   const dayCount = workoutDaysPerWeek;
@@ -141,6 +202,7 @@ const profileFor = (coach, coachIndex, memberIndex) => {
     timePreference: preferredWorkoutTime,
   }));
   const fullName = `${FIRST_NAMES[memberIndex]} ${coach.surname}`;
+  const joinedDate = joinedDateFor(globalIndex);
 
   return {
     firstName: FIRST_NAMES[memberIndex],
@@ -155,6 +217,8 @@ const profileFor = (coach, coachIndex, memberIndex) => {
     fitnessGoal,
     activityLevel,
     targetWeight,
+    membership: membershipFor(joinedDate),
+    joinedDate,
     workoutDaysPerWeek: dayCount,
     workoutDuration: [45, 60, 75, 90][globalIndex % 4],
     preferredDays,
@@ -170,17 +234,6 @@ const profileFor = (coach, coachIndex, memberIndex) => {
 const buildExpectedEmails = () => COACHES.flatMap((coach) =>
   Array.from({ length: MEMBER_CAPACITY }, (_, index) => emailFor(coach, index))
 );
-
-const getTodayInManila = () => {
-  const parts = new Intl.DateTimeFormat("en", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
-  return `${values.year}-${values.month}-${values.day}`;
-};
 
 const getDifficultyRank = (difficulty) => {
   const normalized = String(difficulty || "").trim().toLowerCase();
@@ -635,9 +688,70 @@ const ensureDemoWorkoutHistory = async (client, apply) => {
   return { needed: false, added: true, planCount: fixtures.plans.length, sessionCount: fixtures.sessions.length };
 };
 
+const insertProgressLog = async (client, userId, entry) => {
+  await client.query(
+    `INSERT INTO progress_logs (
+       user_id, weight, bmi, body_fat, log_date, waist, chest, hips,
+       left_arm, right_arm, left_leg, right_leg, notes
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+    [
+      userId,
+      entry.weight,
+      entry.bmi,
+      entry.body_fat,
+      entry.log_date,
+      entry.waist,
+      entry.chest,
+      entry.hips,
+      entry.left_arm,
+      entry.right_arm,
+      entry.left_leg,
+      entry.right_leg,
+      entry.notes,
+    ]
+  );
+};
+
+const refreshDemoProgressAndMembership = async (client, emailList) => {
+  const result = await client.query(
+    "SELECT user_id, email FROM users WHERE email = ANY($1::text[])",
+    [emailList]
+  );
+  if (result.rowCount !== emailList.length) {
+    throw new Error("The demo progress refresh requires all 75 synthetic member accounts.");
+  }
+  const userIds = new Map(result.rows.map((row) => [row.email, row.user_id]));
+
+  for (let coachIndex = 0; coachIndex < COACHES.length; coachIndex += 1) {
+    for (let memberIndex = 0; memberIndex < MEMBER_CAPACITY; memberIndex += 1) {
+      const profile = profileFor(COACHES[coachIndex], coachIndex, memberIndex);
+      const userId = userIds.get(profile.email);
+      const { months, startDate, endDate } = profile.membership;
+      await client.query(
+        `UPDATE users
+         SET account_status = 'Active',
+             membership_months = $1, membership_start_date = $2, membership_end_date = $3,
+             weight = $4, created_at = $5::date
+         WHERE user_id = $6`,
+        [months, startDate, endDate, profile.current.weight, profile.joinedDate, userId]
+      );
+      await client.query("DELETE FROM progress_logs WHERE user_id = $1", [userId]);
+      for (const entry of profile.progress) {
+        await insertProgressLog(client, userId, entry);
+      }
+      await client.query(
+        "UPDATE members SET status = 'Active', weight = $1, bmi = $2, joined_date = $3 WHERE email = $4",
+        [profile.current.weight, profile.current.bmi, profile.joinedDate, profile.email]
+      );
+    }
+  }
+};
+
 const insertMember = async (client, coach, coachIndex, memberIndex, passwordHash) => {
   const profile = profileFor(coach, coachIndex, memberIndex);
   profile.trainerId = Number(coach.trainer_id);
+  const { months, startDate, endDate } = profile.membership;
   const memberResult = await client.query(
     `INSERT INTO users (
        first_name, last_name, email, password, phone, gender, birth_date,
@@ -654,8 +768,8 @@ const insertMember = async (client, coach, coachIndex, memberIndex, passwordHash
        $12, $13, $14, $15,
        $16, $17, ARRAY['None']::text[], ARRAY['None']::text[], $18,
        TRUE, 'Active', TRUE, CURRENT_TIMESTAMP,
-       12, DATE '2026-01-01', DATE '2027-01-01',
-       $19, '{}'::jsonb
+       $19, $20, $21,
+       $22, '{}'::jsonb
      )
      RETURNING user_id`,
     [
@@ -677,18 +791,25 @@ const insertMember = async (client, coach, coachIndex, memberIndex, passwordHash
       profile.preferredDays,
       profile.intensity,
       profile.trainerId,
+      months,
+      startDate,
+      endDate,
       profile.preferredWorkoutTime,
     ]
   );
   const userId = memberResult.rows[0].user_id;
   const bmi = profile.current.bmi;
+  await client.query(
+    "UPDATE users SET created_at = $1::date WHERE user_id = $2",
+    [profile.joinedDate, userId]
+  );
 
   await client.query(
     `INSERT INTO members (
        full_name, email, phone, gender, age, height, weight, bmi,
        fitness_goal, status, joined_date, trainer_id
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Active', DATE '2026-01-01', $10)`,
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Active', $10, $11)`,
     [
       profile.fullName,
       profile.email,
@@ -699,34 +820,12 @@ const insertMember = async (client, coach, coachIndex, memberIndex, passwordHash
       profile.current.weight,
       bmi,
       profile.fitnessGoal,
+      profile.joinedDate,
       profile.trainerId,
     ]
   );
 
-  for (const entry of profile.progress) {
-    await client.query(
-      `INSERT INTO progress_logs (
-         user_id, weight, bmi, body_fat, log_date, waist, chest, hips,
-         left_arm, right_arm, left_leg, right_leg, notes
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-      [
-        userId,
-        entry.weight,
-        entry.bmi,
-        entry.body_fat,
-        entry.log_date,
-        entry.waist,
-        entry.chest,
-        entry.hips,
-        entry.left_arm,
-        entry.right_arm,
-        entry.left_leg,
-        entry.right_leg,
-        entry.notes,
-      ]
-    );
-  }
+  for (const entry of profile.progress) await insertProgressLog(client, userId, entry);
 
   for (const slot of profile.initialSlots) {
     await client.query(
@@ -779,23 +878,39 @@ const seed = async () => {
       const relatedCounts = await client.query(
         `SELECT
            (SELECT COUNT(*)::integer FROM members WHERE email = ANY($1::text[])) AS legacy_members,
-           (SELECT COUNT(*)::integer FROM progress_logs p JOIN users u ON u.user_id = p.user_id
-             WHERE u.email = ANY($1::text[])) AS progress_entries,
            (SELECT COUNT(*)::integer FROM user_workout_availability a JOIN users u ON u.user_id = a.user_id
              WHERE u.email = ANY($1::text[])) AS availability_entries`,
         [emailList]
       );
+      const progressCounts = await client.query(
+        `SELECT u.email,
+                COALESCE(
+                  ARRAY_AGG(TO_CHAR(p.log_date, 'YYYY-MM-DD') ORDER BY p.log_date, p.progress_id)
+                    FILTER (WHERE p.progress_id IS NOT NULL),
+                  ARRAY[]::text[]
+                ) AS log_dates
+         FROM users u
+         LEFT JOIN progress_logs p ON p.user_id = u.user_id
+         WHERE u.email = ANY($1::text[])
+         GROUP BY u.email`,
+        [emailList]
+      );
       if (Number(relatedCounts.rows[0].legacy_members) !== emailList.length ||
-          Number(relatedCounts.rows[0].progress_entries) !== emailList.length * PROGRESS_MONTHS.length ||
-          Number(relatedCounts.rows[0].availability_entries) !== EXPECTED_AVAILABILITY_ENTRIES) {
+          Number(relatedCounts.rows[0].availability_entries) !== EXPECTED_AVAILABILITY_ENTRIES ||
+          progressCounts.rowCount !== emailList.length ||
+          progressCounts.rows.some((row) => !isDemoProgressHistory(row.log_dates))) {
         throw new Error("The existing seed is missing linked member or progress records; refusing to modify it.");
       }
+      if (apply) await refreshDemoProgressAndMembership(client, emailList);
       const schedulesNeeded = await ensureDemoSchedules(client, coachResult.rows, apply);
       const workoutHistory = await ensureDemoWorkoutHistory(client, apply);
       if (apply) await client.query("COMMIT");
       inTransaction = false;
       if (schedulesNeeded && !apply) {
         console.log("Dry run: member profiles are seeded; coach/member schedules still need to be configured.");
+      }
+      if (!apply) {
+        console.log(`Dry run: would refresh unique joined dates and active memberships, and add ${emailList.length * profileFor(COACHES[0], 0, 0).progress.length} weekly progress entries from January through today for the demo accounts.`);
       }
       if (workoutHistory.needed) {
         console.log(`Dry run: would add ${workoutHistory.planCount} monthly workout plans and ${workoutHistory.sessionCount} dated exercises across January–December ${SEED_YEAR}.`);
@@ -824,7 +939,7 @@ const seed = async () => {
 
     if (!apply) {
       console.log(`Dry run: would add ${MEMBER_CAPACITY} complete demo members to each of ${COACHES.length} coaches.`);
-      console.log(`This creates ${MEMBER_CAPACITY * COACHES.length} active member profiles and ${MEMBER_CAPACITY * COACHES.length * PROGRESS_MONTHS.length} progress entries from January through November ${SEED_YEAR}.`);
+      console.log(`This creates ${DEMO_MEMBER_COUNT} demo member profiles with unique joined dates and active 12-month memberships, plus ${DEMO_MEMBER_COUNT * profileFor(COACHES[0], 0, 0).progress.length} weekly progress entries from January through today.`);
       console.log(`Each member will also receive varied approved workout plans and dated sessions throughout January–December ${SEED_YEAR}; December workouts will remain scheduled until their dates.`);
       return;
     }
@@ -850,7 +965,9 @@ const seed = async () => {
     await client.query("COMMIT");
     inTransaction = false;
     console.log(`Seeded ${MEMBER_CAPACITY * COACHES.length} complete synthetic member profiles across all five test coaches.`);
-    console.log(`Added ${MEMBER_CAPACITY * COACHES.length * PROGRESS_MONTHS.length} progress entries from January through November ${SEED_YEAR}.`);
+    console.log(`Added ${MEMBER_CAPACITY * COACHES.length * profileFor(COACHES[0], 0, 0).progress.length} weekly progress entries from January through today.`);
+    console.log("Assigned unique joined dates from January through today.");
+    console.log("Assigned active 12-month memberships to all demo accounts.");
     console.log(`Added ${workoutHistory.planCount} monthly workout plans and ${workoutHistory.sessionCount} dated exercises across January–December ${SEED_YEAR}.`);
     console.log("Only past workouts are marked complete; today's and future workouts remain scheduled.");
     console.log("Configured seven days of morning, afternoon, and evening availability for each coach.");
