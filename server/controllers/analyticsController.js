@@ -352,13 +352,19 @@ const sendWeeklyProgressReport = async (req, res) => {
 // GET dashboard summary stats
 const getDashboardStats = async (req, res) => {
   try {
-    const totalMembers = await pool.query("SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'");
-    const pendingMembers = await pool.query(`
-      SELECT COUNT(*) AS count FROM users
-      WHERE LOWER(COALESCE(account_status, 'pending')) = 'pending' 
+    const counts = await pool.query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM users
+         WHERE LOWER(COALESCE(account_status, 'pending')) = 'active') AS total_members,
+        (SELECT COUNT(*)::int FROM users
+         WHERE LOWER(COALESCE(account_status, 'pending')) = 'pending') AS pending_members,
+        (SELECT COUNT(*)::int FROM exercises) AS total_exercises,
+        (SELECT COUNT(*)::int FROM meal_plans) AS total_meal_plans,
+        (SELECT COUNT(*)::int FROM equipment_inventory
+         WHERE LOWER(BTRIM(status)) = 'needs replacement') AS need_replacement_count,
+        (SELECT COUNT(*)::int FROM equipment_inventory
+         WHERE LOWER(BTRIM(status)) IN ('under maintenance', 'under repair')) AS under_maintenance_count
     `);
-    const totalExercises = await pool.query("SELECT COUNT(*) AS count FROM exercises");
-    const totalMealPlans = await pool.query("SELECT COUNT(*) AS count FROM meal_plans");
 
     const recentMembers = await pool.query(`
       SELECT
@@ -375,10 +381,12 @@ const getDashboardStats = async (req, res) => {
     res.json({
       success: true,
       data: {
-        totalMembers: parseInt(totalMembers.rows[0].count),
-        pendingMembers: parseInt(pendingMembers.rows[0].count),
-        totalExercises: parseInt(totalExercises.rows[0].count),
-        totalMealPlans: parseInt(totalMealPlans.rows[0].count),
+        totalMembers: counts.rows[0].total_members,
+        pendingMembers: counts.rows[0].pending_members,
+        totalExercises: counts.rows[0].total_exercises,
+        totalMealPlans: counts.rows[0].total_meal_plans,
+        needReplacementCount: counts.rows[0].need_replacement_count,
+        underMaintenanceCount: counts.rows[0].under_maintenance_count,
         recentMembers: recentMembers.rows,
       },
     });
@@ -748,9 +756,20 @@ const getAnalytics = async (req, res) => {
             ELSE (NOW() AT TIME ZONE 'Asia/Manila')::date
           END) AS ends_on
       ),
-      scheduled_occurrences AS (
+      weekday_occurrences AS (
+        SELECT LOWER(BTRIM(TO_CHAR(occurrence.scheduled_on, 'FMDay'))) AS weekday,
+               COUNT(*)::int AS count
+        FROM period_bounds bounds
+        CROSS JOIN LATERAL GENERATE_SERIES(
+          bounds.starts_on::timestamp,
+          bounds.ends_on::timestamp,
+          INTERVAL '1 day'
+        ) AS occurrence(scheduled_on)
+        GROUP BY LOWER(BTRIM(TO_CHAR(occurrence.scheduled_on, 'FMDay')))
+      ),
+      equipment_sessions AS (
         SELECT BTRIM(e.equipment) AS equipment,
-          occurrence.scheduled_on,
+          ws.session_date::text AS session_date,
           wp.scheduled_start_time,
           u.preferred_workout_time
         FROM workout_sessions ws
@@ -758,36 +777,43 @@ const getAnalytics = async (req, res) => {
         JOIN users u ON u.user_id = wp.user_id
         JOIN exercises e ON e.exercise_id = ws.exercise_id
         CROSS JOIN period_bounds bounds
-        CROSS JOIN LATERAL GENERATE_SERIES(
-          bounds.starts_on::timestamp,
-          bounds.ends_on::timestamp,
-          INTERVAL '1 day'
-        ) AS occurrence(scheduled_on)
         WHERE wp.approval_status = 'Approved'
           AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
           AND (
             (
-              ws.session_date::text = TO_CHAR(occurrence.scheduled_on, 'YYYY-MM-DD')
+              ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+              AND ws.session_date::text BETWEEN TO_CHAR(bounds.starts_on, 'YYYY-MM-DD')
+                AND TO_CHAR(bounds.ends_on, 'YYYY-MM-DD')
             )
-            OR LOWER(BTRIM(ws.session_date::text)) = LOWER(TO_CHAR(occurrence.scheduled_on, 'FMDay'))
+            OR LOWER(BTRIM(ws.session_date::text)) IN (
+              'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
+            )
           )
       ),
       filtered_usage AS (
-        SELECT occurrence.equipment, COUNT(*)::int AS count
-        FROM scheduled_occurrences occurrence
-        WHERE ($2::integer IS NULL OR EXTRACT(HOUR FROM occurrence.scheduled_start_time)::integer = $2::integer)
+        SELECT session.equipment,
+          SUM(
+            CASE
+              WHEN session.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN 1
+              ELSE COALESCE(weekday_occurrences.count, 0)
+            END
+          )::int AS count
+        FROM equipment_sessions session
+        LEFT JOIN weekday_occurrences
+          ON weekday_occurrences.weekday = LOWER(BTRIM(session.session_date))
+        WHERE ($2::integer IS NULL OR EXTRACT(HOUR FROM session.scheduled_start_time)::integer = $2::integer)
           AND ($3::text IS NULL OR CASE $3
-              WHEN 'Morning' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Morning' THEN 6 ELSE NULL END) >= 6
-                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Morning' THEN 6 ELSE NULL END) < 12
-              WHEN 'Afternoon' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Afternoon' THEN 12 ELSE NULL END) >= 12
-                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Afternoon' THEN 12 ELSE NULL END) < 17
-              WHEN 'Evening' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Evening' THEN 17 ELSE NULL END) >= 17
-                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Evening' THEN 17 ELSE NULL END) < 22
-              WHEN 'Flexible' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), 6) >= 6
-                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), 6) < 22
+              WHEN 'Morning' THEN COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Morning' THEN 6 ELSE NULL END) >= 6
+                AND COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Morning' THEN 6 ELSE NULL END) < 12
+              WHEN 'Afternoon' THEN COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Afternoon' THEN 12 ELSE NULL END) >= 12
+                AND COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Afternoon' THEN 12 ELSE NULL END) < 17
+              WHEN 'Evening' THEN COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Evening' THEN 17 ELSE NULL END) >= 17
+                AND COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Evening' THEN 17 ELSE NULL END) < 22
+              WHEN 'Flexible' THEN COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), 6) >= 6
+                AND COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), 6) < 22
               ELSE FALSE
             END)
-        GROUP BY occurrence.equipment
+        GROUP BY session.equipment
       )
       SELECT catalog.equipment, COALESCE(usage_stats.count, 0)::int AS count
       FROM equipment_catalog catalog

@@ -6,38 +6,30 @@ import GrowthChart from "../components/dashboard/GrowthChart";
 import ActivityList from "../components/dashboard/ActivityList";
 import api from "../services/api";
 
-const normalizeEquipmentStatus = (status) => ({
-  "Under repair": "Under Maintenance",
-  "Under Maintenance": "Under Maintenance",
-  "Needs replacement": "Needs replacement",
-  "In service": "In service",
-  "Needs inspection": "Needs inspection",
-}[String(status || "").trim()] || String(status || "").trim() || "Needs inspection");
-
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
-  const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
 
   useEffect(() => {
-    Promise.all([
-      api.get("/analytics/dashboard"),
-      api.get("/workouts/equipment"),
-    ])
-      .then(([dashboardRes, equipmentRes]) => {
+    let active = true;
+    api.get("/analytics/dashboard")
+      .then((dashboardRes) => {
+        if (!active) return;
         setStats(dashboardRes.data.data);
-        setEquipment(Array.isArray(equipmentRes.data?.data) ? equipmentRes.data.data : []);
+        setFetchError("");
       })
       .catch((err) => {
         console.error(err);
-        setFetchError(err.response?.data?.message || err.message || "Couldn't load dashboard stats.");
+        if (active) {
+          setFetchError(err.response?.data?.message || err.message || "Couldn't load dashboard stats.");
+        }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
   }, []);
-
-  const needReplacementCount = equipment.filter((item) => normalizeEquipmentStatus(item.status) === "Needs replacement").length;
-  const underMaintenanceCount = equipment.filter((item) => normalizeEquipmentStatus(item.status) === "Under Maintenance").length;
 
   return (
     <div className="space-y-6">
@@ -66,14 +58,14 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <StatCard
             title="Total Members"
-            value={stats?.memberTotal ?? stats?.totalMembers ?? 0}
+            value={stats?.totalMembers ?? "—"}
             icon={<Users size={30} />}
             color="bg-orange-500"
             trend="Registered members"
           />
           <StatCard
             title="Pending Approval"
-            value={stats?.pendingMembers ?? 0}
+            value={stats?.pendingMembers ?? "—"}
             icon={<Clock size={30} />}
             color="bg-yellow-500"
             trend="Needs review"
@@ -88,7 +80,7 @@ export default function Dashboard() {
               <TriangleAlert size={16} />
               <span className="text-[11px] font-bold uppercase tracking-wide">Need replacement</span>
             </div>
-            <span className="text-2xl font-black text-red-700 dark:text-red-300">{loading ? "—" : needReplacementCount}</span>
+            <span className="text-2xl font-black text-red-700 dark:text-red-300">{loading ? "—" : stats?.needReplacementCount ?? "—"}</span>
           </div>
         </Link>
         <Link to="/admin/equipment?status=Under%20Maintenance" className="rounded-2xl border border-amber-200 bg-amber-50 p-3 transition hover:border-amber-300 hover:bg-amber-100 dark:border-amber-500/20 dark:bg-amber-500/10 dark:hover:bg-amber-500/15">
@@ -97,7 +89,7 @@ export default function Dashboard() {
               <Wrench size={16} />
               <span className="text-[11px] font-bold uppercase tracking-wide">Under Maintenance</span>
             </div>
-            <span className="text-2xl font-black text-amber-700 dark:text-amber-300">{loading ? "—" : underMaintenanceCount}</span>
+            <span className="text-2xl font-black text-amber-700 dark:text-amber-300">{loading ? "—" : stats?.underMaintenanceCount ?? "—"}</span>
           </div>
         </Link>
       </section>
