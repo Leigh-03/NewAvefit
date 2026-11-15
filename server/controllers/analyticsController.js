@@ -146,7 +146,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character
   "'": "&#39;",
 })[character]);
 
-const getWeeklyProgressRows = async (userId = null) => {
+const getWeeklyProgressRows = async (userId = null, trainerId = null) => {
   const result = await pool.query(`
       SELECT
         u.user_id,
@@ -189,12 +189,14 @@ const getWeeklyProgressRows = async (userId = null) => {
         FROM workout_plans wp
         JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
         WHERE wp.user_id = u.user_id
+          AND wp.approval_status = 'Approved'
       ) workout_progress ON TRUE
       WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
         AND NULLIF(BTRIM(u.email), '') IS NOT NULL
         AND ($1::int IS NULL OR u.user_id = $1)
+        AND ($2::int IS NULL OR u.trainer_id = $2)
       ORDER BY u.first_name, u.last_name, u.user_id
-    `, [userId]);
+    `, [userId, trainerId]);
 
   return result.rows;
 };
@@ -294,17 +296,25 @@ const sendMemberWeeklyProgressReport = async (member) => {
 };
 
 const sendWeeklyProgressReport = async (req, res) => {
+  if (!req.trainer) {
+    return res.status(403).json({ success: false, message: "Weekly progress reports are available to trainers only." });
+  }
+
   if (!isMailConfigured()) {
     return res.status(503).json({ success: false, message: "Weekly report email is unavailable: SMTP is not configured." });
   }
 
   const userId = req.params.userId ? Number(req.params.userId) : null;
+  const trainerId = Number(req.trainer.trainer_id);
   if (userId !== null && (!Number.isInteger(userId) || userId < 1)) {
     return res.status(400).json({ success: false, message: "Choose a valid active member." });
   }
+  if (!Number.isInteger(trainerId) || trainerId < 1) {
+    return res.status(401).json({ success: false, message: "Trainer session is invalid. Please sign in again." });
+  }
 
   try {
-    const members = await getWeeklyProgressRows(userId);
+    const members = await getWeeklyProgressRows(userId, trainerId);
     if (userId !== null && !members.length) {
       return res.status(404).json({ success: false, message: "Active member not found." });
     }
@@ -336,7 +346,7 @@ const sendWeeklyProgressReport = async (req, res) => {
     return res.json({
       success: true,
       message: userId === null
-        ? `Sent weekly progress reports to ${sentCount} of ${members.length} active members${failed.length ? `; ${failed.length} failed` : ""}.`
+        ? `Sent weekly progress reports to ${sentCount} of ${members.length} assigned active members${failed.length ? `; ${failed.length} failed` : ""}.`
         : "Weekly progress report sent.",
       member_count: members.length,
       sent_count: sentCount,
@@ -349,81 +359,134 @@ const sendWeeklyProgressReport = async (req, res) => {
   }
 };
 
-// GET dashboard summary stats
-const buildPrescriptiveInsights = ({ memberProgress = [], attendance = [], bmiDistribution = [], monthlyWorkoutProgress = [], goalDistribution = [] }) => {
-  const insights = [];
-
-  const bmiCounts = Object.fromEntries((bmiDistribution || []).map((row) => [row.category, Number(row.count) || 0]));
-  const totalBmiMembers = Object.values(bmiCounts).reduce((sum, count) => sum + count, 0) || 1;
-  const elevatedBmiShare = (((bmiCounts.Overweight || 0) + (bmiCounts.Obese || 0)) / totalBmiMembers) * 100;
-
-  if (elevatedBmiShare >= 35) {
-    insights.push({
-      type: "risk",
-      title: "Higher BMI risk cluster",
-      detail: `${elevatedBmiShare.toFixed(0)}% of active members are in the overweight or obese range. Prioritize nutrition planning and gradual intensity adjustments to support sustainable weight loss.`,
-    });
+const getTrainerPrescriptiveAnalytics = async (req, res) => {
+  const trainerId = Number(req.trainer?.trainer_id);
+  if (!Number.isInteger(trainerId) || trainerId < 1) {
+    return res.status(401).json({ success: false, message: "Trainer session is invalid. Please sign in again." });
   }
 
-  if (goalDistribution.length) {
-    const goalMap = Object.fromEntries(goalDistribution.map((row) => [row.goal, Number(row.count) || 0]));
-    const weightLossGoalCount = goalMap["Lose Weight"] || 0;
-    if (weightLossGoalCount > 0) {
-      insights.push({
-        type: "focus",
-        title: "Weight-loss goal concentration",
-        detail: `${weightLossGoalCount} active members are pursuing a weight-loss goal. Recommend reviewing weekly consistency, recovery, and strength-preserving intensity where progress stalls.`,
-      });
-    }
-  }
+  try {
+    const result = await pool.query(`
+      SELECT
+        u.user_id,
+        u.fitness_goal,
+        COALESCE(latest_progress.weight, u.weight) AS latest_weight,
+        previous_progress.weight AS previous_weight,
+        latest_progress.log_date AS latest_log_date,
+        previous_progress.log_date AS previous_log_date,
+        COALESCE(workout_activity.completed_last_week, 0)::int AS completed_last_week,
+        COALESCE(workout_activity.completed_previous_week, 0)::int AS completed_previous_week,
+        COALESCE(workout_activity.completed_last_two_weeks, 0)::int AS completed_last_two_weeks
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT weight, log_date
+        FROM progress_logs
+        WHERE user_id = u.user_id AND weight IS NOT NULL
+        ORDER BY log_date DESC, progress_id DESC
+        LIMIT 1
+      ) latest_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT weight, log_date
+        FROM progress_logs
+        WHERE user_id = u.user_id
+          AND weight IS NOT NULL
+        ORDER BY log_date DESC, progress_id DESC
+        OFFSET 1
+        LIMIT 1
+      ) previous_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (
+            WHERE ws.completed IS TRUE
+              AND ws.completed_at >= NOW() - INTERVAL '7 days'
+          )::int AS completed_last_week,
+          COUNT(*) FILTER (
+            WHERE ws.completed IS TRUE
+              AND ws.completed_at >= NOW() - INTERVAL '14 days'
+              AND ws.completed_at < NOW() - INTERVAL '7 days'
+          )::int AS completed_previous_week,
+          COUNT(*) FILTER (
+            WHERE ws.completed IS TRUE
+              AND ws.completed_at >= NOW() - INTERVAL '14 days'
+          )::int AS completed_last_two_weeks
+        FROM workout_plans wp
+        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+        WHERE wp.user_id = u.user_id
+          AND wp.approval_status = 'Approved'
+      ) workout_activity ON TRUE
+      WHERE u.trainer_id = $1
+        AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+      ORDER BY u.user_id
+    `, [trainerId]);
 
-  const latestProgress = (memberProgress || []).slice(-2);
-  if (latestProgress.length >= 2) {
-    const currentAverage = Number(latestProgress.at(-1)?.average_weight ?? 0) || 0;
-    const priorAverage = Number(latestProgress[0]?.average_weight ?? 0) || 0;
-    const delta = currentAverage - priorAverage;
-    if (Math.abs(delta) < 0.5 && currentAverage > 0) {
+    const insights = [];
+    const members = result.rows;
+    const stalledMembers = members.filter((member) => (
+      member.latest_log_date &&
+      member.previous_log_date &&
+      Date.now() - new Date(member.latest_log_date).getTime() <= 30 * 24 * 60 * 60 * 1000 &&
+      new Date(member.latest_log_date).getTime() - new Date(member.previous_log_date).getTime() >= 14 * 24 * 60 * 60 * 1000 &&
+      member.latest_weight != null &&
+      member.previous_weight != null &&
+      Number.isFinite(Number(member.latest_weight)) &&
+      Number.isFinite(Number(member.previous_weight)) &&
+      Math.abs(Number(member.latest_weight) - Number(member.previous_weight)) < 0.5
+    )).length;
+    const inactiveMembers = members.filter((member) => Number(member.completed_last_two_weeks) === 0).length;
+    const previousWeekCompletions = members.reduce((total, member) => total + Number(member.completed_previous_week || 0), 0);
+    const lastWeekCompletions = members.reduce((total, member) => total + Number(member.completed_last_week || 0), 0);
+    const weightLossMembers = members.filter((member) => /loss|lose/i.test(String(member.fitness_goal || ""))).length;
+
+    if (stalledMembers > 0) {
       insights.push({
         type: "alert",
-        title: "Possible progress plateau",
-        detail: "Recent average member weight change is flat. Use recovery check-ins and exercise-intensity adjustments to reintroduce momentum without overtraining.",
+        title: "Possible progress stagnation",
+        detail: `${stalledMembers} roster ${stalledMembers === 1 ? "member has" : "members have"} less than 0.5 kg change between their two latest weight logs. Review each member’s measurements, training load, and recovery before adjusting intensity.`,
       });
     }
-  }
 
-  const recentAttendance = (attendance || []).slice(-3).map((row) => Number(row.count) || 0);
-  if (recentAttendance.length && recentAttendance.every((count) => count <= 2)) {
-    insights.push({
-      type: "alert",
-      title: "Low consistency trend",
-      detail: "Session frequency has dipped to a low-efficiency baseline. Recommend shorter, higher-quality intensity blocks and reminder-based consistency nudges.",
-    });
-  }
+    if (members.length > 0 && inactiveMembers > 0) {
+      insights.push({
+        type: "alert",
+        title: "Consistency check-in needed",
+        detail: `${inactiveMembers} roster ${inactiveMembers === 1 ? "member has" : "members have"} no completed approved workout in the past 14 days. Reach out to identify barriers and agree on a manageable return schedule.`,
+      });
+    }
 
-  const recentWorkoutMonths = (monthlyWorkoutProgress || []).slice(-2);
-  if (recentWorkoutMonths.length >= 2) {
-    const lastCompleted = Number(recentWorkoutMonths.at(-1)?.completed_exercises || 0);
-    const previousCompleted = Number(recentWorkoutMonths[0]?.completed_exercises || 0);
-    if (previousCompleted > 0 && lastCompleted < previousCompleted * 0.8) {
+    if (previousWeekCompletions > 0 && lastWeekCompletions < previousWeekCompletions * 0.8) {
       insights.push({
         type: "recommendation",
-        title: "Workout adherence recovery",
-        detail: "Completion is trending down compared with the prior period. Suggest shorter but more consistent sessions and coach-led recovery plans.",
+        title: "Roster workout completion declined",
+        detail: `Your roster completed ${lastWeekCompletions} approved workouts this week, down from ${previousWeekCompletions} the week before. Consider shorter sessions, a schedule check-in, or a recovery-focused plan.`,
       });
     }
-  }
 
-  if (insights.length === 0) {
-    insights.push({
-      type: "positive",
-      title: "Healthy momentum",
-      detail: "Current performance signals steady engagement. Keep the rhythm and monitor for small weight, BMI, or consistency trends before making changes.",
-    });
-  }
+    if (weightLossMembers > 0 && insights.length < 3) {
+      insights.push({
+        type: "focus",
+        title: "Goal-focused coaching",
+        detail: `${weightLossMembers} roster ${weightLossMembers === 1 ? "member is" : "members are"} pursuing weight loss. Review progress alongside adherence and recovery; avoid making intensity changes based on weight alone.`,
+      });
+    }
 
-  return insights.slice(0, 3);
+    if (insights.length === 0) {
+      insights.push({
+        type: "positive",
+        title: "No immediate roster alerts",
+        detail: members.length
+          ? "No current stagnation or attendance decline signal was detected for your active roster. Continue reviewing individual progress and recovery."
+          : "You have no active members assigned to your roster yet.",
+      });
+    }
+
+    return res.json({ success: true, data: { roster_size: members.length, insights: insights.slice(0, 3) } });
+  } catch (err) {
+    console.error("getTrainerPrescriptiveAnalytics error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to load roster prescriptive analytics." });
+  }
 };
 
+// GET dashboard summary stats
 const getDashboardStats = async (req, res) => {
   try {
     const counts = await pool.query(`
@@ -913,14 +976,6 @@ const getAnalytics = async (req, res) => {
     const totalWorkoutPlans = await pool.query("SELECT COUNT(*) AS count FROM workout_plans");
     const totalMealPlans = await pool.query("SELECT COUNT(*) AS count FROM meal_plans");
 
-    const prescriptiveInsights = buildPrescriptiveInsights({
-      memberProgress: memberProgress.rows,
-      attendance: attendance.rows,
-      bmiDistribution: bmiDistribution.rows,
-      monthlyWorkoutProgress: monthlyWorkoutProgress.rows,
-      goalDistribution: goalDistribution.rows,
-    });
-
     res.json({
       success: true,
       data: {
@@ -941,7 +996,6 @@ const getAnalytics = async (req, res) => {
         dayAvailability: dayAvailability.rows,
         mostUsedEquipment: mostUsedEquipment.rows,
         peakMonths: memberGrowth.rows,
-        prescriptiveInsights,
       },
     });
   } catch (err) {
@@ -950,4 +1004,10 @@ const getAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getDashboardStats, getAnalytics, getTrainingPulse, sendWeeklyProgressReport };
+module.exports = {
+  getDashboardStats,
+  getAnalytics,
+  getTrainingPulse,
+  getTrainerPrescriptiveAnalytics,
+  sendWeeklyProgressReport,
+};

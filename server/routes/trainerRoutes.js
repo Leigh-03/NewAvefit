@@ -5,7 +5,11 @@ const verifyTrainer = require("../middleware/trainerAuthMiddleware");
 const { userLoginLimiter } = require("../middleware/rateLimit");
 const availabilityController = require("../controllers/trainerAvailabilityController");
 const { getCapacity, updateCapacity } = require("../controllers/coachCapacityController");
-const { getTrainingPulse } = require("../controllers/analyticsController");
+const {
+  getTrainingPulse,
+  getTrainerPrescriptiveAnalytics,
+  sendWeeklyProgressReport,
+} = require("../controllers/analyticsController");
 const {
   getTrainers, getTrainerById, createTrainer, updateTrainer, approveTrainer, rejectTrainer, deactivateTrainer, deleteTrainer, getTrainerRoster,
   loginTrainer, getMyRoster, getMyMissingWorkouts, getMyProfile, updateMyPhoto, getExerciseCatalog,
@@ -21,6 +25,9 @@ router.get("/me/training-pulse", verifyTrainer, (req, res, next) => {
   req.trainingAudience = "trainer";
   next();
 }, getTrainingPulse);
+router.get("/me/prescriptive-analytics", verifyTrainer, getTrainerPrescriptiveAnalytics);
+router.post("/me/weekly-progress-report", verifyTrainer, sendWeeklyProgressReport);
+router.post("/me/weekly-progress-report/:userId", verifyTrainer, sendWeeklyProgressReport);
 router.get("/me/members/:userId/progress", verifyTrainer, getMyMemberProgress);
 router.get("/me/profile", verifyTrainer, getMyProfile);
 router.put("/me/photo", verifyTrainer, updateMyPhoto);

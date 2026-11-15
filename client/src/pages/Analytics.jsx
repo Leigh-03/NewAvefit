@@ -4,7 +4,7 @@ import {
   LineElement, BarElement, Title, Tooltip, Legend, Filler,
 } from "chart.js";
 import { Line, Bar } from "react-chartjs-2";
-import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter, BarChart3, ChevronDown, AlertTriangle, Sparkles } from "lucide-react";
+import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter, BarChart3, ChevronDown } from "lucide-react";
 import api from "../services/api";
 import TrainingPulse from "../components/TrainingPulse";
 
@@ -222,7 +222,6 @@ export default function Analytics() {
   const mostUsedEquipment = data?.mostUsedEquipment || [];
   const peakDayValue = getPeakLabel(dayAvailability, (row) => row.day);
   const peakMonthValue = getPeakLabel(peakMonths, (row) => row.label);
-  const prescriptiveInsights = data?.prescriptiveInsights || [];
 
   const peakHoursChart = {
     labels: peakHours.map((row) => formatHour(row.hour)),
@@ -407,36 +406,6 @@ export default function Analytics() {
         ) : (
           <p className="py-8 text-center text-sm text-slate-500">No equipment has been added to the exercise catalog yet.</p>
         )}
-      </section>
-
-      <section aria-labelledby="prescriptive-insights-heading" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
-        <div className="mb-4 flex items-start gap-3">
-          <span className="grid h-11 w-11 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Sparkles size={20} /></span>
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Prescriptive analytics</p>
-            <h2 id="prescriptive-insights-heading" className="mt-1 text-lg font-black text-slate-900 dark:text-white">Recommended interventions</h2>
-          </div>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-3">
-          {prescriptiveInsights.map((insight) => (
-            <article
-              key={insight.title}
-              className={`rounded-2xl border p-4 ${
-                insight.type === "risk" || insight.type === "alert"
-                  ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100"
-                  : insight.type === "recommendation"
-                    ? "border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-400/30 dark:bg-violet-500/10 dark:text-violet-100"
-                    : "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-100"
-              }`}
-            >
-              <div className="mb-2 flex items-center gap-2 font-black">
-                <AlertTriangle size={16} />
-                {insight.title}
-              </div>
-              <p className="text-sm leading-relaxed">{insight.detail}</p>
-            </article>
-          ))}
-        </div>
       </section>
 
       <section aria-labelledby="gym-peak-heading" className="space-y-4">
