@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, Mail, Search, Sparkles, TrendingUp, Users, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Mail, Search, Sparkles, TrendingUp, Users, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 import CustomSelect from "../components/ui/CustomSelect";
@@ -370,34 +370,42 @@ export default function TrainerRosterPage() {
         )}
       </section>
 
-      <section aria-labelledby="weekly-progress-reports-heading" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 id="weekly-progress-reports-heading" className="flex items-center gap-2 text-lg font-bold text-slate-900 dark:text-white"><Mail size={19} className="text-orange-500" /> Weekly progress reports</h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Send recent measurements and completed workout summaries to members assigned to your roster.</p>
+      <details className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <summary className="flex cursor-pointer list-none items-center gap-3 text-lg font-bold text-slate-900 marker:hidden dark:text-white">
+          <Mail size={19} className="shrink-0 text-orange-500" />
+          <span>Weekly progress reports</span>
+          <ChevronDown size={18} className="ml-auto shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+          <span className="sr-only">Toggle weekly progress reports</span>
+        </summary>
+        <section aria-labelledby="weekly-progress-reports-heading" className="mt-4 border-t border-slate-200 pt-4 dark:border-white/10">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 id="weekly-progress-reports-heading" className="text-lg font-bold text-slate-900 dark:text-white">Send weekly progress reports</h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Send recent measurements and completed workout summaries to members assigned to your roster.</p>
+            </div>
+            <button type="button" onClick={sendAllMemberReports} disabled={sendingAllReports || sendingReportMemberId !== null || !members.length} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60">
+              <Mail size={15} /> {sendingAllReports ? "Sending reports..." : "Send to my roster"}
+            </button>
           </div>
-          <button type="button" onClick={sendAllMemberReports} disabled={sendingAllReports || sendingReportMemberId !== null || !members.length} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60">
-            <Mail size={15} /> {sendingAllReports ? "Sending reports..." : "Send to my roster"}
-          </button>
-        </div>
-        {reportNotice.message && <p role="status" aria-live="polite" className="mb-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200">{reportNotice.message}</p>}
-        {reportNotice.error && <p role="alert" className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{reportNotice.error}</p>}
-        {members.length ? (
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {members.map((member) => (
-              <div key={member.user_id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-white/10">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{member.first_name} {member.last_name}</p>
-                  <p className="truncate text-xs text-slate-500">{member.email}</p>
+          {reportNotice.message && <p role="status" aria-live="polite" className="mb-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200">{reportNotice.message}</p>}
+          {reportNotice.error && <p role="alert" className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{reportNotice.error}</p>}
+          {members.length ? (
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {members.map((member) => (
+                <div key={member.user_id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-white/10">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{member.first_name} {member.last_name}</p>
+                    <p className="truncate text-xs text-slate-500">{member.email}</p>
+                  </div>
+                  <button type="button" onClick={() => sendMemberReport(member)} disabled={sendingReportMemberId !== null || sendingAllReports || sentReportMemberIds.has(Number(member.user_id))} aria-label={sentReportMemberIds.has(Number(member.user_id)) ? `Weekly progress report sent to ${member.first_name} ${member.last_name}` : `Send weekly progress report to ${member.first_name} ${member.last_name}`} className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${sentReportMemberIds.has(Number(member.user_id)) ? "bg-green-700" : "bg-orange-600 hover:bg-orange-700"}`}>
+                    {sendingReportMemberId === member.user_id ? <><Mail size={14} /> Sending...</> : sentReportMemberIds.has(Number(member.user_id)) ? <><Check size={14} /> Sent</> : <><Mail size={14} /> Send</>}
+                  </button>
                 </div>
-                <button type="button" onClick={() => sendMemberReport(member)} disabled={sendingReportMemberId !== null || sendingAllReports || sentReportMemberIds.has(Number(member.user_id))} aria-label={sentReportMemberIds.has(Number(member.user_id)) ? `Weekly progress report sent to ${member.first_name} ${member.last_name}` : `Send weekly progress report to ${member.first_name} ${member.last_name}`} className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${sentReportMemberIds.has(Number(member.user_id)) ? "bg-green-700" : "bg-orange-600 hover:bg-orange-700"}`}>
-                  {sendingReportMemberId === member.user_id ? <><Mail size={14} /> Sending...</> : sentReportMemberIds.has(Number(member.user_id)) ? <><Check size={14} /> Sent</> : <><Mail size={14} /> Send</>}
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-white/[0.04]">No active members are currently assigned to your roster.</p>}
-      </section>
+              ))}
+            </div>
+          ) : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-white/[0.04]">No active members are currently assigned to your roster.</p>}
+        </section>
+      </details>
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
