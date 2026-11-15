@@ -350,6 +350,80 @@ const sendWeeklyProgressReport = async (req, res) => {
 };
 
 // GET dashboard summary stats
+const buildPrescriptiveInsights = ({ memberProgress = [], attendance = [], bmiDistribution = [], monthlyWorkoutProgress = [], goalDistribution = [] }) => {
+  const insights = [];
+
+  const bmiCounts = Object.fromEntries((bmiDistribution || []).map((row) => [row.category, Number(row.count) || 0]));
+  const totalBmiMembers = Object.values(bmiCounts).reduce((sum, count) => sum + count, 0) || 1;
+  const elevatedBmiShare = (((bmiCounts.Overweight || 0) + (bmiCounts.Obese || 0)) / totalBmiMembers) * 100;
+
+  if (elevatedBmiShare >= 35) {
+    insights.push({
+      type: "risk",
+      title: "Higher BMI risk cluster",
+      detail: `${elevatedBmiShare.toFixed(0)}% of active members are in the overweight or obese range. Prioritize nutrition planning and gradual intensity adjustments to support sustainable weight loss.`,
+    });
+  }
+
+  if (goalDistribution.length) {
+    const goalMap = Object.fromEntries(goalDistribution.map((row) => [row.goal, Number(row.count) || 0]));
+    const weightLossGoalCount = goalMap["Lose Weight"] || 0;
+    if (weightLossGoalCount > 0) {
+      insights.push({
+        type: "focus",
+        title: "Weight-loss goal concentration",
+        detail: `${weightLossGoalCount} active members are pursuing a weight-loss goal. Recommend reviewing weekly consistency, recovery, and strength-preserving intensity where progress stalls.`,
+      });
+    }
+  }
+
+  const latestProgress = (memberProgress || []).slice(-2);
+  if (latestProgress.length >= 2) {
+    const currentAverage = Number(latestProgress.at(-1)?.average_weight ?? 0) || 0;
+    const priorAverage = Number(latestProgress[0]?.average_weight ?? 0) || 0;
+    const delta = currentAverage - priorAverage;
+    if (Math.abs(delta) < 0.5 && currentAverage > 0) {
+      insights.push({
+        type: "alert",
+        title: "Possible progress plateau",
+        detail: "Recent average member weight change is flat. Use recovery check-ins and exercise-intensity adjustments to reintroduce momentum without overtraining.",
+      });
+    }
+  }
+
+  const recentAttendance = (attendance || []).slice(-3).map((row) => Number(row.count) || 0);
+  if (recentAttendance.length && recentAttendance.every((count) => count <= 2)) {
+    insights.push({
+      type: "alert",
+      title: "Low consistency trend",
+      detail: "Session frequency has dipped to a low-efficiency baseline. Recommend shorter, higher-quality intensity blocks and reminder-based consistency nudges.",
+    });
+  }
+
+  const recentWorkoutMonths = (monthlyWorkoutProgress || []).slice(-2);
+  if (recentWorkoutMonths.length >= 2) {
+    const lastCompleted = Number(recentWorkoutMonths.at(-1)?.completed_exercises || 0);
+    const previousCompleted = Number(recentWorkoutMonths[0]?.completed_exercises || 0);
+    if (previousCompleted > 0 && lastCompleted < previousCompleted * 0.8) {
+      insights.push({
+        type: "recommendation",
+        title: "Workout adherence recovery",
+        detail: "Completion is trending down compared with the prior period. Suggest shorter but more consistent sessions and coach-led recovery plans.",
+      });
+    }
+  }
+
+  if (insights.length === 0) {
+    insights.push({
+      type: "positive",
+      title: "Healthy momentum",
+      detail: "Current performance signals steady engagement. Keep the rhythm and monitor for small weight, BMI, or consistency trends before making changes.",
+    });
+  }
+
+  return insights.slice(0, 3);
+};
+
 const getDashboardStats = async (req, res) => {
   try {
     const counts = await pool.query(`
@@ -839,6 +913,14 @@ const getAnalytics = async (req, res) => {
     const totalWorkoutPlans = await pool.query("SELECT COUNT(*) AS count FROM workout_plans");
     const totalMealPlans = await pool.query("SELECT COUNT(*) AS count FROM meal_plans");
 
+    const prescriptiveInsights = buildPrescriptiveInsights({
+      memberProgress: memberProgress.rows,
+      attendance: attendance.rows,
+      bmiDistribution: bmiDistribution.rows,
+      monthlyWorkoutProgress: monthlyWorkoutProgress.rows,
+      goalDistribution: goalDistribution.rows,
+    });
+
     res.json({
       success: true,
       data: {
@@ -859,6 +941,7 @@ const getAnalytics = async (req, res) => {
         dayAvailability: dayAvailability.rows,
         mostUsedEquipment: mostUsedEquipment.rows,
         peakMonths: memberGrowth.rows,
+        prescriptiveInsights,
       },
     });
   } catch (err) {
