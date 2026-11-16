@@ -11,7 +11,7 @@ import {
   Filler,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
-import { Activity, CalendarDays, HeartPulse, Scale, TrendingUp, AlertTriangle, Sparkles } from "lucide-react";
+import { Activity, CalendarDays, HeartPulse, Scale, TrendingUp } from "lucide-react";
 import userApi from "../userApi";
 import TrainingPulse from "../components/TrainingPulse";
 
@@ -133,53 +133,6 @@ export default function UserAnalytics() {
     },
   };
 
-  const prescriptiveInsights = useMemo(() => {
-    const insights = [];
-
-    if (metrics.workoutCompletionRate != null && metrics.workoutCompletionRate < 60) {
-      insights.push({
-        type: "alert",
-        title: "Consistency alert",
-        detail: `Your workout completion rate is ${metrics.workoutCompletionRate}%. Building a shorter but more frequent routine can improve adherence before increasing intensity.`,
-      });
-    }
-
-    if (metrics.latestWeight != null && metrics.baselineWeight != null) {
-      const weightChange = metrics.latestWeight - metrics.baselineWeight;
-      if (Math.abs(weightChange) < 0.5 && sessions.length >= 2) {
-        insights.push({
-          type: "risk",
-          title: "Possible plateau",
-          detail: "Your recent weight trend has been flat. Consider shifting to a more structured progressive overload or adjusting the intensity of your next training block.",
-        });
-      }
-    }
-
-    if (profile?.fitness_goal === "Weight Loss" && metrics.currentBmi != null && metrics.currentBmi >= 25) {
-      insights.push({
-        type: "recommendation",
-        title: "Fat-loss focus",
-        detail: "Your BMI is still in the higher range for your goal. Focus on volume consistency, calorie control, and steady effort rather than sudden intensity jumps.",
-      });
-    } else if (profile?.fitness_goal === "Gain Weight" && metrics.currentBmi != null && metrics.currentBmi < 18.5) {
-      insights.push({
-        type: "recommendation",
-        title: "Muscle-building strategy",
-        detail: "Your BMI is below the healthy range for your goal. Prioritize adequate recovery, quality food intake, and gradual overload rather than exhausting every session.",
-      });
-    }
-
-    if (insights.length === 0) {
-      insights.push({
-        type: "positive",
-        title: "Healthy momentum",
-        detail: "Your progress data suggests a stable pattern. Keep tracking, protect recovery, and make changes only if your trend slows for two to three weeks.",
-      });
-    }
-
-    return insights.slice(0, 3);
-  }, [metrics, profile, sessions]);
-
   const recommendations = [
     profile?.fitness_goal
       ? `Keep logging progress and completed sessions to compare actual results with your ${profile.fitness_goal.toLowerCase()} goal.`
@@ -243,33 +196,6 @@ export default function UserAnalytics() {
             {metrics.baselineBmi != null && metrics.currentBmi != null && (
               <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">BMI comparison: baseline {metrics.baselineBmi.toFixed(1)} → current {metrics.currentBmi.toFixed(1)}.</p>
             )}
-          </section>
-
-          <section aria-labelledby="prescriptive-insights-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Sparkles size={18} /></div>
-              <h2 id="prescriptive-insights-title" className="text-lg font-bold">Prescriptive analytics</h2>
-            </div>
-            <div className="grid gap-3 lg:grid-cols-3">
-              {prescriptiveInsights.map((insight) => (
-                <article
-                  key={insight.title}
-                  className={`rounded-2xl border p-4 ${
-                    insight.type === "alert" || insight.type === "risk"
-                      ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100"
-                      : insight.type === "recommendation"
-                        ? "border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-400/30 dark:bg-violet-500/10 dark:text-violet-100"
-                        : "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-100"
-                  }`}
-                >
-                  <div className="mb-2 flex items-center gap-2 font-black">
-                    <AlertTriangle size={16} />
-                    {insight.title}
-                  </div>
-                  <p className="text-sm leading-relaxed">{insight.detail}</p>
-                </article>
-              ))}
-            </div>
           </section>
 
           <section aria-labelledby="recommendations-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">

@@ -249,13 +249,6 @@ export default function ProgressPage() {
     });
   };
 
-  const todayDateKey = philippinesDateString();
-  const hasWorkoutToday = sessions.some((session) => {
-    const sessionDate = philippinesDateKey(session.session_date);
-    if (!sessionDate || sessionDate !== todayDateKey) return false;
-    return true;
-  });
-
   const handleLogProgress = async () => {
     const w = Number(logForm.weight);
     if (!logForm.weight || !Number.isFinite(w) || w < 20 || w > 200) {
@@ -265,11 +258,8 @@ export default function ProgressPage() {
     setLogError("");
     setLogging(true);
     try {
-      await userApi.post("/progress", {
-        ...logForm,
-        entry_context: hasWorkoutToday ? "workout" : "rest_day",
-      });
-      setLogMsg(hasWorkoutToday ? "Progress logged and paired with a workout." : "Progress logged as a rest-day check-in.");
+      await userApi.post("/progress", logForm);
+      setLogMsg("Progress logged!");
       setLogForm({ weight: "", bmi: "" });
       await fetchProgress();
       setTimeout(() => setLogMsg(""), 3000);
@@ -696,13 +686,6 @@ export default function ProgressPage() {
         <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
           <h2 className="font-bold text-slate-900 dark:text-white mb-1">Log today's progress</h2>
           <p className="mb-4 text-xs text-slate-500">Regular check-ins help you understand your progress over time.</p>
-
-          <div className={`mb-4 rounded-xl border px-3 py-2 text-sm ${hasWorkoutToday ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200" : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"}`}>
-            {hasWorkoutToday
-              ? "A workout is scheduled or recorded for today. Pairing your body metrics with an exercise session gives the strongest progress signal."
-              : "No workout was detected for today. This is still a valid rest-day check-in, but pairing your progress with a completed session will give the clearest trend data."}
-          </div>
-
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label className="block text-xs text-slate-500 mb-1">Weight (kg)</label>
@@ -725,7 +708,7 @@ export default function ProgressPage() {
           {logError && <p role="alert" className="text-red-500 text-sm mb-2">{logError}</p>}
           <button onClick={handleLogProgress} disabled={logging || !logForm.weight}
             className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition text-sm">
-            {logging ? "Logging..." : hasWorkoutToday ? "Log workout-linked progress" : "Log rest-day progress"}
+            {logging ? "Logging..." : "Log Progress"}
           </button>
         </div>
 
