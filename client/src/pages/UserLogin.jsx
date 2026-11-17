@@ -44,7 +44,6 @@ function getSignupValidationError(form) {
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) {
     return "Enter a valid email address, such as name@example.com.";
   }
-  if (!phone) return "Enter your phone number.";
   if (phone && !/^09\d{9}$/.test(phone)) {
     return "Phone number must start with 09 and contain exactly 11 digits.";
   }
@@ -523,16 +522,14 @@ const switchTab = (next) => {
               />
 
               <Field
-                label="Phone number"
+                label="Phone number (optional)"
                 htmlFor="signup-phone"
                 type="tel"
                 inputMode="numeric"
                 autoComplete="tel"
-                minLength={11}
                 maxLength={11}
                 pattern="09[0-9]{9}"
-                placeholder="XXXXXXXXX"
-                required
+                placeholder="09XXXXXXXXX"
                 value={signupForm.phone}
                 onChange={(e) => {
                   const digits = e.target.value.replace(/\D/g, "").slice(0, 11);

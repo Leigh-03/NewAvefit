@@ -48,6 +48,7 @@ const getAdminSidebarCounts = async (req, res) => {
            WHERE audience_type = 'admin'
              AND recipient_id = $1
              AND is_read = false
+             AND COALESCE(notification_type, '') <> 'membership'
          ) AS notifications`,
       [req.admin.admin_id]
     );

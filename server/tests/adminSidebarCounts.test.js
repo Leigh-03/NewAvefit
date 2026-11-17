@@ -51,5 +51,6 @@ test("returns admin attention counts from the authenticated admin's records", as
   assert.match(queryText, /user_membership_term_requests/);
   assert.match(queryText, /equipment_inventory/);
   assert.match(queryText, /app_notifications/);
+  assert.match(queryText, /COALESCE\(notification_type, ''\) <> 'membership'/);
   assert.deepEqual(queryValues, [19]);
 });

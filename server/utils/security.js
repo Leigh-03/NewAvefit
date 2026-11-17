@@ -47,7 +47,8 @@ function validateRegistration({ first_name, last_name, email, password, phone })
     return 'First and last name must be 2-50 characters and contain letters, spaces, apostrophes, or hyphens.';
   }
   if (!validateEmail(email)) return 'Please provide a valid email address.';
-  if (typeof phone !== 'string' || !/^09\d{9}$/.test(phone)) {
+  if (phone !== undefined && phone !== null && String(phone).trim() !== '' &&
+      !validatePhilippinePhone(String(phone).trim())) {
     return 'Phone number must start with 09 and contain exactly 11 digits.';
   }
   if (!validatePassword(password)) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck, TrendingUp, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck, TrendingUp, AlertTriangle, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import api from "../services/api";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import CustomSelect from "../components/ui/CustomSelect";
@@ -72,6 +72,61 @@ function getBMICategory(bmi) {
   return { label: "Obese", color: "text-red-500" };
 }
 const formatFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEKDAY_ABBREVIATIONS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const getWeekdayIndex = (day) => {
+  if (day === null || day === undefined || String(day).trim() === "") return null;
+  const value = String(day).trim();
+  if (/^\d+$/.test(value)) {
+    const index = Number(value);
+    return index >= 0 && index < WEEKDAY_NAMES.length ? index : null;
+  }
+  const index = WEEKDAY_NAMES.findIndex((weekday) => weekday.toLowerCase() === value.toLowerCase());
+  return index < 0 ? null : index;
+};
+
+const getCoachAvailabilityDisplay = (availability) => {
+  const slots = (Array.isArray(availability) ? availability : [])
+    .map((slot, index) => {
+      const dayIndex = getWeekdayIndex(slot.day_of_week);
+      return {
+        ...slot,
+        dayIndex,
+        dayName: dayIndex === null ? "Day not set" : WEEKDAY_NAMES[dayIndex],
+        timeRange: formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set",
+        key: `${slot.day_of_week}-${slot.start_time}-${slot.end_time}-${index}`,
+      };
+    })
+    .sort((left, right) =>
+      (left.dayIndex ?? WEEKDAY_NAMES.length) - (right.dayIndex ?? WEEKDAY_NAMES.length) ||
+      String(left.start_time || "").localeCompare(String(right.start_time || ""))
+    );
+  const groups = new Map();
+
+  slots.forEach((slot) => {
+    if (slot.dayIndex === null) return;
+    const key = `${slot.start_time || ""}-${slot.end_time || ""}`;
+    if (!groups.has(key)) {
+      groups.set(key, { start_time: slot.start_time, end_time: slot.end_time, days: new Set() });
+    }
+    groups.get(key).days.add(slot.dayIndex);
+  });
+
+  const groupedSlots = [...groups.values()];
+  const summary = groupedSlots.slice(0, 2).map((group) => {
+    const days = [...group.days].sort((left, right) => left - right);
+    const dayLabel = days.length === WEEKDAY_NAMES.length
+      ? "Every day"
+      : days.map((day) => WEEKDAY_ABBREVIATIONS[day]).join(", ");
+    const timeRange = formatWorkoutTimeRange(group.start_time, group.end_time) || "Time not set";
+    return `${dayLabel} · ${timeRange}`;
+  });
+
+  if (groupedSlots.length > 2) summary.push(`+${groupedSlots.length - 2} more`);
+  return { slots, summary: summary.join(" · ") || "No schedule set" };
+};
 
 const getManilaToday = () => {
   const parts = new Intl.DateTimeFormat("en", {
@@ -392,39 +447,72 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                   const capacity = Number(coach.max_members) || 0;
                   const assigned = Number(coach.assigned_member_count) || 0;
                   const selected = String(selectedTrainer) === String(coach.trainer_id);
+                  const specializations = Array.isArray(coach.specializations)
+                    ? coach.specializations.filter(Boolean)
+                    : typeof coach.specializations === "string"
+                      ? coach.specializations.split(",").map((item) => item.trim()).filter(Boolean)
+                      : [];
+                  const availability = getCoachAvailabilityDisplay(coach.availability);
                   return (
-                    <button
+                    <article
                       key={coach.trainer_id}
-                      type="button"
-                      onClick={() => setSelectedTrainer(String(coach.trainer_id))}
-                      disabled={!canEditMembershipAndCoach || recommendationsLoading}
-                      aria-pressed={selected}
-                      className={`rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 ${selected ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10" : "border-slate-200 bg-white hover:border-orange-300 dark:border-slate-700 dark:bg-[#111]"}`}
+                      className={`overflow-hidden rounded-xl border transition ${selected ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-[#111]"}`}
                     >
-                      <div className="flex items-center gap-3">
-                        {coach.photo_url ? <img src={coach.photo_url} alt="" className="h-11 w-11 rounded-full bg-black object-contain" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300"><UserRound size={20}/></div>}
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{coach.full_name}</p>
-                          <p className="truncate text-xs text-orange-600 dark:text-orange-400">{coach.goal_specialty || "General Fitness"}</p>
-                          {coach.specializations?.length > 0 && <p className="mt-1 line-clamp-1 text-[11px] text-slate-600 dark:text-slate-300">{Array.isArray(coach.specializations) ? coach.specializations.join(", ") : coach.specializations}</p>}
-                          <p className="mt-1 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">{coach.bio || "No coach bio provided."}</p>
-                          <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">{coach.email}{coach.phone ? ` · ${coach.phone}` : ""}</p>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTrainer(String(coach.trainer_id))}
+                        disabled={!canEditMembershipAndCoach || recommendationsLoading}
+                        aria-pressed={selected}
+                        className="block w-full p-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-white/[0.03]"
+                      >
+                        <div className="flex items-center gap-3">
+                          {coach.photo_url ? <img src={coach.photo_url} alt="" className="h-11 w-11 shrink-0 rounded-full bg-black object-contain" /> : <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300"><UserRound size={20}/></div>}
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{coach.full_name}</p>
+                            <p className="truncate text-xs text-orange-600 dark:text-orange-400">{coach.goal_specialty || "General Fitness"}</p>
+                            {specializations.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {specializations.slice(0, 2).map((specialization) => (
+                                  <span key={specialization} className="max-w-full truncate rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-800 dark:bg-orange-500/15 dark:text-orange-300">
+                                    {specialization}
+                                  </span>
+                                ))}
+                                {specializations.length > 2 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-white/10 dark:text-slate-300">+{specializations.length - 2} more</span>}
+                              </div>
+                            )}
+                            <p className="mt-1 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">{coach.bio || "No coach bio provided."}</p>
+                            <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">{coach.email}{coach.phone ? ` · ${coach.phone}` : ""}</p>
+                          </div>
+                          {selected && <CheckCircle size={18} className="shrink-0 text-orange-500" aria-label="Selected" />}
                         </div>
-                        {selected && <CheckCircle size={18} className="shrink-0 text-orange-500" aria-label="Selected" />}
-                      </div>
-                      <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
-                        <span>{assigned}/{capacity} members · {Math.max(capacity - assigned, 0)} slots remaining</span>
-                        <span>{coach.capacity_status || (Number(coach.capacity_percent) >= 80 ? "Near Capacity" : "Active")}</span>
-                      </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
-                        <span className="block h-full rounded-full bg-orange-500" style={{ width: `${Math.min(Number(coach.capacity_percent) || 0, 100)}%` }} />
-                      </div>
-                      <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                        Availability: {coach.availability?.length
-                          ? coach.availability.map((slot) => `${slot.day_of_week} ${formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"}`).join(" · ")
-                          : "No schedule set"}
-                      </p>
-                    </button>
+                        <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                          <span>{assigned}/{capacity} members · {Math.max(capacity - assigned, 0)} slots remaining</span>
+                          <span>{coach.capacity_status || (Number(coach.capacity_percent) >= 80 ? "Near Capacity" : "Active")}</span>
+                        </div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+                          <span className="block h-full rounded-full bg-orange-500" style={{ width: `${Math.min(Number(coach.capacity_percent) || 0, 100)}%` }} />
+                        </div>
+                        <p title={availability.summary} className="mt-2 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">
+                          <span className="font-semibold">Availability:</span> {availability.summary}
+                        </p>
+                      </button>
+                      {availability.slots.length > 0 && (
+                        <details className="group border-t border-slate-200 px-3 dark:border-slate-700">
+                          <summary className="flex cursor-pointer list-none items-center gap-2 py-2 text-[11px] font-semibold text-orange-700 marker:hidden dark:text-orange-300">
+                            <span>View full schedule</span>
+                            <ChevronDown size={14} className="ml-auto shrink-0 transition-transform group-open:rotate-180" />
+                          </summary>
+                          <ul className="space-y-1 pb-3 text-[11px] text-slate-600 dark:text-slate-300">
+                            {availability.slots.map((slot) => (
+                              <li key={slot.key} className="flex justify-between gap-3">
+                                <span>{slot.dayName}</span>
+                                <span className="text-right">{slot.timeRange}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </article>
                   );
                 })}
               </div>
