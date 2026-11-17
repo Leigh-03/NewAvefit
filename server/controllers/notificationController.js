@@ -7,6 +7,7 @@ const getNotifications = async (req, res) => {
               related_user_name AS user_name, target_url
        FROM app_notifications
        WHERE audience_type = $1 AND recipient_id = $2
+         AND NOT (audience_type = 'admin' AND notification_type = 'membership')
        ORDER BY created_at DESC
        LIMIT 100`,
       [req.notificationAudience, req.notificationRecipientId]
@@ -22,7 +23,8 @@ const getUnreadCount = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT COUNT(*) AS count FROM app_notifications
-       WHERE audience_type = $1 AND recipient_id = $2 AND is_read = false`,
+       WHERE audience_type = $1 AND recipient_id = $2 AND is_read = false
+         AND NOT (audience_type = 'admin' AND notification_type = 'membership')`,
       [req.notificationAudience, req.notificationRecipientId]
     );
     res.json({ success: true, count: Number(result.rows[0].count) });

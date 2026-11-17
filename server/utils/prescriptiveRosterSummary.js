@@ -1,19 +1,21 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const getStalledMembers = (members, now = Date.now()) => members.filter((member) => {
+  const latestLogTime = new Date(member.latest_log_date).getTime();
+  const previousLogTime = new Date(member.previous_log_date).getTime();
+  return member.latest_log_date &&
+    member.previous_log_date &&
+    now - latestLogTime <= 30 * DAY_MS &&
+    latestLogTime - previousLogTime >= 14 * DAY_MS &&
+    member.latest_weight != null &&
+    member.previous_weight != null &&
+    Number.isFinite(Number(member.latest_weight)) &&
+    Number.isFinite(Number(member.previous_weight)) &&
+    Math.abs(Number(member.latest_weight) - Number(member.previous_weight)) < 0.5;
+});
+
 const buildPrescriptiveRosterSummary = (members, now = Date.now()) => {
-  const stalledMemberCount = members.filter((member) => {
-    const latestLogTime = new Date(member.latest_log_date).getTime();
-    const previousLogTime = new Date(member.previous_log_date).getTime();
-    return member.latest_log_date &&
-      member.previous_log_date &&
-      now - latestLogTime <= 30 * DAY_MS &&
-      latestLogTime - previousLogTime >= 14 * DAY_MS &&
-      member.latest_weight != null &&
-      member.previous_weight != null &&
-      Number.isFinite(Number(member.latest_weight)) &&
-      Number.isFinite(Number(member.previous_weight)) &&
-      Math.abs(Number(member.latest_weight) - Number(member.previous_weight)) < 0.5;
-  }).length;
+  const stalledMemberCount = getStalledMembers(members, now).length;
   const inactiveMemberCount = members.filter((member) => (
     Number(member.completed_last_two_weeks) === 0
   )).length;
@@ -39,4 +41,4 @@ const buildPrescriptiveRosterSummary = (members, now = Date.now()) => {
   };
 };
 
-module.exports = { buildPrescriptiveRosterSummary };
+module.exports = { buildPrescriptiveRosterSummary, getStalledMembers };

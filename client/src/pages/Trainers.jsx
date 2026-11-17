@@ -926,7 +926,7 @@ export default function Trainers() {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
+      <div className="admin-trainers-table-container overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
         {loading ? (
           <div className="p-8 space-y-3">
             {[...Array(4)].map((_, i) => (
@@ -934,7 +934,16 @@ export default function Trainers() {
             ))}
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="admin-trainers-table w-full text-sm">
+            <colgroup>
+              <col />
+              <col />
+              <col />
+              <col />
+              <col />
+              <col />
+              <col />
+            </colgroup>
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Coach</th>
@@ -961,13 +970,13 @@ export default function Trainers() {
                     className="cursor-pointer transition-colors hover:bg-slate-50"
                   >
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-orange-500 font-bold text-sm flex-shrink-0 overflow-hidden border-2 border-orange-500/20">
                           {trainer.photo_url ? <img src={trainer.photo_url} alt={trainer.full_name} className="w-full h-full object-cover" /> : trainer.full_name?.charAt(0)}
                         </div>
-                        <div>
-                          <p className="font-semibold text-slate-800">{trainer.full_name}</p>
-                          <p className="text-slate-400 text-xs">{trainer.email}</p>
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold text-slate-800">{trainer.full_name}</p>
+                          <p className="truncate text-slate-400 text-xs">{trainer.email}</p>
                         </div>
                       </div>
                     </td>
@@ -1029,7 +1038,7 @@ export default function Trainers() {
                           aria-label={`View ${trainer.full_name}'s coach profile`}
                         >
                           <UserCircle size={16} />
-                          <span className="text-xs font-semibold">Profile</span>
+                          <span className="hidden text-xs font-semibold sm:inline">Profile</span>
                         </button>
                         <button
                           onClick={() => setRosterTrainer(trainer)}

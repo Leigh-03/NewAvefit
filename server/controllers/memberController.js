@@ -1,41 +1,18 @@
 const pool = require("../db");
-const { createNotification, notifyAdmins } = require("../utils/notifications");
+const { createNotification } = require("../utils/notifications");
 const { validateAge } = require("../utils/security");
 const {
   sendCoachAssignmentEmail,
   sendCoachCapacityStatusEmail,
   sendUserCoachAssignedEmail,
   sendMemberAccountDecisionEmail,
-  isMailConfigured,
-  sendMail,
 } = require("../utils/mailer");
 const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
-const { getConfiguredAdminEmail } = require("../utils/adminAccess");
 
 const MEMBERSHIP_TERMS = [1, 3, 6, 12];
 
-const sendMembershipTermRequestEmail = async (member, months) => {
-  const adminEmail = getConfiguredAdminEmail();
-  if (!adminEmail) {
-    console.error("Membership term request email was not sent because ADMIN_EMAIL is not configured.");
-    return false;
-  }
-  if (!isMailConfigured()) {
-    console.error("Membership term request email was not sent because SMTP is not configured.");
-    return false;
-  }
-  const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || "A member";
-  await sendMail({
-    to: adminEmail,
-    subject: "Membership term approval requested",
-    text: `${memberName} (${member.email}) requested a ${months}-month membership term. Review this request in the AveFit admin Members page.`,
-  });
-  return true;
-};
-
 const requiredMemberFields = [
-  ["phone", "phone number"],
   ["gender", "gender"],
   ["age", "age"],
   ["height", "height"],
@@ -856,20 +833,6 @@ const submitMembershipTermRequest = async (req, res) => {
        RETURNING request_id, membership_months, status, created_at`,
       [member.user_id, months]
     );
-    const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || member.email;
-    await notifyAdmins({
-      message: `${memberName} requested a ${months}-month membership term for approval.`,
-      notificationType: "membership",
-      userName: memberName,
-      targetUrl: "/admin/members",
-    }).catch((error) => console.error("Membership request admin notification failed:", error.message));
-
-    try {
-      await sendMembershipTermRequestEmail(member, months);
-    } catch (error) {
-      console.error("Membership term request email failed:", error.message);
-    }
-
     return res.status(201).json({ success: true, data: result.rows[0] });
   } catch (error) {
     console.error("submitMembershipTermRequest error:", error.message);

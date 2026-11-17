@@ -1363,6 +1363,7 @@ const getMyRoster = async (req, res) => {
         u.workout_duration,
         u.membership_start_date,
         u.membership_end_date,
+        u.created_at AS joined_at,
         t.full_name AS coach_name,
         CASE
           WHEN u.membership_start_date IS NULL OR u.membership_end_date IS NULL THEN 'Not set'
@@ -1441,7 +1442,7 @@ const getMyRoster = async (req, res) => {
       ) user_availability ON true
       WHERE u.trainer_id = $1
         AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
-      ORDER BY u.first_name ASC
+      ORDER BY u.created_at DESC NULLS LAST, u.first_name ASC, u.last_name ASC
       `,
       [req.trainer.trainer_id]
     );
@@ -1661,7 +1662,8 @@ const getMyWorkoutPlans = async (req, res) => {
       ) plan_sessions ON true
       WHERE wp.trainer_id = $1
         AND (u.user_id IS NULL OR u.trainer_id = $1)
-      ORDER BY wp.created_at DESC, wp.workout_plan_id DESC
+      ORDER BY COALESCE(plan_sessions.scheduled_date, wp.requested_session_date::text) DESC NULLS LAST,
+        wp.created_at DESC, wp.workout_plan_id DESC
       `,
       [req.trainer.trainer_id]
     );

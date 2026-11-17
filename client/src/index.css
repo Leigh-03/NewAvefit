@@ -1,6 +1,98 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
+table.min-w-\[1080px\] th:nth-child(8),
+.admin-trainers-table th:nth-child(7) {
+  text-align: right;
+}
+
+table.min-w-\[1080px\] td:nth-child(8) > div,
+.admin-trainers-table td:nth-child(7) > div {
+  justify-content: flex-end;
+}
+
+@media (max-width: 1279px) {
+  table.min-w-\[1080px\] {
+    min-width: 0 !important;
+  }
+
+  table.min-w-\[1080px\] col:nth-child(1) { width: 55% !important; }
+  table.min-w-\[1080px\] col:nth-child(5) { width: 22% !important; }
+  table.min-w-\[1080px\] col:nth-child(8) { width: 23% !important; }
+  table.min-w-\[1080px\] col:nth-child(2),
+  table.min-w-\[1080px\] col:nth-child(3),
+  table.min-w-\[1080px\] col:nth-child(4),
+  table.min-w-\[1080px\] col:nth-child(6),
+  table.min-w-\[1080px\] col:nth-child(7),
+  table.min-w-\[1080px\] th:nth-child(2),
+  table.min-w-\[1080px\] td:nth-child(2),
+  table.min-w-\[1080px\] th:nth-child(3),
+  table.min-w-\[1080px\] td:nth-child(3),
+  table.min-w-\[1080px\] th:nth-child(4),
+  table.min-w-\[1080px\] td:nth-child(4),
+  table.min-w-\[1080px\] th:nth-child(6),
+  table.min-w-\[1080px\] td:nth-child(6),
+  table.min-w-\[1080px\] th:nth-child(7),
+  table.min-w-\[1080px\] td:nth-child(7) {
+    display: none;
+  }
+
+  table.min-w-\[1080px\] td:nth-child(8) > div {
+    flex-wrap: wrap;
+  }
+
+}
+
+.admin-trainers-table-container {
+  container-type: inline-size;
+}
+
+@container (max-width: 1600px) {
+  .admin-trainers-table {
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .admin-trainers-table col:nth-child(1) { width: 48%; }
+  .admin-trainers-table col:nth-child(5) { width: 24%; }
+  .admin-trainers-table col:nth-child(7) { width: 28%; }
+  .admin-trainers-table col:nth-child(2),
+  .admin-trainers-table col:nth-child(3),
+  .admin-trainers-table col:nth-child(4),
+  .admin-trainers-table col:nth-child(6) {
+    display: none;
+  }
+
+  .admin-trainers-table th,
+  .admin-trainers-table td {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+
+  .admin-trainers-table th:nth-child(1),
+  .admin-trainers-table td:nth-child(1) { width: 48%; }
+  .admin-trainers-table th:nth-child(5),
+  .admin-trainers-table td:nth-child(5) { width: 24%; }
+  .admin-trainers-table th:nth-child(7),
+  .admin-trainers-table td:nth-child(7) { width: 28%; }
+
+  .admin-trainers-table th:nth-child(2),
+  .admin-trainers-table td:nth-child(2),
+  .admin-trainers-table th:nth-child(3),
+  .admin-trainers-table td:nth-child(3),
+  .admin-trainers-table th:nth-child(4),
+  .admin-trainers-table td:nth-child(4),
+  .admin-trainers-table th:nth-child(6),
+  .admin-trainers-table td:nth-child(6) {
+    display: none;
+  }
+
+  .admin-trainers-table td:nth-child(7) > div {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+}
+
 /* =========================================================
    1. AveFit design tokens
    Palette is fixed: warm orange accent on warm white / black.

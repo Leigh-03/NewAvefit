@@ -267,6 +267,7 @@ const register = async (req, res) => {
     }
 
     const normalizedEmail = normalizeEmail(email);
+    const normalizedPhone = typeof phone === "string" && phone.trim() ? phone.trim() : null;
 
     const existing = await pool.query(
       "SELECT user_id FROM users WHERE LOWER(email) = $1",
@@ -318,7 +319,7 @@ const register = async (req, res) => {
         String(last_name).trim(),
         normalizedEmail,
         hashed,
-        phone ? String(phone).trim() : null,
+        normalizedPhone,
         accountStatus,
       ]
     );

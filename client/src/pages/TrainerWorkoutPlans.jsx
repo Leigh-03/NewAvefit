@@ -1026,7 +1026,12 @@ export default function TrainerWorkoutPlans() {
     plan.goal?.toLowerCase().includes(query) ||
     plan.member_name?.toLowerCase().includes(query)
   ).filter((plan) => statusFilter === "All" || getPlanDisplayStatuses(plan).includes(statusFilter))
-    .filter((plan) => rosterFilter === "All" || String(plan.user_id) === rosterFilter);
+    .filter((plan) => rosterFilter === "All" || String(plan.user_id) === rosterFilter)
+    .sort((planA, planB) => {
+      const dateA = Date.parse(planA.scheduled_date || planA.created_at || "") || 0;
+      const dateB = Date.parse(planB.scheduled_date || planB.created_at || "") || 0;
+      return dateB - dateA || Number(planB.workout_plan_id) - Number(planA.workout_plan_id);
+    });
   const totalPages = Math.ceil(filtered.length / 10);
   const displayedPage = Math.min(currentPage, Math.max(totalPages, 1));
   const firstVisiblePage = Math.max(1, Math.min(displayedPage - 1, totalPages - 2));

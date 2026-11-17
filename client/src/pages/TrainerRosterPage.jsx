@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from "chart.js";
 import { Bar } from "react-chartjs-2";
-import { AlertTriangle, Check, ChevronDown, Mail, Search, Sparkles, TrendingUp, Users, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Mail, Search, Sparkles, TrendingUp, Users, UserRound, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 import CustomSelect from "../components/ui/CustomSelect";
@@ -199,7 +199,7 @@ export default function TrainerRosterPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("first_name");
+  const [sortBy, setSortBy] = useState("newest");
   const [profileMember, setProfileMember] = useState(null);
   const [progressMember, setProgressMember] = useState(null);
   const [prescriptiveInsights, setPrescriptiveInsights] = useState([]);
@@ -327,9 +327,22 @@ export default function TrainerRosterPage() {
       return `${member.first_name || ""} ${member.last_name || ""} ${member.email || ""} ${member.fitness_goal || ""}`.toLowerCase().includes(query);
     })
     .sort((memberA, memberB) => {
-      const otherName = sortBy === "first_name" ? "last_name" : "first_name";
-      const primaryComparison = (memberA[sortBy] || "").localeCompare(memberB[sortBy] || "", undefined, { sensitivity: "base", numeric: true });
-      return primaryComparison || (memberA[otherName] || "").localeCompare(memberB[otherName] || "", undefined, { sensitivity: "base", numeric: true });
+      if (sortBy === "newest" || sortBy === "oldest") {
+        const joinedA = Date.parse(memberA.joined_at || "") || 0;
+        const joinedB = Date.parse(memberB.joined_at || "") || 0;
+        const dateComparison = sortBy === "newest" ? joinedB - joinedA : joinedA - joinedB;
+        if (dateComparison) return dateComparison;
+      } else {
+        const otherName = sortBy === "first_name" ? "last_name" : "first_name";
+        const primaryComparison = (memberA[sortBy] || "").localeCompare(memberB[sortBy] || "", undefined, { sensitivity: "base", numeric: true });
+        if (primaryComparison) return primaryComparison;
+        return (memberA[otherName] || "").localeCompare(memberB[otherName] || "", undefined, { sensitivity: "base", numeric: true });
+      }
+      return `${memberA.first_name || ""} ${memberA.last_name || ""}`.localeCompare(
+        `${memberB.first_name || ""} ${memberB.last_name || ""}`,
+        undefined,
+        { sensitivity: "base", numeric: true }
+      );
     });
 
   const rosterSignalRows = [
@@ -445,6 +458,37 @@ export default function TrainerRosterPage() {
                   {insight.title}
                 </h3>
                 <p className="text-sm leading-relaxed">{insight.detail}</p>
+                {insight.members?.length > 0 && (
+                  <details className="group mt-4 border-t border-current/15 pt-3">
+                    <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-bold uppercase tracking-wide marker:hidden">
+                      <span className="group-open:hidden">Show {insight.members.length} members to follow up</span>
+                      <span className="hidden group-open:inline">Hide members to follow up</span>
+                      <ChevronDown size={16} className="ml-auto shrink-0 transition-transform group-open:rotate-180" />
+                    </summary>
+                    <ul className="mt-3 space-y-2">
+                      {insight.members.map((attentionMember) => {
+                        const profile = members.find((member) => String(member.user_id) === String(attentionMember.user_id))
+                          || prescriptiveSummary?.members?.find((member) => String(member.user_id) === String(attentionMember.user_id))
+                          || attentionMember;
+                        return (
+                          <li key={attentionMember.user_id}>
+                            <button
+                              type="button"
+                              onClick={() => setProfileMember(profile)}
+                              className="w-full rounded-xl border border-current/10 bg-white/50 px-3 py-2 text-left transition hover:bg-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-500 dark:bg-black/10 dark:hover:bg-black/20"
+                            >
+                              <span className="flex items-center justify-between gap-2 text-sm font-semibold">
+                                <span>{attentionMember.first_name} {attentionMember.last_name}</span>
+                                <span className="shrink-0 text-xs font-semibold underline underline-offset-2">View profile</span>
+                              </span>
+                              <span className="mt-1 block text-xs leading-relaxed opacity-80">{attentionMember.detail}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </details>
+                )}
               </article>
             ))}
           </div>
@@ -459,6 +503,87 @@ export default function TrainerRosterPage() {
               <Bar data={rosterSignalChart} options={rosterSignalChartOptions} />
             </div>
           </div>
+        )}
+        {!prescriptiveLoading && prescriptiveSummary && (
+          <details className="group mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-slate-950/50 sm:p-5">
+            <summary className="flex cursor-pointer list-none items-center gap-3 text-slate-900 marker:hidden dark:text-white">
+              <Sparkles size={18} className="shrink-0 text-orange-500" />
+              <span className="min-w-0">
+                <span className="block text-sm font-bold">Individual member recommendations</span>
+                <span className="mt-1 block text-[11px] text-slate-500">Workout suggestions use approved plans and recorded completion history. Review profile health details before changing a plan.</span>
+              </span>
+              <ChevronDown size={18} className="ml-auto shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+              <span className="sr-only">Toggle individual member recommendations</span>
+            </summary>
+            <div className="mt-4 space-y-3">
+            {prescriptiveSummary.members?.length ? (
+              <div className="grid gap-3 xl:grid-cols-2">
+                {prescriptiveSummary.members.map((member) => {
+                  const exercises = member.today_workout_exercises || [];
+                  const bmi = calculateBmi(member.latest_weight, member.height);
+                  const rosterMember = members.find((item) => String(item.user_id) === String(member.user_id));
+                  return (
+                    <article key={member.user_id} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h4 className="truncate font-bold text-slate-900 dark:text-white">{member.first_name} {member.last_name}</h4>
+                          <p className="mt-1 text-xs text-slate-500">{formatFitnessGoal(member.fitness_goal) || "Goal not set"} · {member.activity_level || "Experience not set"}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {member.latest_weight ? `${member.latest_weight} kg` : "Weight not recorded"}
+                            {bmi ? ` · BMI ${bmi}` : ""}
+                            {member.target_weight ? ` · Target ${member.target_weight} kg` : ""}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setProfileMember(rosterMember || member)}
+                          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-orange-500/30 px-2.5 py-2 text-xs font-semibold text-orange-600 hover:bg-orange-500/10 dark:text-orange-300"
+                        >
+                          <UserRound size={14} /> View profile
+                        </button>
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Workout for today</p>
+                          {exercises.length ? (
+                            <>
+                              <p className="mt-1 text-xs text-slate-500">{member.today_workout_name || "Approved workout"}</p>
+                              <ul className="mt-2 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                                {exercises.map((exercise, index) => (
+                                  <li key={`${exercise.exercise_name || "exercise"}-${index}`}>
+                                    {exercise.exercise_name || "Exercise"} · {exercise.sets ?? "—"} sets × {exercise.reps ?? "—"} reps
+                                  </li>
+                                ))}
+                              </ul>
+                            </>
+                          ) : (
+                            <p className="mt-1 text-xs text-slate-500">No approved workout is scheduled today. Create or update a plan if training is intended.</p>
+                          )}
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Intensity adjustment</p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{member.recommendations.intensity}</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Rest & recovery</p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{member.recommendations.recovery}</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950 sm:col-span-2">
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Previous workout / performance</p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{member.recommendations.previous_performance}</p>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700">
+                No active roster members are available for individual recommendations.
+              </p>
+            )}
+            </div>
+          </details>
         )}
       </section>
 
@@ -517,10 +642,12 @@ export default function TrainerRosterPage() {
                 <CustomSelect
                   value={sortBy}
                   onChange={setSortBy}
-                  ariaLabel="Sort by member name"
+                  ariaLabel="Sort members by date"
                   options={[
-                    { value: "first_name", label: "First Name" },
-                    { value: "last_name", label: "Last Name" },
+                    { value: "newest", label: "Newest first" },
+                    { value: "oldest", label: "Oldest first" },
+                    { value: "first_name", label: "First name A–Z" },
+                    { value: "last_name", label: "Last name A–Z" },
                   ]}
                   className="min-h-12 rounded-2xl bg-white px-4 text-slate-800 dark:bg-[#111] dark:text-white"
                 />
