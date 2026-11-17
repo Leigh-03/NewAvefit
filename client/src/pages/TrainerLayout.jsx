@@ -2,14 +2,17 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Bell, CalendarClock, ClipboardList, Dumbbell, User, Users } from "lucide-react";
 import AppShell from "../components/layout/AppShell";
 import useUnreadCount from "../components/layout/useUnreadCount";
+import useSidebarPendingCount from "../components/layout/useSidebarPendingCount";
 import { useTrainerAuth } from "../context/TrainerAuthContext";
+import trainerApi from "../trainerApi";
 
 const NAV = [
   { to: "/coach/dashboard", icon: Users, label: "Dashboard" },
   { to: "/coach/roster", icon: Users, label: "My Roster" },
-  { to: "/coach/workout-plans", icon: ClipboardList, label: "Workout Plans" },
+  { to: "/coach/workout-plans", icon: ClipboardList, label: "Workout Plans", badgeKey: "workout_plans" },
   { to: "/coach/availability", icon: CalendarClock, label: "Availability" },
   { to: "/coach/exercises", icon: Dumbbell, label: "Exercises" },
+  { to: "/coach/notifications", icon: Bell, label: "Notifications", badgeKey: "notifications" },
   { to: "/coach/profile", icon: User, label: "My Profile" },
 ];
 
@@ -18,6 +21,18 @@ export default function TrainerLayout({ children }) {
   const location = useLocation();
   const { trainer, logoutTrainer } = useTrainerAuth();
   const unread = useUnreadCount(location.pathname, "trainer");
+  const pendingWorkoutPlans = useSidebarPendingCount(
+    trainerApi,
+    "/me/sidebar-counts",
+    "workout_plans",
+    location.pathname,
+    "Trainer workout plan"
+  );
+  const nav = NAV.map(({ badgeKey, ...item }) => (
+    badgeKey
+      ? { ...item, badge: badgeKey === "notifications" ? unread : pendingWorkoutPlans }
+      : item
+  ));
 
   const handleLogout = () => {
     logoutTrainer();
@@ -27,13 +42,13 @@ export default function TrainerLayout({ children }) {
   return (
     <AppShell
       portalClassName="trainer-portal"
-      nav={NAV}
+      nav={nav}
       subtitle="Coach portal"
       onLogout={handleLogout}
       actions={
         <button
           type="button"
-          onClick={() => navigate("/trainer/notifications")}
+          onClick={() => navigate("/coach/notifications")}
           aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
           className="relative grid h-10 w-10 place-items-center rounded-xl text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-white"
         >

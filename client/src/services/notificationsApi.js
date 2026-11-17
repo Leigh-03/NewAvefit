@@ -1,5 +1,6 @@
 import axios from "axios";
 import { getUserAuthToken } from "../context/userAuthStorage";
+import { notifySidebarCountsChanged } from "../utils/sidebarCountsEvents";
 
 const apiRoot = `${import.meta.env.VITE_API_URL}/api/notifications`;
 
@@ -13,6 +14,13 @@ export const createNotificationsApi = (audience) => {
         : getUserAuthToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
+  });
+  client.interceptors.response.use((response) => {
+    const method = response.config?.method?.toLowerCase();
+    if (["post", "put", "patch", "delete"].includes(method)) {
+      notifySidebarCountsChanged();
+    }
+    return response;
   });
   return client;
 };

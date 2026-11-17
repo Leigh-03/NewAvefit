@@ -25,6 +25,17 @@ const chartOptions = {
   },
 };
 
+const countChartOptions = (axisTitle) => ({
+  ...chartOptions,
+  scales: {
+    ...chartOptions.scales,
+    y: {
+      ...chartOptions.scales.y,
+      title: { display: true, text: axisTitle, color: "#737373" },
+    },
+  },
+});
+
 const weightProgressChartOptions = {
   ...chartOptions,
   scales: {
@@ -58,6 +69,9 @@ const getPeakLabel = (rows, labelForRow) => {
     .map(labelForRow)
     .join(", ");
 };
+
+const getPeakCount = (rows) => Math.max(0, ...rows.map((row) => Number(row.count) || 0));
+const formatCount = (count) => new Intl.NumberFormat().format(count);
 
 const manilaDateString = () => {
   const parts = new Intl.DateTimeFormat("en", {
@@ -218,10 +232,13 @@ export default function Analytics() {
   const peakHours = data?.peakHours || [];
   const peakMonths = data?.peakMonths || [];
   const peakHourValue = getPeakLabel(peakHours, (row) => formatHour(row.hour));
+  const peakHourCount = getPeakCount(peakHours);
   const dayAvailability = data?.dayAvailability || [];
   const mostUsedEquipment = data?.mostUsedEquipment || [];
   const peakDayValue = getPeakLabel(dayAvailability, (row) => row.day);
+  const peakDayCount = getPeakCount(dayAvailability);
   const peakMonthValue = getPeakLabel(peakMonths, (row) => row.label);
+  const peakMonthCount = getPeakCount(peakMonths);
 
   const peakHoursChart = {
     labels: peakHours.map((row) => formatHour(row.hour)),
@@ -410,24 +427,46 @@ export default function Analytics() {
 
       <section aria-labelledby="gym-peak-heading" className="space-y-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">When members train</p>
-          <h2 id="gym-peak-heading" className="mt-1 text-xl font-black text-slate-900 dark:text-white">Gym peak activity</h2>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Activity insights</p>
+          <h2 id="gym-peak-heading" className="mt-1 text-xl font-black text-slate-900 dark:text-white">Workout timing &amp; member trends</h2>
           <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-            Workout start times use Philippines time. Weekdays count active members&apos; preferred workout days, and monthly peaks reflect new active-member sign-ups over the latest six calendar months.
+            These are separate measures: recorded workout starts, active members&apos; preferred days, and new active-member sign-ups over the last six months. Start times use Philippines time.
           </p>
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {[
-            { label: "Busiest hour", value: peakHourValue, icon: Clock3 },
-            { label: "Busiest day", value: peakDayValue, icon: CalendarDays },
-            { label: "Busiest month", value: peakMonthValue, icon: TrendingUp },
-          ].map(({ label, value, icon: Icon }) => (
+            {
+              label: "Most common start time",
+              value: peakHourValue,
+              detail: peakHourCount
+                ? `${formatCount(peakHourCount)} recorded workout ${peakHourCount === 1 ? "start" : "starts"} · all time`
+                : "No recorded workout starts yet",
+              icon: Clock3,
+            },
+            {
+              label: "Most selected workout day",
+              value: peakDayValue,
+              detail: peakDayCount
+                ? `${formatCount(peakDayCount)} active ${peakDayCount === 1 ? "member prefers" : "members prefer"} this day`
+                : "No active-member preferences yet",
+              icon: CalendarDays,
+            },
+            {
+              label: "Most sign-ups in a month",
+              value: peakMonthValue,
+              detail: peakMonthCount
+                ? `${formatCount(peakMonthCount)} active ${peakMonthCount === 1 ? "member joined" : "members joined"}`
+                : "No active-member sign-ups yet",
+              icon: TrendingUp,
+            },
+          ].map(({ label, value, detail, icon: Icon }) => (
             <div key={label} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111]">
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Icon size={20} /></span>
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
                 <p className="mt-1 break-words text-lg font-black text-slate-900 dark:text-white">{value}</p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{detail}</p>
               </div>
             </div>
           ))}
@@ -435,24 +474,24 @@ export default function Analytics() {
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
-            <h3 className="text-base font-black text-slate-900 dark:text-white">Workout starts by hour</h3>
-            <p className="mb-4 mt-1 text-xs text-slate-500">Member time-in / start time · Philippines time</p>
+            <h3 className="text-base font-black text-slate-900 dark:text-white">Recorded workout starts by hour</h3>
+            <p className="mb-4 mt-1 text-xs text-slate-500">All recorded starts · Philippines time</p>
             {peakHours.some((row) => Number(row.count) > 0)
-              ? <div className="h-72"><Bar data={peakHoursChart} options={chartOptions} /></div>
+              ? <div className="h-72"><Bar data={peakHoursChart} options={countChartOptions("Workout starts")} /></div>
               : <p className="py-12 text-center text-sm text-slate-500">No workout starts have been recorded yet. Members can record time-in by starting a workout.</p>}
           </div>
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
-            <h3 className="text-base font-black text-slate-900 dark:text-white">New active members by month</h3>
-            <p className="mb-4 mt-1 text-xs text-slate-500">Monthly member growth · latest six calendar months</p>
+            <h3 className="text-base font-black text-slate-900 dark:text-white">Active-member sign-ups by month</h3>
+            <p className="mb-4 mt-1 text-xs text-slate-500">New active members · latest six calendar months</p>
             {peakMonths.some((row) => Number(row.count) > 0)
-              ? <div className="h-72"><Bar data={peakMonthsChart} options={chartOptions} /></div>
+              ? <div className="h-72"><Bar data={peakMonthsChart} options={countChartOptions("New active members")} /></div>
               : <p className="py-12 text-center text-sm text-slate-500">No new active-member sign-ups have been recorded in this period.</p>}
           </div>
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
-            <h3 className="text-base font-black text-slate-900 dark:text-white">Member availability by weekday</h3>
-            <p className="mb-4 mt-1 text-xs text-slate-500">Number of active members who selected each preferred workout day</p>
+            <h3 className="text-base font-black text-slate-900 dark:text-white">Preferred workout days</h3>
+            <p className="mb-4 mt-1 text-xs text-slate-500">Active members who selected each day · current preferences</p>
             {dayAvailability.some((row) => Number(row.count) > 0)
-              ? <div className="h-72"><Bar data={dayAvailabilityChart} options={chartOptions} /></div>
+              ? <div className="h-72"><Bar data={dayAvailabilityChart} options={countChartOptions("Active members")} /></div>
               : <p className="py-12 text-center text-sm text-slate-500">No preferred workout-day availability has been recorded yet.</p>}
           </div>
         </div>

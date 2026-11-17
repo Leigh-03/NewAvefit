@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend } from "chart.js";
 import { Line } from "react-chartjs-2";
 import { X } from "lucide-react";
+import { formatWeightDifference, formatWeightToTarget } from "../../utils/progressHistory";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
@@ -11,21 +12,6 @@ function formatDate(value) {
     ? new Date(`${value}T12:00:00Z`)
     : new Date(value);
   return new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" }).format(date);
-}
-
-function formatWeightDifference(entries, index) {
-  if (index === 0 || entries[index]?.weight == null || entries[index - 1]?.weight == null) return "—";
-  const difference = Number(entries[index].weight) - Number(entries[index - 1].weight);
-  if (!Number.isFinite(difference)) return "—";
-  return `${difference > 0 ? "+" : ""}${difference.toFixed(2)} kg`;
-}
-
-function formatWeightToTarget(weight, targetWeight) {
-  if (weight == null || targetWeight == null) return "—";
-  const difference = Number(targetWeight) - Number(weight);
-  if (!Number.isFinite(difference)) return "—";
-  if (difference.toFixed(2) === "0.00") return "Target reached";
-  return `${Math.abs(difference).toFixed(2)} kg to ${difference > 0 ? "gain" : "lose"}`;
 }
 
 export default function ProgressHistoryModal({ member, fetchProgress, onClose }) {

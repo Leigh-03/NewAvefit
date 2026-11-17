@@ -10,6 +10,63 @@ const { isMailConfigured, sendAdminPasswordResetEmail } = require("../utils/mail
 const PASSWORD_RESET_TTL_MINUTES = 30;
 const PASSWORD_RESET_MESSAGE = "If the email matches the configured admin account, a password reset link has been sent.";
 
+const getAdminSidebarCounts = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT
+         (
+           SELECT COUNT(*)::int
+           FROM users
+           WHERE LOWER(COALESCE(account_status, 'pending')) = 'pending'
+         ) + (
+           SELECT COUNT(*)::int
+           FROM user_profile_change_requests
+           WHERE LOWER(status) = 'pending'
+         ) + (
+           SELECT COUNT(*)::int
+           FROM user_membership_term_requests
+           WHERE LOWER(status) = 'pending'
+         ) AS members,
+         (
+           SELECT COUNT(*)::int
+           FROM trainers
+           WHERE LOWER(COALESCE(status, '')) = 'pending'
+         ) AS trainers,
+         (
+           SELECT COUNT(*)::int
+           FROM equipment_inventory
+           WHERE LOWER(BTRIM(COALESCE(status, ''))) IN (
+             'needs inspection',
+             'under repair',
+             'under maintenance',
+             'needs replacement'
+           )
+         ) AS equipment,
+         (
+           SELECT COUNT(*)::int
+           FROM app_notifications
+           WHERE audience_type = 'admin'
+             AND recipient_id = $1
+             AND is_read = false
+         ) AS notifications`,
+      [req.admin.admin_id]
+    );
+    const counts = result.rows[0];
+    return res.json({
+      success: true,
+      data: {
+        members: Number(counts.members),
+        trainers: Number(counts.trainers),
+        equipment: Number(counts.equipment),
+        notifications: Number(counts.notifications),
+      },
+    });
+  } catch (error) {
+    console.error("getAdminSidebarCounts error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load admin sidebar counts." });
+  }
+};
+
 const loginAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -176,4 +233,9 @@ const resetAdminPassword = async (req, res) => {
   }
 };
 
-module.exports = { loginAdmin, requestAdminPasswordReset, resetAdminPassword };
+module.exports = {
+  loginAdmin,
+  requestAdminPasswordReset,
+  resetAdminPassword,
+  getAdminSidebarCounts,
+};

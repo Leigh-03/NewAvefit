@@ -18,7 +18,7 @@ const getProgress = async (req, res) => {
 // POST log progress
 const logProgress = async (req, res) => {
   try {
-    const { weight, bmi, body_fat, waist, chest, hips, left_arm } = req.body;
+    const { weight, bmi, body_fat, waist, chest, hips, left_arm, entry_context } = req.body;
 
     if (
       weight != null &&
@@ -30,10 +30,17 @@ const logProgress = async (req, res) => {
       });
     }
 
+    const normalizedEntryContext = ["workout", "rest_day"].includes(entry_context) ? entry_context : null;
+
     const result = await pool.query(`
       INSERT INTO progress_logs (user_id, weight, bmi, body_fat, waist, chest, hips, left_arm, log_date)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,(NOW() AT TIME ZONE 'Asia/Manila')::date) RETURNING *
     `, [req.user.user_id, weight || null, bmi || null, body_fat || null, waist || null, chest || null, hips || null, left_arm || null]);
+
+    if (normalizedEntryContext) {
+      res.setHeader("X-Progress-Entry-Context", normalizedEntryContext);
+    }
+
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
     console.error("logProgress error:", err.message);

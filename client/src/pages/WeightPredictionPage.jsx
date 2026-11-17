@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  Chart as ChartJS,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend,
+  Filler,
+} from "chart.js";
+import { Line } from "react-chartjs-2";
 import { ArrowLeft, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import userApi from "../userApi";
 import { formatPhilippinesDate, philippinesDateString } from "../utils/philippinesDate";
+
+ChartJS.register(LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 const FORECAST_WINDOW_DAYS = 56;
 const MIN_FORECAST_SPAN_DAYS = 7;
@@ -167,6 +179,109 @@ export default function WeightPredictionPage() {
     return formatPhilippinesDate(targetDate, { dateStyle: "medium" });
   };
 
+  const hasForecastScenario = forecast.latestWeight != null &&
+    forecast.target != null &&
+    forecast.latestWeight !== forecast.target;
+  const scenarios = hasForecastScenario
+    ? [
+      {
+        label: forecast.isProgressing ? "Current progress continues" : "Steady progress",
+        weeks: forecast.consistentWeeks,
+        rate: forecast.weeklyRate,
+        color: "#f97316",
+        note: forecast.isProgressing
+          ? forecast.rateSource === "recent"
+            ? "Based on your measured trend from the last 8 weeks."
+            : "Based on your historical weight trend, which may not reflect your current pace."
+          : "Planning scenario until your logs show a trend toward your target.",
+      },
+      {
+        label: "Slower progress",
+        weeks: forecast.irregularWeeks,
+        rate: forecast.weeklyRate * 0.65,
+        color: "#38bdf8",
+        note: "Assumes progress continues at 65% of the first scenario.",
+      },
+    ]
+    : [];
+  const projectionWeeks = scenarios.length
+    ? [...new Set([
+      0,
+      ...Array.from(
+        { length: Math.floor(Math.max(...scenarios.map((scenario) => scenario.weeks)) / 4) },
+        (_, index) => (index + 1) * 4
+      ),
+      ...scenarios.map((scenario) => scenario.weeks),
+    ])].sort((first, second) => first - second)
+    : [];
+  const weightAtWeek = (rate, week) => {
+    const distance = Math.abs(forecast.target - forecast.latestWeight);
+    const progress = Math.min(distance, rate * week);
+    return forecast.latestWeight + Math.sign(forecast.target - forecast.latestWeight) * progress;
+  };
+  const forecastChart = {
+    datasets: [
+      ...scenarios.map((scenario) => ({
+        label: scenario.label,
+        data: projectionWeeks
+          .filter((week) => week <= scenario.weeks)
+          .map((week) => ({ x: week, y: weightAtWeek(scenario.rate, week) })),
+        borderColor: scenario.color,
+        backgroundColor: scenario.color,
+        borderWidth: 2.5,
+        tension: 0.25,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        spanGaps: false,
+      })),
+      ...(scenarios.length ? [{
+        label: "Target weight",
+        data: projectionWeeks.map((week) => ({ x: week, y: forecast.target })),
+        borderColor: "#a78bfa",
+        borderDash: [6, 5],
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: false,
+      }] : []),
+    ],
+  };
+  const forecastChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { position: "bottom", labels: { usePointStyle: true, color: "#94a3b8" } },
+      tooltip: {
+        callbacks: {
+          title: (items) => `Week ${items[0]?.parsed.x ?? ""}`,
+          label: (context) => (
+            context.parsed.y == null
+              ? null
+              : `${context.dataset.label}: ${Number(context.parsed.y).toFixed(1)} kg`
+          ),
+        },
+      },
+    },
+    scales: {
+      x: {
+        type: "linear",
+        min: 0,
+        max: projectionWeeks[projectionWeeks.length - 1],
+        title: { display: true, text: "Weeks from today", color: "#94a3b8" },
+        ticks: { color: "#94a3b8", maxTicksLimit: 8, autoSkip: true },
+        grid: { display: false },
+      },
+      y: {
+        title: { display: true, text: "Weight (kg)", color: "#94a3b8" },
+        ticks: { color: "#94a3b8" },
+        grid: { color: "rgba(148,163,184,0.12)" },
+        beginAtZero: false,
+        min: Math.max(0, Math.floor(Math.min(forecast.latestWeight, forecast.target) - 5)),
+        max: Math.ceil(Math.max(forecast.latestWeight, forecast.target) + 5),
+      },
+    },
+  };
+
   return (
     <main className="min-h-screen bg-[#fffaf5] px-4 py-6 text-slate-900 dark:bg-[#080808] dark:text-white sm:px-6 sm:py-8">
       <div className="mx-auto max-w-3xl space-y-6">
@@ -257,24 +372,7 @@ export default function WeightPredictionPage() {
               {error && <p role="alert" className="text-sm text-red-600 dark:text-red-300">{error}</p>}
               {forecast.latestWeight && forecast.target && forecast.latestWeight !== forecast.target && (
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {[
-                    {
-                      label: forecast.isProgressing ? "Current progress continues" : "Steady progress",
-                      weeks: forecast.consistentWeeks,
-                      rate: forecast.weeklyRate,
-                      note: forecast.isProgressing
-                        ? forecast.rateSource === "recent"
-                          ? "Based on your measured trend from the last 8 weeks."
-                            : "Based on your historical weight trend, which may not reflect your current pace."
-                        : "Planning scenario until your logs show a trend toward your target.",
-                    },
-                    {
-                      label: "Slower progress",
-                      weeks: forecast.irregularWeeks,
-                      rate: forecast.weeklyRate * 0.65,
-                      note: "Assumes progress continues at 65% of the first scenario.",
-                    },
-                  ].map((scenario) => (
+                  {scenarios.map((scenario) => (
                     <article key={scenario.label} className="rounded-2xl bg-slate-50 p-5 dark:bg-white/[0.04]">
                       <p className="font-bold text-slate-900 dark:text-white">{scenario.label}</p>
                       <p className="mt-2 text-2xl font-black text-orange-600 dark:text-orange-400">{scenario.weeks} {scenario.weeks === 1 ? "week" : "weeks"}</p>
@@ -284,6 +382,17 @@ export default function WeightPredictionPage() {
                     </article>
                   ))}
                 </div>
+              )}
+              {hasForecastScenario && (
+                <section aria-labelledby="forecast-chart-title" className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-white/[0.03] sm:p-5">
+                  <div className="mb-3">
+                    <h2 id="forecast-chart-title" className="text-sm font-bold text-slate-800 dark:text-slate-100">Projected weight by scenario</h2>
+                    <p className="mt-1 text-[11px] text-slate-500">Both forecast paths start at your latest weight and end at your target.</p>
+                  </div>
+                  <div role="img" aria-label="Projected weight under current-progress and slower-progress scenarios" className="h-64 w-full">
+                    <Line data={forecastChart} options={forecastChartOptions} />
+                  </div>
+                </section>
               )}
               <p className="text-xs leading-relaxed text-slate-500">
                 These are rough, non-medical estimates. Measured rates are capped at 1 kg/week for weight loss and 0.45 kg/week for weight gain; when there is not enough progress history, conservative planning rates are used. Weight changes are not linear, so dates can vary substantially. Ask your coach or healthcare professional about a safe target and pace.
