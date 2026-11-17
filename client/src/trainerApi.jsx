@@ -1,4 +1,5 @@
 import axios from "axios";
+import { notifySidebarCountsChanged } from "./utils/sidebarCountsEvents";
 
 const trainerApi = axios.create({
   baseURL: `${import.meta.env.VITE_API_URL}/api/trainers`
@@ -16,7 +17,13 @@ export default trainerApi;
 // Expired/revoked sessions are removed immediately so the next protected
 // navigation cannot keep using a stale credential.
 trainerApi.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const method = response.config?.method?.toLowerCase();
+    if (["post", "put", "patch", "delete"].includes(method)) {
+      notifySidebarCountsChanged();
+    }
+    return response;
+  },
   (error) => {
     const status = error.response?.status;
     if (status === 401 || status === 403) {

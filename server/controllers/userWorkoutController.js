@@ -86,6 +86,40 @@ const getUserPlans = async (req, res) => {
   }
 };
 
+const getUserSidebarCounts = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(DISTINCT ws.session_id)::int AS workouts
+       FROM workout_sessions ws
+       JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+       WHERE wp.user_id = $1
+         AND wp.approval_status = 'Approved'
+         AND ws.completed IS NOT TRUE
+         AND COALESCE(wp.deletion_request_status, '') <> 'Pending'
+         AND (
+           ws.session_date::text = TO_CHAR(
+             (NOW() AT TIME ZONE 'Asia/Manila')::date,
+             'YYYY-MM-DD'
+           )
+           OR (
+             ws.session_date::text !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+             AND LOWER(BTRIM(ws.session_date::text)) = LOWER(
+               TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'FMDay')
+             )
+           )
+         )`,
+      [req.user.user_id]
+    );
+    return res.json({
+      success: true,
+      data: { workouts: Number(result.rows[0].workouts) },
+    });
+  } catch (error) {
+    console.error("getUserSidebarCounts error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load user sidebar counts." });
+  }
+};
+
 const requestWorkoutPlan = async (req, res) => {
   const sessionDate = req.body.session_date;
   const requestType = req.body.request_type || "member_plan";
@@ -750,4 +784,15 @@ const resetWeek = async (req, res) => {
   }
 };
 
-module.exports = { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek };
+module.exports = {
+  getUserWorkoutPlan,
+  getUserPlans,
+  getUserSidebarCounts,
+  requestWorkoutPlan,
+  addWorkoutSession,
+  updateWorkoutSession,
+  startWorkoutSession,
+  completeSession,
+  deleteWorkoutSession,
+  resetWeek,
+};

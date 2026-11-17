@@ -2,15 +2,18 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { BarChart3, Bell, Dumbbell, Home, Info, Target, TrendingUp, User, UsersRound } from "lucide-react";
 import AppShell from "../components/layout/AppShell";
 import useUnreadCount from "../components/layout/useUnreadCount";
+import useSidebarPendingCount from "../components/layout/useSidebarPendingCount";
 import { useUserAuth } from "../context/UserAuthContext";
+import userApi from "../userApi";
 
 const NAV = [
-  { to: "/user/workout", icon: Home, label: "Home" },
+  { to: "/user/workout", icon: Home, label: "Home", badgeKey: "workouts" },
   { to: "/user/exercises", icon: Dumbbell, label: "Exercises" },
   { to: "/user/progress", icon: TrendingUp, label: "Progress" },
   { to: "/user/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/user/prediction", icon: Target, label: "Prediction" },
   { to: "/user/coaches", icon: UsersRound, label: "Coaches" },
+  { to: "/user/notifications", icon: Bell, label: "Notifications", badgeKey: "notifications", hideFromBottomNav: true },
   { to: "/user/about", icon: Info, label: "About" },
   { to: "/user/profile", icon: User, label: "Profile" },
 ];
@@ -20,6 +23,18 @@ export default function UserLayout({ children }) {
   const location = useLocation();
   const { user, logoutUser } = useUserAuth();
   const unread = useUnreadCount(location.pathname, "user");
+  const pendingWorkouts = useSidebarPendingCount(
+    userApi,
+    "/sidebar-counts",
+    "workouts",
+    location.pathname,
+    "User workout"
+  );
+  const nav = NAV.map(({ badgeKey, ...item }) => (
+    badgeKey
+      ? { ...item, badge: badgeKey === "notifications" ? unread : pendingWorkouts }
+      : item
+  ));
 
   const handleLogout = () => {
     logoutUser();
@@ -31,7 +46,7 @@ export default function UserLayout({ children }) {
   return (
     <AppShell
       portalClassName="user-portal"
-      nav={NAV}
+      nav={nav}
       subtitle="Avenue Power &amp; Fitness"
       bottomNav
       user={

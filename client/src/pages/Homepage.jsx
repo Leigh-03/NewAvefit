@@ -112,7 +112,7 @@ export default function Homepage() {
           <div className="home-club-inner">
             <div className="home-club-image-wrap">
               <img
-                src="/images/avefit-gym-photo.jpg"
+                src="images/avefit-gym-photo.jpg"
                 alt="Athlete focused on a strength training session"
                 loading="lazy"
               />

@@ -11,7 +11,7 @@ import {
   Filler,
 } from "chart.js";
 import { Line } from "react-chartjs-2";
-import { Activity, CalendarDays, HeartPulse, Scale, TrendingUp } from "lucide-react";
+import { Activity, CalendarDays, HeartPulse, Scale, TrendingUp, AlertTriangle, Sparkles } from "lucide-react";
 import userApi from "../userApi";
 import TrainingPulse from "../components/TrainingPulse";
 
@@ -133,6 +133,122 @@ export default function UserAnalytics() {
     },
   };
 
+  const prescriptiveInsights = useMemo(() => {
+    const insights = [];
+
+    if (metrics.workoutCompletionRate != null && metrics.workoutCompletionRate < 60) {
+      insights.push({
+        type: "alert",
+        title: "Consistency alert",
+        detail: `Your workout completion rate is ${metrics.workoutCompletionRate}%. Building a shorter but more frequent routine can improve adherence before increasing intensity.`,
+      });
+    }
+
+    if (metrics.latestWeight != null && metrics.baselineWeight != null) {
+      const weightChange = metrics.latestWeight - metrics.baselineWeight;
+      if (Math.abs(weightChange) < 0.5 && sessions.length >= 2) {
+        insights.push({
+          type: "risk",
+          title: "Possible plateau",
+          detail: "Your recent weight trend has been flat. Consider shifting to a more structured progressive overload or adjusting the intensity of your next training block.",
+        });
+      }
+    }
+
+    if (profile?.fitness_goal === "Weight Loss" && metrics.currentBmi != null && metrics.currentBmi >= 25) {
+      insights.push({
+        type: "recommendation",
+        title: "Fat-loss focus",
+        detail: "Your BMI is still in the higher range for your goal. Focus on volume consistency, calorie control, and steady effort rather than sudden intensity jumps.",
+      });
+    } else if (profile?.fitness_goal === "Gain Weight" && metrics.currentBmi != null && metrics.currentBmi < 18.5) {
+      insights.push({
+        type: "recommendation",
+        title: "Muscle-building strategy",
+        detail: "Your BMI is below the healthy range for your goal. Prioritize adequate recovery, quality food intake, and gradual overload rather than exhausting every session.",
+      });
+    }
+
+    if (insights.length === 0) {
+      insights.push({
+        type: "positive",
+        title: "Healthy momentum",
+        detail: "Your progress data suggests a stable pattern. Keep tracking, protect recovery, and make changes only if your trend slows for two to three weeks.",
+      });
+    }
+
+    return insights.slice(0, 3);
+  }, [metrics, profile, sessions]);
+
+  const heightMeters = Number(profile?.height) / 100;
+  const prescriptiveBmiHistory = metrics.datedLogs.flatMap((entry) => {
+    const recordedBmi = Number(entry.bmi);
+    const weight = Number(entry.weight);
+    const bmi = Number.isFinite(recordedBmi) && recordedBmi > 0
+      ? recordedBmi
+      : Number.isFinite(weight) && weight > 0 && heightMeters > 0
+        ? weight / (heightMeters ** 2)
+        : null;
+    return bmi == null || !Number.isFinite(bmi)
+      ? []
+      : [{ date: formatDate(entry.log_date), bmi }];
+  });
+  const targetWeight = Number(profile?.target_weight);
+  const targetBmi = Number.isFinite(targetWeight) && targetWeight > 0 && heightMeters > 0
+    ? targetWeight / (heightMeters ** 2)
+    : null;
+  const bmiReference = targetBmi ?? 25;
+  const bmiValues = [...prescriptiveBmiHistory.map((entry) => entry.bmi), bmiReference];
+  const prescriptiveBmiChart = {
+    labels: prescriptiveBmiHistory.map((entry) => entry.date),
+    datasets: [
+      {
+        label: "Recorded BMI",
+        data: prescriptiveBmiHistory.map((entry) => entry.bmi),
+        borderColor: "#a78bfa",
+        backgroundColor: "rgba(167,139,250,0.12)",
+        fill: true,
+        tension: 0.3,
+        spanGaps: true,
+        pointRadius: 3,
+      },
+      {
+        label: targetBmi == null ? "BMI 25 reference" : "Target BMI",
+        data: prescriptiveBmiHistory.map(() => bmiReference),
+        borderColor: "#f97316",
+        borderDash: [6, 5],
+        pointRadius: 0,
+        fill: false,
+      },
+    ],
+  };
+  const prescriptiveBmiChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { position: "bottom", labels: { usePointStyle: true, color: "#94a3b8" } },
+      tooltip: {
+        callbacks: {
+          label: (context) => `${context.dataset.label}: ${Number(context.parsed.y).toFixed(1)}`,
+        },
+      },
+    },
+    scales: {
+      x: {
+        grid: { display: false },
+        ticks: { color: "#94a3b8", maxTicksLimit: 8, autoSkip: true },
+      },
+      y: {
+        min: Math.max(0, Math.floor(Math.min(...bmiValues) - 5)),
+        max: Math.ceil(Math.max(...bmiValues) + 5),
+        title: { display: true, text: "BMI", color: "#94a3b8" },
+        ticks: { color: "#94a3b8" },
+        grid: { color: "rgba(148,163,184,0.12)" },
+      },
+    },
+  };
+
   const recommendations = [
     profile?.fitness_goal
       ? `Keep logging progress and completed sessions to compare actual results with your ${profile.fitness_goal.toLowerCase()} goal.`
@@ -196,6 +312,51 @@ export default function UserAnalytics() {
             {metrics.baselineBmi != null && metrics.currentBmi != null && (
               <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">BMI comparison: baseline {metrics.baselineBmi.toFixed(1)} → current {metrics.currentBmi.toFixed(1)}.</p>
             )}
+          </section>
+
+          <section aria-labelledby="prescriptive-insights-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
+            <div className="mb-3 flex items-center gap-2">
+              <div className="grid h-9 w-9 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Sparkles size={18} /></div>
+              <h2 id="prescriptive-insights-title" className="text-lg font-bold">Prescriptive analytics</h2>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-3">
+              {prescriptiveInsights.map((insight) => (
+                <article
+                  key={insight.title}
+                  className={`rounded-2xl border p-4 ${
+                    insight.type === "alert" || insight.type === "risk"
+                      ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100"
+                      : insight.type === "recommendation"
+                        ? "border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-400/30 dark:bg-violet-500/10 dark:text-violet-100"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-100"
+                  }`}
+                >
+                  <div className="mb-2 flex items-center gap-2 font-black">
+                    <AlertTriangle size={16} />
+                    {insight.title}
+                  </div>
+                  <p className="text-sm leading-relaxed">{insight.detail}</p>
+                </article>
+              ))}
+            </div>
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-[#151515] sm:p-5">
+              <div className="mb-3">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">BMI trend behind this guidance</h3>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  All real and demo check-ins compared with {targetBmi == null ? "the BMI 25 reference" : "your target BMI"}.
+                </p>
+              </div>
+              {prescriptiveBmiHistory.length ? (
+                <div role="img" aria-label="BMI history compared with the goal reference" className="h-64 w-full">
+                  <Line data={prescriptiveBmiChart} options={prescriptiveBmiChartOptions} />
+                </div>
+              ) : (
+                <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-white/10">
+                  Log your weight to see the BMI trend behind these recommendations.
+                </p>
+              )}
+              <p className="mt-2 text-[10px] text-slate-500">BMI is a screening measure, not a diagnosis.</p>
+            </div>
           </section>
 
           <section aria-labelledby="recommendations-title" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">

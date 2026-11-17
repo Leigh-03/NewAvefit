@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from "chart.js";
 import { Line } from "react-chartjs-2";
-import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Scale, Target } from "lucide-react";
+import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Scale, Target } from "lucide-react";
 import userApi from "../userApi";
 import GoalRenewalModal from "../components/progress/GoalRenewalModal";
 import { useUserAuth } from "../context/UserAuthContext";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
+import { formatWeightDifference, formatWeightToTarget } from "../utils/progressHistory";
 import { getWorkoutDayGroups } from "../utils/workoutSessions";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
@@ -174,9 +175,120 @@ const weightInput = (val, prev = "") => {
   return cleaned;
 };
 
+function ProgressHistorySort({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+  const triggerRef = useRef(null);
+  const optionRefs = useRef([]);
+  const options = [
+    { value: "newest", label: "Newest First" },
+    { value: "oldest", label: "Oldest First" },
+  ];
+  const selectedIndex = options.findIndex((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handlePointerDown = (event) => {
+      if (!containerRef.current?.contains(event.target)) setOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) optionRefs.current[selectedIndex]?.focus();
+  }, [open, selectedIndex]);
+
+  const focusOption = (index) => {
+    const nextIndex = (index + options.length) % options.length;
+    optionRefs.current[nextIndex]?.focus();
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Sort by: ${options[selectedIndex]?.label ?? "Newest First"}`}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+        className="flex min-h-10 min-w-40 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-orange-400 hover:bg-orange-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/30 dark:border-white/10 dark:bg-[#181818] dark:text-slate-200 dark:hover:border-orange-500/50 dark:hover:bg-white/5"
+      >
+        <span>{options[selectedIndex]?.label ?? "Newest First"}</span>
+        <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Sort progress history"
+          onKeyDown={(event) => {
+            const optionIndex = optionRefs.current.indexOf(document.activeElement);
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              focusOption(optionIndex + (event.key === "ArrowDown" ? 1 : -1));
+            } else if (event.key === "Home" || event.key === "End") {
+              event.preventDefault();
+              focusOption(event.key === "Home" ? 0 : options.length - 1);
+            } else if (event.key === "Tab") {
+              setOpen(false);
+            }
+          }}
+          className="absolute right-0 top-full z-30 mt-2 w-48 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl shadow-slate-900/10 dark:border-white/10 dark:bg-[#181818] dark:shadow-black/40"
+        >
+          {options.map((option, index) => {
+            const selected = option.value === value;
+            return (
+              <button
+                key={option.value}
+                ref={(element) => { optionRefs.current[index] = element; }}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                tabIndex={-1}
+                onClick={() => {
+                  if (!selected) onChange(option.value);
+                  setOpen(false);
+                  triggerRef.current?.focus();
+                }}
+                className={`flex min-h-10 w-full items-center justify-between rounded-lg px-3 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/40 ${
+                  selected
+                    ? "bg-orange-500/10 font-semibold text-orange-700 dark:text-orange-300"
+                    : "text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-white/5"
+                }`}
+              >
+                {option.label}
+                {selected && <Check size={15} aria-hidden="true" className="text-orange-500" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProgressPage() {
   const { user, updateUser } = useUserAuth();
   const [logs, setLogs] = useState([]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historySortOrder, setHistorySortOrder] = useState("newest");
   const [sessions, setSessions] = useState([]);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -207,6 +319,7 @@ export default function ProgressPage() {
         userApi.get("/profile"),
       ]);
       setLogs(progressRes.data.data || []);
+      setHistoryPage(1);
       setSessions(workoutsRes.data.data || []);
       setProfile(profileRes.data.data || null);
     } catch (err) {
@@ -249,6 +362,13 @@ export default function ProgressPage() {
     });
   };
 
+  const todayDateKey = philippinesDateString();
+  const hasWorkoutToday = sessions.some((session) => {
+    const sessionDate = philippinesDateKey(session.session_date);
+    if (!sessionDate || sessionDate !== todayDateKey) return false;
+    return true;
+  });
+
   const handleLogProgress = async () => {
     const w = Number(logForm.weight);
     if (!logForm.weight || !Number.isFinite(w) || w < 20 || w > 200) {
@@ -258,8 +378,11 @@ export default function ProgressPage() {
     setLogError("");
     setLogging(true);
     try {
-      await userApi.post("/progress", logForm);
-      setLogMsg("Progress logged!");
+      await userApi.post("/progress", {
+        ...logForm,
+        entry_context: hasWorkoutToday ? "workout" : "rest_day",
+      });
+      setLogMsg(hasWorkoutToday ? "Progress logged and paired with a workout." : "Progress logged as a rest-day check-in.");
       setLogForm({ weight: "", bmi: "" });
       await fetchProgress();
       setTimeout(() => setLogMsg(""), 3000);
@@ -342,8 +465,8 @@ export default function ProgressPage() {
     };
   };
 
-  const latestLog = logs[logs.length - 1];
   const latestWeightedLog = [...logs].reverse().find((log) => log.weight != null && Number.isFinite(Number(log.weight)));
+  const latestBmiLog = [...logs].reverse().find((log) => log.bmi != null && Number.isFinite(Number(log.bmi)));
   const firstWeightedLog = logs.find((log) => Number.isFinite(Number(log.weight)) && log.weight !== null);
   const latestWeight = latestWeightedLog?.weight == null ? null : Number(latestWeightedLog.weight);
   const firstWeight = firstWeightedLog?.weight == null ? null : Number(firstWeightedLog.weight);
@@ -351,6 +474,19 @@ export default function ProgressPage() {
     ? Number((latestWeight - firstWeight).toFixed(1))
     : null;
   const targetWeight = profile?.target_weight == null ? null : Number(profile.target_weight);
+  const historyPageSize = 10;
+  const totalHistoryPages = Math.ceil(logs.length / historyPageSize);
+  const displayedHistoryPage = Math.min(historyPage, Math.max(totalHistoryPages, 1));
+  const firstHistoryIndex = logs.length ? (displayedHistoryPage - 1) * historyPageSize + 1 : 0;
+  const lastHistoryIndex = Math.min(displayedHistoryPage * historyPageSize, logs.length);
+  const firstVisibleHistoryPage = Math.max(1, Math.min(displayedHistoryPage - 1, totalHistoryPages - 2));
+  const visibleHistoryPages = Array.from(
+    { length: Math.min(totalHistoryPages, firstVisibleHistoryPage + 2) - firstVisibleHistoryPage + 1 },
+    (_, index) => firstVisibleHistoryPage + index
+  );
+  const sortedHistoryLogs = historySortOrder === "newest" ? [...logs].reverse() : [...logs];
+  const paginatedHistoryLogs = sortedHistoryLogs
+    .slice((displayedHistoryPage - 1) * historyPageSize, displayedHistoryPage * historyPageSize);
   const goal = profile?.fitness_goal || "Your fitness goal";
   const goalRenewalKey = `${goal}:${targetWeight ?? ""}`;
   const goalWeight = latestWeight ?? (profile?.weight == null ? null : Number(profile.weight));
@@ -367,14 +503,8 @@ export default function ProgressPage() {
 
   const today = philippinesDateString();
   const analyticsRange = { start: analyticsFrom, end: analyticsTo };
-  const periodLogs = logs.filter((log) => {
-    const date = philippinesDateKey(log.log_date);
-    return date && date >= analyticsRange.start && date <= analyticsRange.end;
-  });
-  const periodWeightedLogs = periodLogs.filter((log) => log.weight != null && Number.isFinite(Number(log.weight)));
-  const periodWeightChange = periodWeightedLogs.length > 1
-    ? Number((Number(periodWeightedLogs[periodWeightedLogs.length - 1].weight) - Number(periodWeightedLogs[0].weight)).toFixed(1))
-    : null;
+  const allTimeWeightedLogs = logs.filter((log) => log.weight != null && Number.isFinite(Number(log.weight)));
+  const allTimeBmiLogs = logs.filter((log) => log.bmi != null && Number.isFinite(Number(log.bmi)));
   const workoutDayGroups = getWorkoutDayGroups(sessions);
   const completedWorkoutDays = workoutDayGroups.filter((group) => group.isComplete);
   const periodScheduledWorkouts = sessions.filter((session) => {
@@ -390,11 +520,11 @@ export default function ProgressPage() {
     : null;
 
   const chartData = {
-    labels: periodLogs.map((l) => formatPhilippinesDate(l.log_date, { month: "short", day: "numeric" })),
+    labels: logs.map((l) => formatPhilippinesDate(l.log_date, { month: "short", day: "numeric" })),
     datasets: [
       {
         label: "Weight (kg)",
-        data: periodLogs.map((l) => l.weight ? parseFloat(l.weight) : null),
+        data: logs.map((l) => l.weight == null || !Number.isFinite(Number(l.weight)) ? null : Number(l.weight)),
         borderColor: "#f97316",
         backgroundColor: "rgba(249,115,22,0.1)",
         fill: true,
@@ -410,11 +540,11 @@ export default function ProgressPage() {
   };
 
   const bmiChart = {
-    labels: periodLogs.map((l) => formatPhilippinesDate(l.log_date, { month: "short", day: "numeric" })),
+    labels: logs.map((l) => formatPhilippinesDate(l.log_date, { month: "short", day: "numeric" })),
     datasets: [
       {
         label: "BMI",
-        data: periodLogs.map((l) => l.bmi ? parseFloat(l.bmi) : null),
+        data: logs.map((l) => l.bmi == null || !Number.isFinite(Number(l.bmi)) ? null : Number(l.bmi)),
         borderColor: "#fb923c",
         backgroundColor: "rgba(251,146,60,0.1)",
         fill: true,
@@ -487,7 +617,7 @@ export default function ProgressPage() {
                     {formatPhilippinesDate(analyticsRange.start, { month: "short", day: "numeric", year: "numeric" })}
                     {" – "}
                     {formatPhilippinesDate(analyticsRange.end, { month: "short", day: "numeric", year: "numeric" })}
-                    {" · Philippines time"}
+                    {" · Philippines time. Body trends use all check-ins; workout completion uses this range."}
                   </p>
                 </div>
                 <div ref={datePickerRef} className="relative sm:min-w-[360px]">
@@ -542,14 +672,14 @@ export default function ProgressPage() {
 
               <div className="mt-5 grid grid-cols-1 gap-3 min-[480px]:grid-cols-3">
                 <div className="min-h-[92px] rounded-2xl bg-slate-50 p-4 dark:bg-[#151515]">
-                  <p className="text-lg font-bold text-slate-900 dark:text-white">{periodLogs.length}</p>
-                  <p className="text-[11px] leading-snug text-slate-500">Progress check-ins</p>
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{logs.length}</p>
+                  <p className="text-[11px] leading-snug text-slate-500">All-time progress check-ins</p>
                 </div>
                 <div className="min-h-[92px] rounded-2xl bg-slate-50 p-4 dark:bg-[#151515]">
                   <p className="text-lg font-bold text-slate-900 dark:text-white">
-                    {periodWeightChange == null ? "—" : `${periodWeightChange > 0 ? "+" : ""}${periodWeightChange} kg`}
+                    {weightChange == null ? "—" : `${weightChange > 0 ? "+" : ""}${weightChange} kg`}
                   </p>
-                  <p className="text-[11px] leading-snug text-slate-500">Weight change</p>
+                  <p className="text-[11px] leading-snug text-slate-500">Weight change since first check-in</p>
                 </div>
                 <div className="min-h-[92px] rounded-2xl bg-slate-50 p-4 dark:bg-[#151515]">
                   <p className="text-lg font-bold text-slate-900 dark:text-white">{periodWorkoutRate == null ? "—" : `${periodWorkoutRate}%`}</p>
@@ -562,36 +692,36 @@ export default function ProgressPage() {
                 </div>
               </div>
 
-              {periodLogs.length > 0 ? (
+              {logs.length > 0 ? (
                 <div className="mt-5 grid gap-4 xl:grid-cols-2">
                   <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-[#151515] sm:p-5">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div>
                         <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Weight trend</h3>
-                        <p className="mt-0.5 text-[11px] text-slate-500">Your recorded body weight</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">All-time recorded body weight</p>
                       </div>
                       <span className="rounded-lg bg-orange-500/10 px-2.5 py-1 text-xs font-bold text-orange-700 dark:text-orange-300">kg</span>
                     </div>
                     <div className="h-56 w-full sm:h-64">
                       <Line data={chartData} options={weightChartOptions} />
                     </div>
-                    {periodWeightedLogs.length === 1 && (
+                    {allTimeWeightedLogs.length === 1 && (
                       <p className="mt-2 text-center text-[11px] text-slate-500">Log another check-in to see your weight trend.</p>
                     )}
                   </section>
-                  {periodLogs.some((log) => log.bmi != null) && (
+                  {allTimeBmiLogs.length > 0 && (
                     <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-[#151515] sm:p-5">
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div>
                           <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">BMI trend</h3>
-                          <p className="mt-0.5 text-[11px] text-slate-500">Your recorded body mass index</p>
+                          <p className="mt-0.5 text-[11px] text-slate-500">All-time recorded body mass index</p>
                         </div>
                         <span className="rounded-lg bg-orange-500/10 px-2.5 py-1 text-xs font-bold text-orange-700 dark:text-orange-300">BMI</span>
                       </div>
                       <div className="h-56 w-full sm:h-64">
                         <Line data={bmiChart} options={bmiChartOptions} />
                       </div>
-                      {periodLogs.filter((log) => log.bmi != null).length === 1 && (
+                      {allTimeBmiLogs.length === 1 && (
                         <p className="mt-2 text-center text-[11px] text-slate-500">Log another check-in to see your BMI trend.</p>
                       )}
                     </section>
@@ -600,8 +730,8 @@ export default function ProgressPage() {
               ) : (
                 <div className="mt-5 flex min-h-[164px] flex-col items-center justify-center rounded-2xl border border-dashed border-orange-200 px-4 py-8 text-center dark:border-white/10">
                   <Activity size={22} className="mx-auto mb-2 text-orange-500" />
-                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">No check-ins in this period</p>
-                  <p className="mt-1 text-xs text-slate-500">Log a measurement during this period to see your trends here.</p>
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">No progress history yet</p>
+                  <p className="mt-1 text-xs text-slate-500">Log a measurement to start your all-time trends.</p>
                 </div>
               )}
             </section>
@@ -620,7 +750,7 @@ export default function ProgressPage() {
               </div>
               <div className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm dark:border-white/5 dark:bg-[#111]">
                 <Activity size={19} className="mb-3 text-orange-500" />
-                <p className="text-2xl font-black">{latestLog?.bmi ?? "—"}</p>
+                <p className="text-2xl font-black">{latestBmiLog?.bmi ?? "—"}</p>
                 <p className="mt-1 text-xs text-slate-500">Latest BMI</p>
                 <p className="mt-2 text-xs text-slate-500">{logs.length} body {logs.length === 1 ? "measurement" : "measurements"} logged</p>
               </div>
@@ -686,6 +816,13 @@ export default function ProgressPage() {
         <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
           <h2 className="font-bold text-slate-900 dark:text-white mb-1">Log today's progress</h2>
           <p className="mb-4 text-xs text-slate-500">Regular check-ins help you understand your progress over time.</p>
+
+          <div className={`mb-4 rounded-xl border px-3 py-2 text-sm ${hasWorkoutToday ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200" : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"}`}>
+            {hasWorkoutToday
+              ? "A workout is scheduled or recorded for today. Pairing your body metrics with an exercise session gives the strongest progress signal."
+              : "No workout was detected for today. This is still a valid rest-day check-in, but pairing your progress with a completed session will give the clearest trend data."}
+          </div>
+
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label className="block text-xs text-slate-500 mb-1">Weight (kg)</label>
@@ -708,42 +845,105 @@ export default function ProgressPage() {
           {logError && <p role="alert" className="text-red-500 text-sm mb-2">{logError}</p>}
           <button onClick={handleLogProgress} disabled={logging || !logForm.weight}
             className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition text-sm">
-            {logging ? "Logging..." : "Log Progress"}
+            {logging ? "Logging..." : hasWorkoutToday ? "Log workout-linked progress" : "Log rest-day progress"}
           </button>
         </div>
 
         {/* History */}
         {logs.length > 0 && (
           <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
-            <h2 className="font-bold text-slate-900 dark:text-white">All-time progress history</h2>
-            <p className="mb-4 mt-1 text-xs text-slate-500">Every check-in is listed with all measurements recorded for it.</p>
-            <div className="space-y-2">
-              {logs.map((log) => {
-                const measurements = [
-                  log.weight != null && ["Weight", `${log.weight} kg`],
-                  log.bmi != null && ["BMI", log.bmi],
-                  log.body_fat != null && ["Body fat", `${log.body_fat}%`],
-                  log.waist != null && ["Waist", log.waist],
-                  log.chest != null && ["Chest", log.chest],
-                  log.hips != null && ["Hips", log.hips],
-                  log.left_arm != null && ["Left arm", log.left_arm],
-                ].filter(Boolean);
-                return (
-                  <div key={log.progress_id} className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 py-3 last:border-0 dark:border-white/10">
-                    <span className="text-sm text-slate-500">
-                      {formatPhilippinesDate(log.log_date) || "—"}
-                    </span>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                      {measurements.map(([label, value]) => (
-                        <span key={label} className={label === "Weight" ? "font-medium text-slate-900 dark:text-white" : label === "BMI" ? "text-orange-600 dark:text-orange-400" : "text-slate-500 dark:text-slate-400"}>
-                          {label} {value}
-                        </span>
-                      ))}
-                      {!measurements.length && <span className="text-slate-400">No measurements recorded</span>}
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="font-bold text-slate-900 dark:text-white">All-time progress history</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  All check-ins are shown {historySortOrder === "newest" ? "newest" : "oldest"} first, including your change toward the current target.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                <span>Sort by</span>
+                <ProgressHistorySort
+                  value={historySortOrder}
+                  onChange={(sortOrder) => {
+                    setHistorySortOrder(sortOrder);
+                    setHistoryPage(1);
+                  }}
+                />
+              </div>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-white/10">
+              <table className="w-full min-w-[1100px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-white/5">
+                  <tr>
+                    {["Date", "Weight", "BMI", "Weight difference", "Weight to target", "Target weight"].map((label) => (
+                      <th key={label} scope="col" className="whitespace-nowrap px-4 py-3">{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/10">
+                  {paginatedHistoryLogs.map((log) => {
+                    const chronologicalIndex = logs.indexOf(log);
+                    const weight = log.weight == null || !Number.isFinite(Number(log.weight))
+                      ? null
+                      : Number(log.weight);
+                    const bmi = log.bmi == null || !Number.isFinite(Number(log.bmi))
+                      ? null
+                      : Number(log.bmi);
+                    return (
+                      <tr key={log.progress_id || `${log.log_date}-${index}`} className="transition-colors hover:bg-slate-50 dark:hover:bg-white/5">
+                        <td className="whitespace-nowrap px-4 py-4">{formatPhilippinesDate(log.log_date) || "—"}</td>
+                        <td className="whitespace-nowrap px-4 py-4">{weight === null ? "—" : `${weight.toFixed(2)} kg`}</td>
+                        <td className="whitespace-nowrap px-4 py-4">{bmi === null ? "—" : bmi.toFixed(2)}</td>
+                        <td className="whitespace-nowrap px-4 py-4">{formatWeightDifference(logs, chronologicalIndex)}</td>
+                        <td className="whitespace-nowrap px-4 py-4">{formatWeightToTarget(weight, targetWeight)}</td>
+                        <td className="whitespace-nowrap px-4 py-4">{Number.isFinite(targetWeight) ? `${targetWeight.toFixed(2)} kg` : "—"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Showing {firstHistoryIndex}–{lastHistoryIndex} of {logs.length} entries
+              </p>
+              {totalHistoryPages > 1 && (
+                <nav aria-label="Progress history pagination" className="flex flex-wrap items-center justify-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryPage(displayedHistoryPage - 1)}
+                    disabled={displayedHistoryPage === 1}
+                    className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
+                  >
+                    <ChevronLeft size={16} />
+                    Previous
+                  </button>
+                  {visibleHistoryPages.map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => setHistoryPage(page)}
+                      aria-current={displayedHistoryPage === page ? "page" : undefined}
+                      aria-label={`Page ${page}`}
+                      className={`grid h-9 min-w-9 place-items-center rounded-lg border px-2 text-sm font-semibold transition ${
+                        displayedHistoryPage === page
+                          ? "border-orange-500 bg-orange-500 text-white"
+                          : "border-slate-200 text-slate-700 hover:bg-slate-100 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setHistoryPage(displayedHistoryPage + 1)}
+                    disabled={displayedHistoryPage === totalHistoryPages}
+                    className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:text-slate-200 dark:hover:bg-white/10"
+                  >
+                    Next
+                    <ChevronRight size={16} />
+                  </button>
+                </nav>
+              )}
             </div>
           </div>
         )}

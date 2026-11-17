@@ -382,6 +382,7 @@ export default function CoachSelect() {
 
   const ranked = useMemo(
     () => trainers.slice().sort((a, b) =>
+      Number(a.member_capacity_full) - Number(b.member_capacity_full) ||
       Number(b.can_select) - Number(a.can_select) ||
       Number(b.schedule_compatible) - Number(a.schedule_compatible) ||
       scoreTrainer(b, goal) - scoreTrainer(a, goal)
@@ -396,8 +397,10 @@ export default function CoachSelect() {
     trainer.bio,
     ...(trainer.specializations || []),
   ].filter(Boolean).join(" ").toLowerCase().includes(searchTerm));
-  const recommended = visibleCoaches[0];
-  const otherCoaches = visibleCoaches.slice(1);
+  const recommended = visibleCoaches.find((trainer) => !trainer.member_capacity_full);
+  const otherCoaches = visibleCoaches.filter((trainer) => (
+    String(trainer.trainer_id) !== String(recommended?.trainer_id)
+  ));
   const selectedDays = Array.isArray(availability.days) ? availability.days : [];
   const selectedTrainer = trainers.find((trainer) => String(trainer.trainer_id) === selectedTrainerId);
   const allCoachesLocked = trainers.length > 0 && trainers.every((trainer) => !trainer.can_select);
@@ -630,7 +633,7 @@ export default function CoachSelect() {
               <section className="mt-8 scroll-mt-6">
                 <div className="mb-4">
                   <p className="text-xs uppercase tracking-wider text-slate-400 font-bold">Your options</p>
-                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">Other Available Coaches</h3>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">Other Coaches</h3>
                 </div>
 
                 <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 sm:grid sm:grid-cols-2 sm:[grid-auto-rows:1fr] sm:overflow-visible">
