@@ -4,7 +4,7 @@ import {
   LineElement, BarElement, Title, Tooltip, Legend, Filler,
 } from "chart.js";
 import { Line, Bar } from "react-chartjs-2";
-import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter, BarChart3, ChevronDown } from "lucide-react";
+import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter, BarChart3, ChevronDown, Sparkles, AlertTriangle, Target } from "lucide-react";
 import api from "../services/api";
 import TrainingPulse from "../components/TrainingPulse";
 
@@ -82,6 +82,39 @@ const manilaDateString = () => {
   }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
   return `${values.year}-${values.month}-${values.day}`;
+};
+
+const linearForecast = (values, forecastCount = 3) => {
+  const usable = values
+    .map((value, index) => ({ index, value: Number(value) }))
+    .filter((item, index) => values[index] != null && Number.isFinite(item.value));
+  if (usable.length < 2) {
+    const lastValue = usable.at(-1)?.value ?? null;
+    return Array.from({ length: forecastCount }, () => lastValue == null ? null : Math.max(0, lastValue));
+  }
+
+  const averageIndex = usable.reduce((total, item) => total + item.index, 0) / usable.length;
+  const averageValue = usable.reduce((total, item) => total + item.value, 0) / usable.length;
+  const denominator = usable.reduce((total, item) => total + ((item.index - averageIndex) ** 2), 0);
+  const slope = denominator
+    ? usable.reduce((total, item) => total + ((item.index - averageIndex) * (item.value - averageValue)), 0) / denominator
+    : 0;
+  const intercept = averageValue - (slope * averageIndex);
+  const lastIndex = usable.at(-1).index;
+
+  return Array.from({ length: forecastCount }, (_, offset) =>
+    Math.max(0, intercept + (slope * (lastIndex + offset + 1)))
+  );
+};
+
+const getNextMonthLabels = (count) => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  return Array.from({ length: count }, (_, offset) =>
+    new Intl.DateTimeFormat("en", { month: "short", year: "numeric" })
+      .format(new Date(year, month + offset + 1, 1))
+  );
 };
 
 export default function Analytics() {
@@ -273,6 +306,142 @@ export default function Analytics() {
   const bmiMap = Object.fromEntries((data?.bmiDistribution || []).map((b) => [b.category, parseInt(b.count)]));
   const maxEquipmentUsage = Math.max(0, ...mostUsedEquipment.map((item) => Number(item.count) || 0));
 
+  const growthValues = (data?.memberGrowth || []).map((row) => Number(row.count) || 0);
+  const signupForecast = linearForecast(growthValues);
+  const forecastLabels = getNextMonthLabels(3);
+  const actualGrowthLabels = (data?.memberGrowth || []).map((row) => row.label);
+  const recentCompleteSignupMonths = growthValues.slice(0, -1).slice(-3);
+  const recentSignupAverage = recentCompleteSignupMonths.length
+    ? recentCompleteSignupMonths.reduce((total, value) => total + value, 0) / recentCompleteSignupMonths.length
+    : null;
+  const signupForecastChart = {
+    labels: [...actualGrowthLabels, ...forecastLabels],
+    datasets: [
+      {
+        label: "Actual active sign-ups",
+        data: [...growthValues, null, null, null],
+        borderColor: "#3b82f6",
+        backgroundColor: "rgba(59,130,246,0.08)",
+        fill: true,
+        tension: 0.35,
+        pointRadius: 4,
+      },
+      {
+        label: "Projected active sign-ups",
+        data: [
+          ...Array(Math.max(0, actualGrowthLabels.length - 1)).fill(null),
+          growthValues.at(-1) ?? null,
+          ...signupForecast,
+        ],
+        borderColor: "#f97316",
+        backgroundColor: "rgba(249,115,22,0.08)",
+        borderDash: [7, 5],
+        fill: false,
+        tension: 0.35,
+        pointRadius: 4,
+      },
+    ],
+  };
+  const acquisitionScenarioLift = 0.1;
+  const acquisitionScenarioForecast = signupForecast.map((value) =>
+    value == null ? null : value * (1 + acquisitionScenarioLift)
+  );
+  const acquisitionScenarioChart = {
+    labels: forecastLabels,
+    datasets: [
+      {
+        label: "Current sign-up forecast",
+        data: signupForecast,
+        borderColor: "#f97316",
+        backgroundColor: "rgba(249,115,22,0.08)",
+        tension: 0.35,
+        pointRadius: 4,
+      },
+      {
+        label: "Forecast with promotion (+10% example)",
+        data: acquisitionScenarioForecast,
+        borderColor: "#10b981",
+        backgroundColor: "rgba(16,185,129,0.08)",
+        borderDash: [7, 5],
+        tension: 0.35,
+        pointRadius: 4,
+      },
+    ],
+  };
+  const predictiveChartOptions = {
+    ...chartOptions,
+    scales: {
+      ...chartOptions.scales,
+      y: {
+        ...chartOptions.scales.y,
+        beginAtZero: true,
+        title: { display: true, text: "New sign-ups", color: "#737373" },
+      },
+    },
+    plugins: {
+      ...chartOptions.plugins,
+      tooltip: {
+        ...chartOptions.plugins.tooltip,
+        callbacks: {
+          label: (context) => `${context.dataset.label}: about ${Math.round(context.parsed.y)} sign-ups`,
+        },
+      },
+    },
+  };
+
+  const latestSignupForecast = signupForecast[0] ?? 0;
+  const signupForecastDifference = recentSignupAverage == null ? null : latestSignupForecast - recentSignupAverage;
+  const prescriptiveSignupChart = {
+    labels: ["Next month projection", "Recent monthly average"],
+    datasets: [{
+      label: "Active member sign-ups",
+      data: [latestSignupForecast, recentSignupAverage],
+      backgroundColor: ["#f97316", "#cbd5e1"],
+      borderRadius: 6,
+      barThickness: 22,
+    }],
+  };
+  const prescriptiveSignupChartOptions = {
+    ...chartOptions,
+    indexAxis: "y",
+    scales: {
+      ...chartOptions.scales,
+      x: {
+        ...chartOptions.scales.x,
+        beginAtZero: true,
+        suggestedMax: Math.max(latestSignupForecast, recentSignupAverage || 0, 1) * 1.15,
+        title: { display: true, text: "Members", color: "#737373" },
+      },
+      y: { ...chartOptions.scales.y, grid: { display: false } },
+    },
+  };
+  const prescriptiveInsights = [
+    {
+      type: signupForecastDifference != null && signupForecastDifference < -1 ? "recommendation" : "positive",
+      title: signupForecastDifference != null && signupForecastDifference < -1
+        ? "Strengthen member acquisition"
+        : signupForecastDifference != null && signupForecastDifference > 1
+          ? "Prepare for member growth"
+          : "Maintain the current growth pace",
+      finding: recentSignupAverage == null
+        ? `The forecast is about ${latestSignupForecast.toFixed(0)} new active members next month. There is not enough complete-month history to compare it with the recent pace.`
+        : `The forecast is about ${latestSignupForecast.toFixed(0)} new active members next month, versus a recent average of ${recentSignupAverage.toFixed(0)} per month (${signupForecastDifference > 0 ? "+" : ""}${signupForecastDifference.toFixed(0)}).`,
+      action: recentSignupAverage == null
+        ? "Continue tracking new active members each month. Revisit acquisition plans after you have at least three complete months to compare."
+        : signupForecastDifference < -1
+          ? "Review where inquiries are coming from and where prospective members leave the sign-up process. Test referral or community outreach efforts, then compare next month's actual sign-ups with this forecast."
+          : signupForecastDifference > 1
+            ? "Run a time-limited joining offer or bring-a-friend promotion to build on the projected growth. Before launching, check trainer availability, onboarding schedules, and equipment capacity. Track promotion costs and new sign-ups to see whether it is working."
+            : "Keep the acquisition channels that are working. Track sign-ups monthly and review the plan if actual growth starts to move away from this forecast.",
+    },
+    {
+      type: "recommendation",
+      title: "Check whether total membership is growing",
+      finding: "This forecast counts people who sign up and become active. It does not subtract members who cancel or do not renew, so it cannot show whether the gym has more active members overall.",
+      action: "At the end of each month, compare new sign-ups with the total number of active members, cancellations, and non-renewals. If sign-ups increase but active membership stays flat or falls, review why members are leaving and improve renewal follow-up.",
+    },
+  ];
+
   return (
     <div className="space-y-8">
       {fetchError && (
@@ -311,6 +480,104 @@ export default function Analytics() {
             <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-orange-500/70 to-transparent opacity-0 transition group-hover:opacity-100" />
           </article>
         ))}
+      </section>
+
+      <section aria-labelledby="admin-predictive-analytics-heading" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+        <div className="mb-5 flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-violet-500/10 text-violet-600 dark:text-violet-300"><TrendingUp size={19} /></span>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-600 dark:text-violet-400">Forward outlook</p>
+            <h2 id="admin-predictive-analytics-heading" className="mt-1 text-lg font-black text-slate-900 dark:text-white">Predictive analytics</h2>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">Projects new active-member sign-ups for the next three months from the recent monthly sign-up trend.</p>
+          </div>
+        </div>
+
+        <div className="grid gap-4">
+          <div className="rounded-2xl border border-slate-200 p-4 dark:border-white/10">
+            <div className="mb-4 flex items-end justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">New active-member sign-up forecast</h3>
+                <p className="mt-1 text-xs text-slate-500">Next month: about {latestSignupForecast.toFixed(0)} new active members</p>
+              </div>
+              <Target size={18} className="shrink-0 text-blue-500" />
+            </div>
+            {growthValues.length ? (
+              <div className="h-72"><Line data={signupForecastChart} options={predictiveChartOptions} /></div>
+            ) : (
+              <p className="py-12 text-center text-sm text-slate-500">No member-growth history is available for forecasting.</p>
+            )}
+          </div>
+        </div>
+
+        <p className="mt-3 text-[10px] text-slate-500">This is a simple trend-based estimate of new sign-ups, not total net membership. Actual results may differ; compare it with future sign-up counts as new data is recorded.</p>
+      </section>
+
+      <section aria-labelledby="admin-prescriptive-analytics-heading" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Sparkles size={19} /></span>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Recommended action</p>
+            <h2 id="admin-prescriptive-analytics-heading" className="mt-1 text-lg font-black text-slate-900 dark:text-white">Prescriptive analytics</h2>
+            <p className="mt-1 text-xs text-slate-500">Recommendations use projected new sign-ups compared with the recent monthly average.</p>
+          </div>
+        </div>
+        <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-slate-950/50 sm:p-5">
+          <div className="mb-3">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">What could a promotion do?</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              The predictive chart above estimates sign-ups from recent history. This example starts with that same forecast and shows what sign-ups might look like if a promotion brings in 10% more people: about {Math.round(acquisitionScenarioForecast[0] ?? 0)} next month instead of about {Math.round(latestSignupForecast)}.
+            </p>
+          </div>
+          {growthValues.length ? (
+            <div role="img" aria-label="Three-month new-member sign-up forecast compared with an example promotion scenario that adds ten percent" className="h-64 w-full">
+              <Line data={acquisitionScenarioChart} options={predictiveChartOptions} />
+            </div>
+          ) : (
+            <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-white/10">
+              Sign-up history is needed to show a growth scenario.
+            </p>
+          )}
+          <p className="mt-2 text-[10px] leading-relaxed text-slate-500">
+            The 10% is only an example; the app does not yet track how promotions affect sign-ups. Compare actual campaign results with this scenario and update the estimate when you have promotion data.
+          </p>
+        </div>
+        <div className="mb-5 grid gap-4">
+          <div className="rounded-2xl border border-slate-200 p-4 dark:border-white/10">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Member growth: forecast vs recent sign-up average</h3>
+            <p className="mt-1 text-xs text-slate-500">Recent average uses the previous three months, excluding the current partial month.</p>
+            {recentSignupAverage != null ? (
+              <div role="img" aria-label="Projected new active-member sign-ups compared with the recent monthly average" className="mt-3 h-48">
+                <Bar data={prescriptiveSignupChart} options={prescriptiveSignupChartOptions} />
+              </div>
+            ) : (
+              <p className="mt-3 py-8 text-center text-sm text-slate-500">More complete months of sign-up history are needed for a comparison.</p>
+            )}
+          </div>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {prescriptiveInsights.map((insight) => (
+            <article
+              key={insight.title}
+              className={`rounded-2xl border p-4 ${
+                insight.type === "alert"
+                  ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100"
+                  : insight.type === "recommendation"
+                    ? "border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-400/30 dark:bg-violet-500/10 dark:text-violet-100"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-100"
+              }`}
+            >
+              <h3 className="mb-2 flex items-center gap-2 font-bold">
+                {insight.type === "alert" ? <AlertTriangle size={16} /> : <Sparkles size={16} />}
+                {insight.title}
+              </h3>
+              <p className="text-sm leading-relaxed">{insight.finding}</p>
+              <div className="mt-3 border-t border-current/15 pt-3">
+                <p className="text-xs font-bold uppercase tracking-wide">Recommended next step</p>
+                <p className="mt-1 text-sm leading-relaxed">{insight.action}</p>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6" aria-labelledby="equipment-heading">

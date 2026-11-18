@@ -123,6 +123,13 @@ const loginAdmin = async (req, res) => {
       },
     });
   } catch (error) {
+    if (db.isTransientDatabaseError(error)) {
+      console.warn("loginAdmin database connection temporarily unavailable:", error.message);
+      return res.status(503).json({
+        success: false,
+        message: "The database is temporarily unavailable. Please try again shortly.",
+      });
+    }
     console.error("loginAdmin error:", error.message);
     res.status(500).json({ success: false, message: "Server Error" });
   }

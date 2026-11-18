@@ -492,6 +492,9 @@ const getTrainerPrescriptiveAnalytics = async (req, res) => {
       Number(member.completed_previous_week) > 0 &&
       Number(member.completed_last_week) < Number(member.completed_previous_week) * 0.8
     ));
+    const weightLossMemberRows = members.filter((member) => (
+      /loss|lose/i.test(String(member.fitness_goal || ""))
+    ));
     const {
       stalled_member_count: stalledMembers,
       inactive_member_count: inactiveMembers,
@@ -504,7 +507,7 @@ const getTrainerPrescriptiveAnalytics = async (req, res) => {
     if (stalledMembers > 0) {
       insights.push({
         type: "alert",
-        title: "Possible progress stagnation",
+        title: "Little weight change recently",
         detail: `${stalledMembers} roster ${stalledMembers === 1 ? "member has" : "members have"} less than 0.5 kg change between their two latest weight logs. Review each member’s measurements, training load, and recovery before adjusting intensity.`,
         members: stalledMemberRows.map((member) => ({
           user_id: member.user_id,
@@ -543,11 +546,17 @@ const getTrainerPrescriptiveAnalytics = async (req, res) => {
       });
     }
 
-    if (weightLossMembers > 0 && insights.length < 3) {
+    if (weightLossMembers > 0) {
       insights.push({
         type: "focus",
         title: "Goal-focused coaching",
         detail: `${weightLossMembers} roster ${weightLossMembers === 1 ? "member is" : "members are"} pursuing weight loss. Review progress alongside adherence and recovery; avoid making intensity changes based on weight alone.`,
+        members: weightLossMemberRows.map((member) => ({
+          user_id: member.user_id,
+          first_name: member.first_name,
+          last_name: member.last_name,
+          detail: "Pursuing weight loss. Review recent measurements, adherence, and recovery before changing intensity.",
+        })),
       });
     }
 
@@ -566,7 +575,7 @@ const getTrainerPrescriptiveAnalytics = async (req, res) => {
       data: {
         ...summary,
         members: memberRecommendations,
-        insights: insights.slice(0, 3),
+        insights,
       },
     });
   } catch (err) {
