@@ -4,6 +4,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, T
 import { Bar, Doughnut } from "react-chartjs-2";
 import trainerApi from "../trainerApi";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
+import TrainerPrescriptiveAnalytics from "../components/trainers/TrainerPrescriptiveAnalytics";
 import TrainingPulse from "../components/TrainingPulse";
 import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 
@@ -291,5 +292,6 @@ export default function TrainerDashboard(){
         </div>
       </div>}
     </section>
+    <TrainerPrescriptiveAnalytics members={members} onViewProfile={setProfileMember} />
   </div>;
 }

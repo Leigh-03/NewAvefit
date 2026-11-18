@@ -35,7 +35,7 @@ test("selects BMI from the latest progress log for trainer prescriptive analytic
   assert.match(queryText, /latest_progress\.bmi[\s\S]*POWER\(u\.height \/ 100\.0, 2\)/);
 });
 
-test("includes affected member names and reasons in roster attention insights", async (t) => {
+test("includes every triggered member signal with names and reasons", async (t) => {
   const originalQuery = pool.query;
   const now = Date.now();
   pool.query = async () => ({
@@ -44,6 +44,7 @@ test("includes affected member names and reasons in roster attention insights", 
         user_id: 7,
         first_name: "Casey",
         last_name: "Inactive",
+        fitness_goal: "Weight Loss",
         completed_last_two_weeks: 0,
         completed_previous_week: 0,
         completed_last_week: 0,
@@ -56,9 +57,10 @@ test("includes affected member names and reasons in roster attention insights", 
         user_id: 8,
         first_name: "Jordan",
         last_name: "Plateau",
-        completed_last_two_weeks: 2,
-        completed_previous_week: 2,
-        completed_last_week: 2,
+        fitness_goal: "Weight Loss",
+        completed_last_two_weeks: 10,
+        completed_previous_week: 10,
+        completed_last_week: 0,
         latest_weight: "80",
         previous_weight: "80.2",
         latest_log_date: new Date(now - 1 * 24 * 60 * 60 * 1000),
@@ -87,7 +89,10 @@ test("includes affected member names and reasons in roster attention insights", 
 
   assert.equal(response.statusCode, 200);
   const inactivity = response.body.data.insights.find((insight) => insight.title === "Consistency check-in needed");
-  const stagnation = response.body.data.insights.find((insight) => insight.title === "Possible progress stagnation");
+  const stagnation = response.body.data.insights.find((insight) => insight.title === "Little weight change recently");
+  const workoutDecline = response.body.data.insights.find((insight) => insight.title === "Roster workout completion declined");
+  const goalFocused = response.body.data.insights.find((insight) => insight.title === "Goal-focused coaching");
+  assert.equal(response.body.data.insights.length, 4);
   assert.deepEqual(inactivity.members.map(({ user_id, first_name, last_name }) => ({ user_id, first_name, last_name })), [
     { user_id: 7, first_name: "Casey", last_name: "Inactive" },
   ]);
@@ -96,4 +101,11 @@ test("includes affected member names and reasons in roster attention insights", 
     { user_id: 8, first_name: "Jordan", last_name: "Plateau" },
   ]);
   assert.match(stagnation.members[0].detail, /0\.2 kg/);
+  assert.deepEqual(workoutDecline.members.map(({ user_id, first_name, last_name }) => ({ user_id, first_name, last_name })), [
+    { user_id: 8, first_name: "Jordan", last_name: "Plateau" },
+  ]);
+  assert.deepEqual(goalFocused.members.map(({ user_id, first_name, last_name }) => ({ user_id, first_name, last_name })), [
+    { user_id: 7, first_name: "Casey", last_name: "Inactive" },
+    { user_id: 8, first_name: "Jordan", last_name: "Plateau" },
+  ]);
 });
