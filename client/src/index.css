@@ -601,6 +601,61 @@ tbody tr:hover { background: #fff7ed; }
   border-color: #2a2a2a;
 }
 
+@page {
+  size: landscape;
+  margin: 12mm;
+}
+
+@media print {
+  body {
+    background: #fff !important;
+  }
+
+  .ave-sidebar,
+  .ave-topbar,
+  .ave-mobile-nav,
+  .admin-report-controls,
+  .admin-report-export {
+    display: none !important;
+  }
+
+  .portal-content,
+  .admin-reports-page {
+    padding: 0 !important;
+  }
+
+  .admin-report-print,
+  .admin-report-print * {
+    color: #111 !important;
+    box-shadow: none !important;
+  }
+
+  .admin-report-print,
+  .admin-report-print .rounded-2xl {
+    background: #fff !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  .admin-report-print section {
+    break-inside: avoid-page;
+  }
+
+  .admin-report-print .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  .admin-report-print table {
+    width: 100% !important;
+    min-width: 0 !important;
+    font-size: 9pt !important;
+  }
+
+  .admin-report-print th,
+  .admin-report-print td {
+    padding: 5px !important;
+  }
+}
+
 .ave-mobile-nav {
   background: rgba(255, 255, 255, .92);
   border-color: #ead9ca;

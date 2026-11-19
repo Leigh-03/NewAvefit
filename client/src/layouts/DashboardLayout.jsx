@@ -4,6 +4,7 @@ import {
   BarChart3,
   Bell,
   Boxes,
+  ClipboardList,
   Dumbbell,
   Home,
   Settings,
@@ -20,6 +21,7 @@ const NAV = [
   { to: "/admin/workouts", icon: Dumbbell, label: "Exercises" },
   { to: "/admin/equipment", icon: Boxes, label: "Equipment", countKey: "equipment" },
   { to: "/admin/analytics", icon: BarChart3, label: "Analytics" },
+  { to: "/admin/reports", icon: ClipboardList, label: "Reports" },
   { to: "/admin/notifications", icon: Bell, label: "Notifications", countKey: "notifications" },
   { to: "/admin/settings", icon: Settings, label: "Settings" },
 ];
@@ -32,6 +34,7 @@ const PAGE_TITLES = {
   "/admin/equipment": "Equipment Inventory",
   "/admin/nutrition": "Meal Plans",
   "/admin/analytics": "Analytics",
+  "/admin/reports": "Reports",
   "/admin/notifications": "Notifications",
   "/admin/settings": "Settings",
 };
