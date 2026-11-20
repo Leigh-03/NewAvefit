@@ -18,6 +18,18 @@ const getDateRange = (startDate, endDate) => {
   return { startDate, endDate };
 };
 
+const getComparisonRange = ({ startDate, endDate }) => {
+  const dayCount = Math.floor(
+    (Date.parse(`${endDate}T00:00:00.000Z`) - Date.parse(`${startDate}T00:00:00.000Z`)) / 86_400_000
+  ) + 1;
+  const comparisonEnd = new Date(Date.parse(`${startDate}T00:00:00.000Z`) - 86_400_000);
+  const comparisonStart = new Date(comparisonEnd.getTime() - (dayCount - 1) * 86_400_000);
+  return {
+    startDate: comparisonStart.toISOString().slice(0, 10),
+    endDate: comparisonEnd.toISOString().slice(0, 10),
+  };
+};
+
 const createdAtManila = (alias) => `CASE
   WHEN pg_typeof(${alias}.created_at) = 'timestamp with time zone'::regtype
     THEN ${alias}.created_at AT TIME ZONE 'Asia/Manila'
@@ -97,6 +109,48 @@ const getOperationalReport = async ({ startDate, endDate }) => {
     ORDER BY completed_date DESC, ws.session_id DESC
   `, [startDate, endDate]);
 
+  const equipmentResult = await pool.query(`
+    SELECT equipment_id, equipment_name, quantity,
+      equipment_condition AS condition, condition_notes, status, updated_at
+    FROM equipment_inventory
+    ORDER BY
+      CASE status
+        WHEN 'Needs replacement' THEN 1
+        WHEN 'Under repair' THEN 2
+        WHEN 'Needs inspection' THEN 3
+        ELSE 4
+      END,
+      equipment_name
+  `);
+
+  const coachesResult = await pool.query(`
+    SELECT
+      t.trainer_id,
+      t.full_name AS trainer_name,
+      INITCAP(LOWER(COALESCE(t.status, 'unknown'))) AS trainer_status,
+      COUNT(u.user_id)::int AS roster_count,
+      t.max_members AS total_capacity,
+      GREATEST(t.max_members - COUNT(u.user_id), 0)::int AS available_capacity
+    FROM trainers t
+    LEFT JOIN users u ON u.trainer_id = t.trainer_id
+    GROUP BY t.trainer_id, t.full_name, t.status, t.max_members
+    ORDER BY t.full_name
+  `);
+
+  const coachTotals = coachesResult.rows.reduce((totals, coach) => ({
+    coach_count: totals.coach_count + 1,
+    roster_count: totals.roster_count + Number(coach.roster_count || 0),
+    total_capacity: totals.total_capacity + Number(coach.total_capacity || 0),
+    available_capacity: totals.available_capacity + Number(coach.available_capacity || 0),
+  }), { coach_count: 0, roster_count: 0, total_capacity: 0, available_capacity: 0 });
+
+  const equipmentTotals = equipmentResult.rows.reduce((totals, item) => ({
+    equipment_types: totals.equipment_types + 1,
+    equipment_units: totals.equipment_units + Number(item.quantity || 0),
+    equipment_needing_attention: totals.equipment_needing_attention
+      + (item.status === "In service" ? 0 : Number(item.quantity || 0)),
+  }), { equipment_types: 0, equipment_units: 0, equipment_needing_attention: 0 });
+
   return {
     summary: summaryResult.rows[0] || {
       active_accounts: 0,
@@ -107,10 +161,18 @@ const getOperationalReport = async ({ startDate, endDate }) => {
     registrations: registrationsResult.rows,
     memberships_ending: membershipsResult.rows,
     completed_workouts: workoutsResult.rows,
+    equipment: {
+      summary: equipmentTotals,
+      items: equipmentResult.rows,
+    },
+    coaches: {
+      summary: coachTotals,
+      roster: coachesResult.rows,
+    },
   };
 };
 
-const getStatisticalReport = async ({ startDate, endDate }) => {
+const getStatisticalReport = async ({ startDate, endDate, comparisonStartDate, comparisonEndDate }) => {
   const trendResult = await pool.query(`
     WITH periods AS (
       SELECT generated.month_start::date AS month_start
@@ -124,7 +186,8 @@ const getStatisticalReport = async ({ startDate, endDate }) => {
       SELECT DATE_TRUNC('month', ${createdAtManila("u")})::date AS month_start,
         COUNT(*)::int AS registration_count
       FROM users u
-      WHERE ${createdAtManila("u")} >= $1::date
+      WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+        AND ${createdAtManila("u")} >= $1::date
         AND ${createdAtManila("u")} < ($2::date + INTERVAL '1 day')
       GROUP BY 1
     ),
@@ -145,6 +208,76 @@ const getStatisticalReport = async ({ startDate, endDate }) => {
     LEFT JOIN completed_workouts USING (month_start)
     ORDER BY periods.month_start
   `, [startDate, endDate]);
+
+  const memberGrowthResult = await pool.query(`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE ${createdAtManila("u")} >= $1::date
+          AND ${createdAtManila("u")} < ($2::date + INTERVAL '1 day')
+      )::int AS current_count,
+      COUNT(*) FILTER (
+        WHERE ${createdAtManila("u")} >= $3::date
+          AND ${createdAtManila("u")} < ($4::date + INTERVAL '1 day')
+      )::int AS previous_count
+    FROM users u
+    WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+      AND (
+        (${createdAtManila("u")} >= $1::date AND ${createdAtManila("u")} < ($2::date + INTERVAL '1 day'))
+        OR (${createdAtManila("u")} >= $3::date AND ${createdAtManila("u")} < ($4::date + INTERVAL '1 day'))
+      )
+  `, [startDate, endDate, comparisonStartDate, comparisonEndDate]);
+
+  const equipmentUsageResult = await pool.query(`
+    WITH equipment_counts AS (
+      SELECT
+        BTRIM(e.equipment) AS equipment,
+        COUNT(*) FILTER (
+          WHERE (${completedDateManila}) BETWEEN $1::date AND $2::date
+        )::int AS current_count,
+        COUNT(*) FILTER (
+          WHERE (${completedDateManila}) BETWEEN $3::date AND $4::date
+        )::int AS previous_count
+      FROM workout_sessions ws
+      JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+      JOIN exercises e ON e.exercise_id = ws.exercise_id
+      WHERE ws.completed IS TRUE
+        AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+        AND LOWER(BTRIM(e.equipment)) <> 'gym equipment'
+        AND (
+          (${completedDateManila}) BETWEEN $1::date AND $2::date
+          OR (${completedDateManila}) BETWEEN $3::date AND $4::date
+        )
+      GROUP BY BTRIM(e.equipment)
+    )
+    SELECT equipment, current_count, previous_count
+    FROM equipment_counts
+    ORDER BY (current_count + previous_count) DESC, current_count DESC, equipment
+    LIMIT 5
+  `, [startDate, endDate, comparisonStartDate, comparisonEndDate]);
+
+  const busiestHoursResult = await pool.query(`
+    SELECT hours.hour,
+      COUNT(*) FILTER (
+        WHERE ws.started_at >= $1::date::timestamp AT TIME ZONE 'Asia/Manila'
+          AND ws.started_at < ($2::date + INTERVAL '1 day')::timestamp AT TIME ZONE 'Asia/Manila'
+      )::int AS current_count,
+      COUNT(*) FILTER (
+        WHERE ws.started_at >= $3::date::timestamp AT TIME ZONE 'Asia/Manila'
+          AND ws.started_at < ($4::date + INTERVAL '1 day')::timestamp AT TIME ZONE 'Asia/Manila'
+      )::int AS previous_count
+    FROM GENERATE_SERIES(0, 23) AS hours(hour)
+    LEFT JOIN workout_sessions ws
+      ON ws.started_at IS NOT NULL
+      AND EXTRACT(HOUR FROM ws.started_at AT TIME ZONE 'Asia/Manila')::int = hours.hour
+      AND (
+        (ws.started_at >= $1::date::timestamp AT TIME ZONE 'Asia/Manila'
+          AND ws.started_at < ($2::date + INTERVAL '1 day')::timestamp AT TIME ZONE 'Asia/Manila')
+        OR (ws.started_at >= $3::date::timestamp AT TIME ZONE 'Asia/Manila'
+          AND ws.started_at < ($4::date + INTERVAL '1 day')::timestamp AT TIME ZONE 'Asia/Manila')
+      )
+    GROUP BY hours.hour
+    ORDER BY hours.hour
+  `, [startDate, endDate, comparisonStartDate, comparisonEndDate]);
 
   const workloadResult = await pool.query(`
     SELECT
@@ -168,6 +301,9 @@ const getStatisticalReport = async ({ startDate, endDate }) => {
 
   return {
     monthly_trends: trendResult.rows,
+    member_growth: memberGrowthResult.rows[0] || { current_count: 0, previous_count: 0 },
+    equipment_usage: equipmentUsageResult.rows,
+    busiest_hours: busiestHoursResult.rows,
     trainer_workload: workloadResult.rows,
   };
 };
@@ -187,14 +323,26 @@ const getAdminReports = async (req, res) => {
   }
 
   try {
+    const comparisonRange = getComparisonRange(range);
     const data = type === "operational"
       ? await getOperationalReport(range)
-      : await getStatisticalReport(range);
+      : await getStatisticalReport({
+        ...range,
+        comparisonStartDate: comparisonRange.startDate,
+        comparisonEndDate: comparisonRange.endDate,
+      });
     return res.json({
       success: true,
       data: {
         type,
-        period: { start_date: range.startDate, end_date: range.endDate },
+        period: {
+          start_date: range.startDate,
+          end_date: range.endDate,
+          ...(type === "statistical" ? {
+            comparison_start_date: comparisonRange.startDate,
+            comparison_end_date: comparisonRange.endDate,
+          } : {}),
+        },
         ...data,
       },
     });
