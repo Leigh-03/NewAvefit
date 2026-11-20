@@ -238,7 +238,7 @@ function MembershipStatusModal({ member, onClose, onSave, isSaving = false }) {
   );
 }
 
-function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, onViewProgress }) {
+function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, onViewProgress, onDeactivate }) {
   const bmiInfo = getBMICategory(member.bmi);
   const [selectedTrainer, setSelectedTrainer] = useState(member.trainer_id || "");
   const [recommendations, setRecommendations] = useState([]);
@@ -345,6 +345,21 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
             ))}
             <div className="rounded-xl bg-slate-50 p-3 dark:bg-[#222]"><p className="text-xs text-slate-400">Email verified</p><p className="mt-1 font-semibold text-slate-700 dark:text-gray-200">{member.email_verified ? "Yes" : "No"}</p></div>
           </div>
+          {String(member.status || "").trim().toLowerCase() === "active" && (
+            <section className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50/70 p-4 dark:border-red-500/20 dark:bg-red-500/[0.05] sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Account access</h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400">Deactivate this account to block member access. Membership dates and workout history will be retained.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onDeactivate(member)}
+                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20"
+              >
+                <XCircle size={16} /> Deactivate account
+              </button>
+            </section>
+          )}
           <section className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Training preferences</p>
             <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
@@ -549,6 +564,9 @@ export default function Members() {
   const [confirmMember, setConfirmMember] = useState(null);
   const [deletingMember, setDeletingMember] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [memberToDeactivate, setMemberToDeactivate] = useState(null);
+  const [deactivatingMember, setDeactivatingMember] = useState(false);
+  const [deactivationError, setDeactivationError] = useState("");
   const [changeRequests, setChangeRequests] = useState([]);
   const [membershipRequests, setMembershipRequests] = useState([]);
   const [reviewingRequestId, setReviewingRequestId] = useState(null);
@@ -647,6 +665,26 @@ export default function Members() {
 
   const handleApprove=async id=>{setDecisionNotice("");try{const member = members.find((row) => Number(row.member_id) === Number(id));const response=await api.put(`/members/${id}/approve`);setDecisionNotice(response.data.email_sent===false?"Member approved, but the notification email could not be delivered. Check the email-service configuration.":"Member approved and the notification email was sent.");const updatedMembers=await fetchData();const approvedMember=updatedMembers?.find((row)=>Number(row.member_id)===Number(id)) || member;if(approvedMember){setMembershipPromptMember({ ...approvedMember, membership_months: approvedMember.membership_months || 1 });}}catch(e){alert(e.response?.data?.message||"Failed to update member status.");}};
   const handleReject=async id=>{setDecisionNotice("");try{const response=await api.put(`/members/${id}/reject`);setDecisionNotice(response.data.email_sent===false?"Member status updated, but the notification email could not be delivered. Check the email-service configuration.":"Member status updated and the notification email was sent.");await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to deactivate member.");}};
+  const handleDeactivate = async () => {
+    if (!memberToDeactivate) return;
+    setDeactivatingMember(true);
+    setDeactivationError("");
+    setDecisionNotice("");
+    try {
+      const response = await api.put(`/members/${memberToDeactivate.member_id}/deactivate`);
+      setDecisionNotice(response.data.message || `${memberToDeactivate.full_name} is now inactive.`);
+      const updatedMembers = await fetchData();
+      const updatedMember = updatedMembers?.find(
+        (member) => Number(member.member_id) === Number(memberToDeactivate.member_id)
+      );
+      if (updatedMember) setViewMember(updatedMember);
+      setMemberToDeactivate(null);
+    } catch (error) {
+      setDeactivationError(error.response?.data?.message || "Unable to deactivate this member account.");
+    } finally {
+      setDeactivatingMember(false);
+    }
+  };
   const handleDelete=(id)=>{
     const member = members.find((row) => Number(row.member_id) === Number(id));
     if (member) setConfirmMember(member);
@@ -712,9 +750,10 @@ export default function Members() {
 
   return <div className="space-y-6">
     {membershipPromptMember && <MembershipStatusModal member={membershipPromptMember} isSaving={savingMembershipPrompt} onClose={() => setMembershipPromptMember(null)} onSave={async (member, membershipMonths) => { setSavingMembershipPrompt(true); try { await handleMembershipUpdate(member, membershipMonths); } finally { setSavingMembershipPrompt(false); } }} />}
-    {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate} onViewProgress={setProgressMember}/>}
+    {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate} onViewProgress={setProgressMember} onDeactivate={(member) => { setDeactivationError(""); setMemberToDeactivate(member); }}/>}
     {progressMember&&<ProgressHistoryModal member={progressMember} fetchProgress={fetchAdminProgress} onClose={()=>setProgressMember(null)}/>}
     {confirmMember&&<ConfirmDialog title={`Delete ${confirmMember.full_name || "this member"} permanently?`} description="This action cannot be undone. The member’s account and associated records will be permanently deleted." confirmLabel="Delete member" isLoading={deletingMember} error={deleteError} onCancel={()=>{if(!deletingMember){setConfirmMember(null);setDeleteError("");}}} onConfirm={confirmDelete}/>}
+    {memberToDeactivate&&<ConfirmDialog title={`Deactivate ${memberToDeactivate.full_name || "this member"}?`} description="This immediately blocks the member from using their account and invalidates their current session. Their membership dates and workout history will be retained. You can reactivate the account later." confirmLabel="Deactivate account" isLoading={deactivatingMember} error={deactivationError} onCancel={()=>{if(!deactivatingMember){setMemberToDeactivate(null);setDeactivationError("");}}} onConfirm={handleDeactivate}/>}
     {reviewRequestToReject&&<ConfirmDialog title="Reject this change request?" description="The member's current profile and password will remain unchanged. The member will be notified by email." confirmLabel="Reject request" isLoading={reviewingRequestId === reviewRequestToReject.request_id} error={reviewError} onCancel={()=>{if(!reviewingRequestId)setReviewRequestToReject(null);}} onConfirm={()=>handleReviewChangeRequest(reviewRequestToReject, "reject")}/>}
 
     <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8"><p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">People management</p><div className="mt-2 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-3xl font-black text-slate-900 dark:text-white">Members</h1><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage accounts, approvals, fitness profiles, and coach assignments.</p></div></div></header>

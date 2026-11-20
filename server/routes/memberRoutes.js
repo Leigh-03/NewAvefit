@@ -3,7 +3,7 @@ const router = express.Router();
 const verifyToken = require("../middleware/authMiddleware");
 const {
   getMembers, getMemberById, createMember, assignTrainer, getCoachRecommendations,
-  updateMemberMembership, approveMember, rejectMember, deleteMember, getMemberProgress,
+  updateMemberMembership, approveMember, deactivateMember, rejectMember, deleteMember, getMemberProgress,
   getMembershipTermRequests,
   reviewMembershipTermRequest,
 } = require("../controllers/memberController");
@@ -23,6 +23,7 @@ router.post("/", verifyToken, createMember);
 router.put("/:id/membership", verifyToken, updateMemberMembership);
 router.put("/:id/trainer", verifyToken, assignTrainer);
 router.put("/:id/approve", verifyToken, approveMember);
+router.put("/:id/deactivate", verifyToken, deactivateMember);
 router.put("/:id/reject", verifyToken, rejectMember);
 router.delete("/:id", verifyToken, deleteMember);
 router.get("/:id/progress", verifyToken, getMemberProgress);
