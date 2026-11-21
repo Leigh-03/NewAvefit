@@ -29,7 +29,8 @@ const SCHEDULED_FOR_TODAY_SQL = `(
 )`;
 
 const getOwnedSessionSchedule = async (sessionId, userId) => pool.query(`
-  SELECT ws.session_id, ws.session_date, wp.deletion_request_status,
+  SELECT ws.session_id, ws.session_date, ws.started_at, ws.completed,
+         ws.workout_plan_id, wp.deletion_request_status,
          ${SCHEDULED_FOR_TODAY_SQL} AS scheduled_today
   FROM workout_sessions ws
   JOIN workout_plans wp ON ws.workout_plan_id = wp.workout_plan_id
@@ -624,23 +625,38 @@ const startWorkoutSession = async (req, res) => {
         message: "You can only start this workout on its scheduled day.",
       });
     }
+    if (scheduledSession.rows[0].completed) {
+      return res.status(409).json({ success: false, message: "This workout is already complete. Start a different unfinished workout." });
+    }
+    if (scheduledSession.rows[0].started_at) {
+      return res.status(409).json({ success: false, message: "This workout has already started. Finish it before starting another workout." });
+    }
 
     const result = await pool.query(`
       UPDATE workout_sessions ws
-      SET started_at = COALESCE(ws.started_at, NOW())
+      SET started_at = NOW()
       FROM workout_plans wp
       WHERE ws.session_id = $1
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
         AND wp.approval_status = 'Approved'
         AND COALESCE(wp.deletion_request_status, '') <> 'Pending'
-        AND ws.completed = false
+        AND ws.started_at IS NULL
+        AND ws.completed IS NOT TRUE
+        AND NOT EXISTS (
+          SELECT 1
+          FROM workout_sessions active_ws
+          WHERE active_ws.workout_plan_id = ws.workout_plan_id
+            AND active_ws.session_id <> ws.session_id
+            AND active_ws.started_at IS NOT NULL
+            AND active_ws.completed IS NOT TRUE
+        )
         AND ${SCHEDULED_FOR_TODAY_SQL}
       RETURNING ws.session_id, ws.started_at
     `, [req.params.id, req.user.user_id]);
 
     if (result.rowCount === 0) {
-      return res.status(400).json({ success: false, message: "This workout can only be started on its scheduled day." });
+      return res.status(409).json({ success: false, message: "Another workout is already active. Finish it before starting this workout." });
     }
 
     res.json({ success: true, data: result.rows[0] });

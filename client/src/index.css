@@ -43,6 +43,50 @@ table.min-w-\[1080px\] td:nth-child(8) > div,
 
 }
 
+.admin-trainers-table {
+  table-layout: fixed;
+  min-width: 0;
+}
+
+@media (max-width: 1279px) {
+  .admin-trainers-table th,
+  .admin-trainers-table td {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+
+  .admin-trainers-table th:nth-child(2),
+  .admin-trainers-table td:nth-child(2),
+  .admin-trainers-table th:nth-child(3),
+  .admin-trainers-table td:nth-child(3),
+  .admin-trainers-table th:nth-child(4),
+  .admin-trainers-table td:nth-child(4),
+  .admin-trainers-table th:nth-child(6),
+  .admin-trainers-table td:nth-child(6) {
+    display: none;
+  }
+
+  .admin-trainers-table th:nth-child(1),
+  .admin-trainers-table td:nth-child(1) {
+    width: 48%;
+  }
+
+  .admin-trainers-table th:nth-child(5),
+  .admin-trainers-table td:nth-child(5) {
+    width: 24%;
+  }
+
+  .admin-trainers-table th:nth-child(7),
+  .admin-trainers-table td:nth-child(7) {
+    width: 28%;
+  }
+
+  .admin-trainers-table td:nth-child(7) > div {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+}
+
 .admin-trainers-table-container {
   container-type: inline-size;
 }

@@ -153,6 +153,9 @@ export const getScheduledPrograms = (preferredDays = []) => {
 };
 
 export const exerciseMatchesProgram = (exercise, program) => {
+  const category = String(exercise?.category_name || "").trim().toLowerCase();
+  const muscleGroup = String(exercise?.muscle_group || "").trim().toLowerCase();
+  if (category === "cardio" || muscleGroup === "cardio") return true;
   const muscles = searchableMuscles(exercise);
   const targetMuscles = PROGRAM_MUSCLES[program] || [];
   return targetMuscles.some((muscle) => muscles.includes(muscle));

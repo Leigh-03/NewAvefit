@@ -21,6 +21,7 @@ const normalizeFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : 
 const isValidPhoneNumber = (phone) => /^09\d{9}$/.test(phone);
 const normalizePhoneNumber = (phone) => {
   const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return "";
   return digits.startsWith("09") ? digits.slice(0, 11) : `09${digits.slice(-9)}`;
 };
 const toSelectionList = (value) => {
@@ -274,7 +275,7 @@ export default function ProfilePage() {
   };
 
   const handleSave = async () => {
-    if (!isValidPhoneNumber(form.phone)) {
+    if (form.phone && !isValidPhoneNumber(form.phone)) {
       setMsg("Phone number must start with 09 and contain exactly 11 digits.");
       return;
     }
@@ -284,6 +285,7 @@ export default function ProfilePage() {
       const profileChanges = Object.fromEntries(
         Object.entries(form).filter(([key]) => !["email", "injuries", "health_conditions", "injury_pain_levels"].includes(key))
       );
+      if (!profileChanges.phone) profileChanges.phone = null;
       const res = await userApi.put("/profile", profileChanges);
       if (res.data.request) {
         setChangeRequests((current) => [res.data.request, ...current]);
@@ -519,7 +521,7 @@ export default function ProfilePage() {
           </div>
 
           <div>
-            <label htmlFor="profile-phone" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Phone Number</label>
+            <label htmlFor="profile-phone" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Phone Number <span className="font-normal text-slate-400">(optional)</span></label>
             <div className="flex min-h-12 w-full items-stretch overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm transition hover:border-slate-300 focus-within:border-orange-500 focus-within:ring-4 focus-within:ring-orange-500/15 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:focus-within:border-orange-500">
               <span aria-hidden="true" className="flex select-none items-center border-r border-slate-200 bg-slate-100 px-4 text-sm font-semibold tracking-wide text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200">09</span>
               <input
@@ -529,10 +531,12 @@ export default function ProfilePage() {
                 autoComplete="tel"
                 maxLength={9}
                 pattern="[0-9]{9}"
-                required
-                aria-invalid={Boolean(form.phone.slice(2)) && !isValidPhoneNumber(form.phone)}
+                aria-invalid={Boolean(form.phone && form.phone.slice(2)) && !isValidPhoneNumber(form.phone)}
                 value={form.phone.startsWith("09") ? form.phone.slice(2) : ""}
-                onChange={(event) => handleChange("phone", `09${event.target.value.replace(/\D/g, "").slice(0, 9)}`)}
+                onChange={(event) => {
+                  const digits = event.target.value.replace(/\D/g, "").slice(0, 9);
+                  handleChange("phone", digits ? `09${digits}` : "");
+                }}
                 placeholder="000 000 000"
                 className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm font-medium tracking-wide text-slate-900 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-slate-500"
               />

@@ -46,6 +46,7 @@ const sanitizePayload = (payload = {}) => {
     delete result.profile_image;
     result.profile_photo_changed = true;
   }
+  if (!value) value = null;
   return result;
 };
 
@@ -70,12 +71,13 @@ const buildProfileChangePayload = (current, body) => {
     } else if (field === "email") {
       value = normalizeEmail(value);
     } else if (field === "phone") {
-      value = String(value).trim();
-      if (!validatePhilippinePhone(value)) {
+      value = value === null || value === undefined ? "" : String(value).trim();
+      if (value && !validatePhilippinePhone(value)) {
         const error = new Error("Phone number must start with 09 and contain exactly 11 digits.");
         error.status = 400;
         throw error;
       }
+      if (!value) value = null;
     } else if (field === "preferred_days") {
       if (!Array.isArray(value) || value.some((day) => !DAY_NAMES.has(String(day).toLowerCase()))) {
         const error = new Error("Choose valid preferred workout days.");

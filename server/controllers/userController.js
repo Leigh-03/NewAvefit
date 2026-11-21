@@ -1459,6 +1459,8 @@ const updateProfile = async (req, res) => {
 
     if (
       phone !== undefined &&
+      phone !== null &&
+      String(phone).trim() !== "" &&
       !validatePhilippinePhone(phone)
     ) {
       return res.status(400).json({
@@ -1751,7 +1753,9 @@ const updateProfile = async (req, res) => {
         weight !== undefined && weight !== null ? weight : currentUser.weight,
         fitness_goal !== undefined && fitness_goal !== null ? fitness_goal : currentUser.fitness_goal,
         activity_level !== undefined && activity_level !== null ? activity_level : currentUser.activity_level,
-        phone !== undefined && phone !== null ? phone : currentUser.phone,
+        phone !== undefined && phone !== null
+          ? (String(phone).trim() ? String(phone).trim() : null)
+          : currentUser.phone,
         age ?? currentUser.age,
         target_weight ?? currentUser.target_weight,
         workout_days_per_week ?? currentUser.workout_days_per_week,

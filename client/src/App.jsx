@@ -17,6 +17,7 @@ import EquipmentInventory from "./pages/EquipmentInventory";
 import Nutrition from "./pages/Nutrition";
 import Analytics from "./pages/Analytics";
 import AdminReports from "./pages/AdminReports";
+import AdminSystemHealth from "./pages/AdminSystemHealth";
 import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
 
@@ -145,6 +146,7 @@ export default function App() {
                   <Route path="/nutrition" element={<Nutrition />} />
                   <Route path="/analytics" element={<Analytics />} />
                   <Route path="/reports" element={<AdminReports />} />
+                  <Route path="/system-health" element={<AdminSystemHealth />} />
                   <Route path="/notifications" element={<Notifications />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />

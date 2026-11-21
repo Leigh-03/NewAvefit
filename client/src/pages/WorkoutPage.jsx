@@ -600,6 +600,11 @@ export default function WorkoutPage() {
           </div>
         ) : (
           daySessions.map((session) => (
+            (() => {
+              const activeSession = daySessions.find((item) => item.started_at && !item.completed);
+              const anotherSessionIsActive = Boolean(activeSession)
+                && String(activeSession.session_id) !== String(session.session_id);
+              return (
             <div key={session.session_id}
               className={`group relative overflow-hidden rounded-2xl border bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md dark:bg-[#111] sm:p-5 ${Number(session.workout_plan_id) === requestedPlanId ? "border-orange-400 ring-2 ring-orange-500/20" : session.completed ? "border-green-500/30" : "border-slate-200 dark:border-white/10"}`}>
               <div className={`absolute inset-y-0 left-0 w-1 ${session.completed ? "bg-green-500" : "bg-gradient-to-b from-orange-400 to-orange-600"}`} />
@@ -649,11 +654,16 @@ export default function WorkoutPage() {
                       </div>
                     ) : (
                       <button type="button" onClick={() => handleStart(session.session_id)}
-                        disabled={startingSessionId === session.session_id}
+                        disabled={startingSessionId === session.session_id || anotherSessionIsActive}
+                        title={anotherSessionIsActive ? "Complete the active workout first." : undefined}
                         className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-500 px-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                       >
                         <Play size={16} fill="currentColor" />
-                        {startingSessionId === session.session_id ? "Starting..." : "Start workout"}
+                        {startingSessionId === session.session_id
+                          ? "Starting..."
+                          : anotherSessionIsActive
+                            ? "Finish active workout first"
+                            : "Start workout"}
                       </button>
                     )
                     ) : (
@@ -665,6 +675,8 @@ export default function WorkoutPage() {
                 </div>
               </div>
             </div>
+              );
+            })()
           ))
         )}
       </div>

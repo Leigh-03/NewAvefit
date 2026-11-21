@@ -3,9 +3,11 @@ const express = require("express");
 const cors = require("cors");
 
 const { initializeDatabase, expireMemberships } = require("./db");
+const auditAdminActivity = require("./middleware/adminAuditMiddleware");
 const {
   sendWeeklyBmiReminders,
   sendUnassignedWorkoutReminders,
+  sendMemberNoWorkoutPlanReminders,
 } = require("./utils/notifications");
 
 // Admin routes
@@ -55,6 +57,7 @@ app.use((req, res, next) => {
 
 // Profile photos are compressed to small data URLs by the client and validated again server-side.
 app.use(express.json({ limit: "3mb" }));
+app.use("/api", auditAdminActivity);
 
 app.get("/", (req, res) => res.send("AveFit API is running 🚀"));
 
@@ -136,14 +139,17 @@ const runJob = (label, fn) => async () => {
 const membershipJob = runJob("Membership expiry check", expireMemberships);
 const bmiJob = runJob("Weekly BMI reminder check", sendWeeklyBmiReminders);
 const workoutJob = runJob("No-workout reminder check", sendUnassignedWorkoutReminders);
+const memberWorkoutJob = runJob("Member no-workout reminder check", sendMemberNoWorkoutPlanReminders);
 
 waitForDatabase()
   .then(() => {
     setInterval(membershipJob, 60 * 1000).unref();
     setInterval(bmiJob, 60 * 60 * 1000).unref();
     setInterval(workoutJob, 60 * 60 * 1000).unref();
+    setInterval(memberWorkoutJob, 60 * 60 * 1000).unref();
     bmiJob();
     workoutJob();
+    memberWorkoutJob();
     app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
   })
   .catch((err) => {

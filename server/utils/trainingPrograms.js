@@ -131,6 +131,9 @@ const requiresConservativeWorkout = (exercise, injuries = [], healthConditions =
 );
 
 const exerciseMatchesProgram = (exercise, program) => {
+  const category = String(exercise?.category_name || "").trim().toLowerCase();
+  const muscleGroup = String(exercise?.muscle_group || "").trim().toLowerCase();
+  if (category === "cardio" || muscleGroup === "cardio") return true;
   const muscles = searchableMuscles(exercise);
   return (PROGRAM_MUSCLES[program] || []).some((muscle) => muscles.includes(muscle));
 };

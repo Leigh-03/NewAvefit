@@ -110,6 +110,7 @@ const loginAdmin = async (req, res) => {
       { expiresIn: "72h" }
     );
 
+    req.admin = { admin_id: admin.admin_id };
     res.json({
       success: true,
       message: "Login successful.",
