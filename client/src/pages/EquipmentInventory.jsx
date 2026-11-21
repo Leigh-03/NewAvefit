@@ -214,6 +214,21 @@ const statusClass = (status) => ({
   "Needs inspection": "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
 }[normalizeEquipmentStatus(status)] || "bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300");
 
+const getEquipmentStatusRatio = (item) => {
+  const quantity = Number(item.quantity || 0);
+  const status = normalizeEquipmentStatus(item.status);
+  if (["In service", "Needs replacement", "Under Maintenance"].includes(status)) {
+    return `${quantity}/${quantity}`;
+  }
+  return `0/${quantity}`;
+};
+
+const getEquipmentStatusUnitCount = (item) => {
+  const quantity = Number(item.quantity || 0);
+  const status = normalizeEquipmentStatus(item.status);
+  return ["In service", "Needs replacement", "Under Maintenance"].includes(status) ? quantity : 0;
+};
+
 export default function EquipmentInventory() {
   const [equipment, setEquipment] = useState([]);
   const [search, setSearch] = useState("");
@@ -279,8 +294,12 @@ export default function EquipmentInventory() {
     });
   }, [equipment, search, selectedStatusFilter]);
   const totalQuantity = equipment.reduce((total, item) => total + Number(item.quantity || 0), 0);
-  const needReplacementCount = equipment.filter((item) => normalizeEquipmentStatus(item.status) === "Needs replacement").length;
-  const underMaintenanceCount = equipment.filter((item) => normalizeEquipmentStatus(item.status) === "Under Maintenance").length;
+  const needReplacementCount = equipment
+    .filter((item) => normalizeEquipmentStatus(item.status) === "Needs replacement")
+    .reduce((total, item) => total + Number(item.quantity || 0), 0);
+  const underMaintenanceCount = equipment
+    .filter((item) => normalizeEquipmentStatus(item.status) === "Under Maintenance")
+    .reduce((total, item) => total + Number(item.quantity || 0), 0);
 
   const handleDelete = async (item) => {
     setDeletingEquipmentId(item.equipment_id);
@@ -351,7 +370,7 @@ export default function EquipmentInventory() {
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Equipment items</p>
           <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading ? "—" : equipment.length}</p>
@@ -359,6 +378,14 @@ export default function EquipmentInventory() {
         <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total quantity</p>
           <p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading ? "—" : totalQuantity}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Needs replacement</p>
+          <p className="mt-2 text-2xl font-black text-red-600 dark:text-red-300">{loading ? "—" : needReplacementCount}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Under maintenance</p>
+          <p className="mt-2 text-2xl font-black text-amber-600 dark:text-amber-300">{loading ? "—" : underMaintenanceCount}</p>
         </div>
       </section>
 
@@ -458,6 +485,9 @@ export default function EquipmentInventory() {
                     </button>
                     <div className="flex flex-wrap items-center justify-end gap-3">
                       <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Qty: {item.quantity}</span>
+                      <span className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200">
+                        {normalizeEquipmentStatus(item.status)}: {getEquipmentStatusRatio(item)}
+                      </span>
                       <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(item.status)}`}>
                         {displayEquipmentStatus(item.status)}
                         {normalizeEquipmentStatus(item.status) === "Needs inspection" && <span aria-label="Needs attention" title="Needs inspection" className="ml-1 inline-block h-2 w-2 rounded-full bg-red-500 align-middle" />}
@@ -476,6 +506,9 @@ export default function EquipmentInventory() {
                         <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Quantity:</strong> {item.quantity}</p>
                         <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Condition:</strong> {item.condition}</p>
                         <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Status:</strong> {displayEquipmentStatus(item.status)}</p>
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-200 sm:col-span-3">
+                          <strong>Status units:</strong> {getEquipmentStatusUnitCount(item)} / {item.quantity} ({getEquipmentStatusRatio(item)})
+                        </p>
                         {item.condition_notes && <p className="text-sm text-slate-600 dark:text-slate-300 sm:col-span-3"><strong>Condition details:</strong> {item.condition_notes}</p>}
                         <p className="text-xs text-slate-500 sm:col-span-3">Last updated: {item.updated_at ? new Date(item.updated_at).toLocaleString() : "—"}</p>
                       </div>

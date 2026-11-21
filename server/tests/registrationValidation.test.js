@@ -12,6 +12,7 @@ const validRegistration = {
 test("allows email registration without a phone number", () => {
   assert.equal(validateRegistration(validRegistration), null);
   assert.equal(validateRegistration({ ...validRegistration, phone: "" }), null);
+  assert.equal(validateRegistration({ ...validRegistration, phone: null }), null);
 });
 
 test("validates a phone number when one is provided", () => {

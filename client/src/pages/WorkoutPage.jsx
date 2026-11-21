@@ -68,6 +68,7 @@ export default function WorkoutPage() {
   const [membershipEndDate, setMembershipEndDate] = useState("");
   const [injuries, setInjuries] = useState([]);
   const [healthConditions, setHealthConditions] = useState([]);
+  const [injuryPainLevels, setInjuryPainLevels] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [weekStart, setWeekStart] = useState(() => philippinesMondayString());
@@ -118,6 +119,7 @@ export default function WorkoutPage() {
       setMembershipEndDate(profile.membership_end_date ? String(profile.membership_end_date).slice(0, 10) : "");
       setInjuries(Array.isArray(profile.injuries) ? profile.injuries.filter((injury) => injury && injury !== "None") : []);
       setHealthConditions(Array.isArray(profile.health_conditions) ? profile.health_conditions.filter((condition) => condition && condition !== "None") : []);
+      setInjuryPainLevels(profile.injury_pain_levels && typeof profile.injury_pain_levels === "object" ? profile.injury_pain_levels : {});
       setHasAssignedCoach(Boolean(profile.trainer_id));
       const today = philippinesDateString();
       if (!initializedSchedule.current) {
@@ -348,6 +350,7 @@ export default function WorkoutPage() {
           workoutFrequency={workoutFrequency}
           injuries={injuries}
           healthConditions={healthConditions}
+          injuryPainLevels={injuryPainLevels}
           existingPlans={userPlans}
           existingSessions={sessions}
           onClose={() => setShowPlanRequest(false)}
@@ -600,6 +603,11 @@ export default function WorkoutPage() {
           </div>
         ) : (
           daySessions.map((session) => (
+            (() => {
+              const activeSession = daySessions.find((item) => item.started_at && !item.completed);
+              const anotherSessionIsActive = Boolean(activeSession)
+                && String(activeSession.session_id) !== String(session.session_id);
+              return (
             <div key={session.session_id}
               className={`group relative overflow-hidden rounded-2xl border bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md dark:bg-[#111] sm:p-5 ${Number(session.workout_plan_id) === requestedPlanId ? "border-orange-400 ring-2 ring-orange-500/20" : session.completed ? "border-green-500/30" : "border-slate-200 dark:border-white/10"}`}>
               <div className={`absolute inset-y-0 left-0 w-1 ${session.completed ? "bg-green-500" : "bg-gradient-to-b from-orange-400 to-orange-600"}`} />
@@ -626,6 +634,13 @@ export default function WorkoutPage() {
                         {session.reps && <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:bg-white/[0.06] dark:text-slate-300">🔁 {session.reps} reps</span>}
                       </div>
                     )}
+                    {session.duration_minutes && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+                          ⏱ {session.duration_minutes} minutes
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
@@ -649,11 +664,16 @@ export default function WorkoutPage() {
                       </div>
                     ) : (
                       <button type="button" onClick={() => handleStart(session.session_id)}
-                        disabled={startingSessionId === session.session_id}
+                        disabled={startingSessionId === session.session_id || anotherSessionIsActive}
+                        title={anotherSessionIsActive ? "Complete the active workout first." : undefined}
                         className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-500 px-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                       >
                         <Play size={16} fill="currentColor" />
-                        {startingSessionId === session.session_id ? "Starting..." : "Start workout"}
+                        {startingSessionId === session.session_id
+                          ? "Starting..."
+                          : anotherSessionIsActive
+                            ? "Finish active workout first"
+                            : "Start workout"}
                       </button>
                     )
                     ) : (
@@ -665,6 +685,8 @@ export default function WorkoutPage() {
                 </div>
               </div>
             </div>
+              );
+            })()
           ))
         )}
       </div>

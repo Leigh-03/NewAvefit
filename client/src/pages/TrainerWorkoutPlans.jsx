@@ -11,6 +11,9 @@ import {
   getExerciseLimitForExperience,
   getProgramForDate,
   requiresConservativeWorkout,
+  isCardioExercise,
+  getHighestInjuryPainLevel,
+  getCardioDurationRecommendation,
 } from "../utils/trainingPrograms";
 
 const formatFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
@@ -301,12 +304,14 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
       exercise_id: String(session.exercise_id || ""),
       sets: String(session.sets ?? ""),
       reps: String(session.reps ?? ""),
+      duration_minutes: String(session.duration_minutes ?? ""),
     }));
     while (sessions.length < 3) {
       sessions.push({
         exercise_id: "",
         sets: String(doseRules.sets[0]),
         reps: String(doseRules.reps[0]),
+        duration_minutes: "",
       });
     }
 
@@ -359,6 +364,16 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
     }
     return doseRules || { sets: [1, 6], reps: [3, 16] };
   };
+  const getCardioRecommendation = (session) => {
+    const exercise = exercises.find((item) => String(item.exercise_id) === String(session.exercise_id));
+    if (!exercise || !isCardioExercise(exercise) || !selectedMember) return null;
+    return getCardioDurationRecommendation({
+      experienceLevel: selectedMember.activity_level,
+      fitnessGoal: selectedMember.fitness_goal,
+      painLevel: getHighestInjuryPainLevel(selectedMember.injury_pain_levels),
+      hasHealthCondition: toList(selectedMember.health_conditions).length > 0,
+    });
+  };
 
   const setFieldError = (field, message) => {
     setFieldErrors((current) => ({ ...current, [field]: message }));
@@ -384,6 +399,18 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
     }
     if (session.exercise_id && !matchingExercises.some((exercise) => String(exercise.exercise_id) === String(session.exercise_id))) {
       errors[`sessions.${index}.exercise_id`] = `Choose an exercise for the ${trainingProgram || "selected"} program and member's level.`;
+    }
+    const cardio = getCardioRecommendation(session);
+    if (cardio) {
+      if (cardio.status === "blocked" || cardio.status === "stop") {
+        errors[`sessions.${index}.exercise_id`] = cardio.note;
+      } else {
+        const duration = Number(session.duration_minutes);
+        if (!Number.isInteger(duration) || duration < cardio.min || duration > cardio.max) {
+          errors[`sessions.${index}.duration_minutes`] = `Use ${cardio.min}–${cardio.max} minutes.`;
+        }
+      }
+      return errors;
     }
     const sessionRules = getSessionDoseRules(session);
     const setsError = integerRangeError(session.sets, "Sets", sessionRules.sets[0], sessionRules.sets[1]);
@@ -425,10 +452,11 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
         ...form,
         plan_name: planName,
         training_program: trainingProgram,
-        sessions: form.sessions.map(({ exercise_id, sets, reps }) => ({
+        sessions: form.sessions.map(({ exercise_id, sets, reps, duration_minutes }) => ({
           exercise_id,
           sets,
           reps,
+          duration_minutes: duration_minutes ? Number(duration_minutes) : null,
         })),
       };
       if (plan) {
@@ -458,6 +486,7 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
       ...(field === "exercise_id" ? { exercise_id: value } : {}),
     };
     const nextDose = getSessionDoseRules(nextSession);
+    const nextCardio = getCardioRecommendation(nextSession);
     setForm((current) => ({
       ...current,
       sessions: current.sessions.map((session, sessionIndex) =>
@@ -465,7 +494,13 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
           ? {
             ...session,
             [field]: value,
-            ...(field === "exercise_id" ? { sets: String(nextDose.sets[0]), reps: String(nextDose.reps[0]) } : {}),
+            ...(field === "exercise_id" ? {
+              sets: nextCardio ? "1" : String(nextDose.sets[0]),
+              reps: nextCardio ? "1" : String(nextDose.reps[0]),
+              duration_minutes: nextCardio && nextCardio.status !== "blocked" && nextCardio.status !== "stop"
+                ? String(nextCardio.recommended)
+                : "",
+            } : {}),
           }
           : session
       ),
@@ -706,6 +741,7 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                       exercise_id: "",
                       sets: String(doseRules.sets[0]),
                       reps: String(doseRules.reps[0]),
+                      duration_minutes: "",
                     }],
                   });
                   setFieldError("sessions", "");
@@ -742,44 +778,81 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                     />
                     {renderFieldError(`sessions.${index}.exercise_id`)}
                   </div>
-                  <div className="min-w-0">
-                    <label htmlFor={`sessions-${index}-sets`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Sets ({getSessionDoseRules(session).sets[0]}–{getSessionDoseRules(session).sets[1]})</label>
-                    <input
-                      id={`sessions-${index}-sets`}
-                      aria-label={`Exercise ${index + 1} sets`}
-                      type="number"
-                      min={getSessionDoseRules(session).sets[0]}
-                      max={getSessionDoseRules(session).sets[1]}
-                      step="1"
-                      required
-                      placeholder="Sets"
-                      value={session.sets}
-                      onChange={(event) => updateSessionField(index, "sets", event.target.value)}
-                      aria-invalid={Boolean(fieldErrors[`sessions.${index}.sets`])}
-                      aria-describedby={fieldErrors[`sessions.${index}.sets`] ? `sessions-${index}-sets-error` : undefined}
-                      className={`${inputClass(`sessions.${index}.sets`)} h-11 px-3 py-2`}
-                    />
-                    {renderFieldError(`sessions.${index}.sets`)}
-                  </div>
-                  <div className="min-w-0">
-                    <label htmlFor={`sessions-${index}-reps`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Reps ({getSessionDoseRules(session).reps[0]}–{getSessionDoseRules(session).reps[1]})</label>
-                    <input
-                      id={`sessions-${index}-reps`}
-                      aria-label={`Exercise ${index + 1} reps`}
-                      type="number"
-                      min={getSessionDoseRules(session).reps[0]}
-                      max={getSessionDoseRules(session).reps[1]}
-                      step="1"
-                      required
-                      placeholder="Reps"
-                      value={session.reps}
-                      onChange={(event) => updateSessionField(index, "reps", event.target.value)}
-                      aria-invalid={Boolean(fieldErrors[`sessions.${index}.reps`])}
-                      aria-describedby={fieldErrors[`sessions.${index}.reps`] ? `sessions-${index}-reps-error` : undefined}
-                      className={`${inputClass(`sessions.${index}.reps`)} h-11 px-3 py-2`}
-                    />
-                    {renderFieldError(`sessions.${index}.reps`)}
-                  </div>
+                  {(() => {
+                    const cardio = getCardioRecommendation(session);
+                    if (cardio) {
+                      if (cardio.status === "blocked" || cardio.status === "stop") {
+                        return (
+                          <div className="col-span-2 min-w-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300">
+                            {cardio.note} This is safety guidance, not a diagnosis.
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="col-span-2 min-w-0">
+                          <label htmlFor={`sessions-${index}-duration_minutes`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Duration ({cardio.min}–{cardio.max} min)</label>
+                          <input
+                            id={`sessions-${index}-duration_minutes`}
+                            aria-label={`Exercise ${index + 1} duration in minutes`}
+                            type="number"
+                            min={cardio.min}
+                            max={cardio.max}
+                            step="1"
+                            required
+                            value={session.duration_minutes}
+                            onChange={(event) => updateSessionField(index, "duration_minutes", event.target.value)}
+                            aria-invalid={Boolean(fieldErrors[`sessions.${index}.duration_minutes`])}
+                            aria-describedby={fieldErrors[`sessions.${index}.duration_minutes`] ? `sessions-${index}-duration_minutes-error` : undefined}
+                            className={`${inputClass(`sessions.${index}.duration_minutes`)} h-11 px-3 py-2`}
+                          />
+                          {renderFieldError(`sessions.${index}.duration_minutes`)}
+                          <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{cardio.note}</p>
+                        </div>
+                      );
+                    }
+                    return (
+                      <>
+                        <div className="min-w-0">
+                          <label htmlFor={`sessions-${index}-sets`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Sets ({getSessionDoseRules(session).sets[0]}–{getSessionDoseRules(session).sets[1]})</label>
+                          <input
+                            id={`sessions-${index}-sets`}
+                            aria-label={`Exercise ${index + 1} sets`}
+                            type="number"
+                            min={getSessionDoseRules(session).sets[0]}
+                            max={getSessionDoseRules(session).sets[1]}
+                            step="1"
+                            required
+                            placeholder="Sets"
+                            value={session.sets}
+                            onChange={(event) => updateSessionField(index, "sets", event.target.value)}
+                            aria-invalid={Boolean(fieldErrors[`sessions.${index}.sets`])}
+                            aria-describedby={fieldErrors[`sessions.${index}.sets`] ? `sessions-${index}-sets-error` : undefined}
+                            className={`${inputClass(`sessions.${index}.sets`)} h-11 px-3 py-2`}
+                          />
+                          {renderFieldError(`sessions.${index}.sets`)}
+                        </div>
+                        <div className="min-w-0">
+                          <label htmlFor={`sessions-${index}-reps`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Reps ({getSessionDoseRules(session).reps[0]}–{getSessionDoseRules(session).reps[1]})</label>
+                          <input
+                            id={`sessions-${index}-reps`}
+                            aria-label={`Exercise ${index + 1} reps`}
+                            type="number"
+                            min={getSessionDoseRules(session).reps[0]}
+                            max={getSessionDoseRules(session).reps[1]}
+                            step="1"
+                            required
+                            placeholder="Reps"
+                            value={session.reps}
+                            onChange={(event) => updateSessionField(index, "reps", event.target.value)}
+                            aria-invalid={Boolean(fieldErrors[`sessions.${index}.reps`])}
+                            aria-describedby={fieldErrors[`sessions.${index}.reps`] ? `sessions-${index}-reps-error` : undefined}
+                            className={`${inputClass(`sessions.${index}.reps`)} h-11 px-3 py-2`}
+                          />
+                          {renderFieldError(`sessions.${index}.reps`)}
+                        </div>
+                      </>
+                    );
+                  })()}
                   <button
                     type="button"
                     disabled={form.sessions.length <= 3}

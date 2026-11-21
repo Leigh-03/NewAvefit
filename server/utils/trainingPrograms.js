@@ -131,8 +131,85 @@ const requiresConservativeWorkout = (exercise, injuries = [], healthConditions =
 );
 
 const exerciseMatchesProgram = (exercise, program) => {
+  const category = String(exercise?.category_name || "").trim().toLowerCase();
+  const muscleGroup = String(exercise?.muscle_group || "").trim().toLowerCase();
+  if (category === "cardio" || muscleGroup === "cardio") return true;
   const muscles = searchableMuscles(exercise);
   return (PROGRAM_MUSCLES[program] || []).some((muscle) => muscles.includes(muscle));
+};
+
+const isCardioExercise = (exercise) => (
+  String(exercise?.category_name || "").trim().toLowerCase() === "cardio"
+  || String(exercise?.muscle_group || "").trim().toLowerCase() === "cardio"
+);
+
+const getHighestInjuryPainLevel = (painLevels = {}) => {
+  if (!painLevels || typeof painLevels !== "object") return 0;
+  return Object.values(painLevels).reduce((highest, value) => {
+    const level = Number(value);
+    return Number.isFinite(level) ? Math.max(highest, Math.min(Math.max(level, 0), 10)) : highest;
+  }, 0);
+};
+
+const getCardioDurationRecommendation = ({
+  experienceLevel,
+  fitnessGoal,
+  painLevel = 0,
+  hasHealthCondition = false,
+} = {}) => {
+  const level = String(experienceLevel || "").trim().toLowerCase();
+  const goal = String(fitnessGoal || "").trim().toLowerCase();
+
+  let standard;
+  if (level === "advanced") {
+    standard = goal.includes("lose") || goal.includes("loss")
+      ? [30, 45]
+      : goal.includes("maintain")
+        ? [20, 30]
+        : goal.includes("muscle") || goal.includes("gain")
+          ? [10, 20]
+          : [20, 30];
+  } else if (level === "intermediate" || level === "moderate") {
+    standard = goal.includes("lose") || goal.includes("loss")
+      ? [20, 30]
+      : goal.includes("maintain")
+        ? [15, 20]
+        : goal.includes("muscle") || goal.includes("gain")
+          ? [10, 15]
+          : [15, 20];
+  } else {
+    standard = goal.includes("lose") || goal.includes("loss")
+      ? [15, 20]
+      : goal.includes("maintain")
+        ? [10, 15]
+        : goal.includes("muscle") || goal.includes("gain")
+          ? [5, 10]
+          : [10, 15];
+  }
+
+  const pain = Math.max(0, Math.min(10, Number(painLevel) || 0));
+  if (pain >= 7) {
+    return { status: "stop", min: 0, max: 0, recommended: 0, note: "Stop cardio exercise and seek prompt medical assessment." };
+  }
+  if (pain >= 5) {
+    return { status: "blocked", min: 0, max: 0, recommended: 0, note: "Avoid affected movements and assess with a healthcare professional before exercise." };
+  }
+
+  const scale = pain >= 3 || hasHealthCondition ? 0.75 : 1;
+  const min = Math.ceil(standard[0] * scale);
+  const max = Math.max(min, Math.floor(standard[1] * scale));
+  const recommended = Math.max(min, Math.min(max, Math.ceil((min + max) / 2)));
+  return {
+    status: pain >= 3 || hasHealthCondition ? "modified" : "standard",
+    min,
+    max,
+    recommended,
+    note: pain >= 3
+      ? "Use a shorter, comfortable duration and stop if pain increases."
+      : hasHealthCondition
+        ? "Use a conservative duration and stop if symptoms or discomfort appear."
+        : "Standard cardio duration for this experience level and fitness goal.",
+  };
 };
 
 const isExerciseAllowedForExperience = (exercise, experienceLevel) => {
@@ -186,6 +263,9 @@ module.exports = {
   TRAINING_PROGRAMS,
   getExerciseLimitForExperience,
   exerciseMatchesProgram,
+  isCardioExercise,
+  getHighestInjuryPainLevel,
+  getCardioDurationRecommendation,
   isExerciseAllowedForExperience,
   getProgramForDate,
   getScheduledPrograms,

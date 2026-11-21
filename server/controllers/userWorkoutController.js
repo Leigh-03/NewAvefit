@@ -13,6 +13,9 @@ const {
   getProgramForDate,
   getScheduledPrograms,
   requiresConservativeWorkout,
+  isCardioExercise,
+  getHighestInjuryPainLevel,
+  getCardioDurationRecommendation,
 } = require("../utils/trainingPrograms");
 
 const DEFAULT_WORKOUT_SESSION_DURATION = 60;
@@ -29,7 +32,8 @@ const SCHEDULED_FOR_TODAY_SQL = `(
 )`;
 
 const getOwnedSessionSchedule = async (sessionId, userId) => pool.query(`
-  SELECT ws.session_id, ws.session_date, wp.deletion_request_status,
+  SELECT ws.session_id, ws.session_date, ws.started_at, ws.completed,
+         ws.workout_plan_id, wp.deletion_request_status,
          ${SCHEDULED_FOR_TODAY_SQL} AS scheduled_today
   FROM workout_sessions ws
   JOIN workout_plans wp ON ws.workout_plan_id = wp.workout_plan_id
@@ -160,15 +164,9 @@ const requestWorkoutPlan = async (req, res) => {
   if (sessions.length && sessions.some((session) =>
     !session ||
     !Number.isInteger(Number(session.exercise_id)) ||
-    Number(session.exercise_id) < 1 ||
-    !Number.isInteger(Number(session.sets)) ||
-    Number(session.sets) < 1 ||
-    Number(session.sets) > 6 ||
-    !Number.isInteger(Number(session.reps)) ||
-    Number(session.reps) < 3 ||
-    Number(session.reps) > 16
+    Number(session.exercise_id) < 1
   )) {
-    return res.status(400).json({ success: false, message: "Every exercise needs sets from 1 to 6 and reps from 3 to 16." });
+    return res.status(400).json({ success: false, message: "Every exercise needs a valid exercise selection." });
   }
   const exerciseIds = sessions.map((session) => Number(session.exercise_id));
   if (sessions.length && new Set(exerciseIds).size !== exerciseIds.length) {
@@ -187,6 +185,7 @@ const requestWorkoutPlan = async (req, res) => {
               u.activity_level,
               u.fitness_goal, u.workout_days_per_week,
               u.preferred_days, u.injuries, u.health_conditions,
+              u.injury_pain_levels,
               u.target_weight,
               TO_CHAR(u.membership_start_date, 'YYYY-MM-DD') AS membership_start_date,
               TO_CHAR(u.membership_end_date, 'YYYY-MM-DD') AS membership_end_date,
@@ -357,6 +356,30 @@ const requestWorkoutPlan = async (req, res) => {
         transactionStarted = false;
         return res.status(400).json({ success: false, message: `Choose only exercises that belong to the ${trainingProgram} program.` });
       }
+      if (isCardioExercise(exercise)) {
+        const painLevel = getHighestInjuryPainLevel(member.injury_pain_levels);
+        const cardio = getCardioDurationRecommendation({
+          experienceLevel: member.activity_level,
+          fitnessGoal: member.fitness_goal,
+          painLevel,
+          hasHealthCondition: Array.isArray(member.health_conditions) && member.health_conditions.length > 0,
+        });
+        if (cardio.status === "blocked" || cardio.status === "stop") {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(400).json({ success: false, message: cardio.note });
+        }
+        const duration = Number(session.duration_minutes);
+        if (!Number.isInteger(duration) || duration < cardio.min || duration > cardio.max) {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(400).json({
+            success: false,
+            message: `For this cardio exercise, use a duration from ${cardio.min} to ${cardio.max} minutes. ${cardio.note}`,
+          });
+        }
+        continue;
+      }
       if (requiresConservativeWorkout(exercise, member.injuries || [], member.health_conditions || [])) {
         if (String(exercise.difficulty || "").toLowerCase() !== "beginner") {
           await client.query("ROLLBACK");
@@ -465,8 +488,15 @@ const requestWorkoutPlan = async (req, res) => {
       await client.query(
         `INSERT INTO workout_sessions
            (workout_plan_id, exercise_id, sets, reps, duration_minutes, session_date)
-         VALUES ($1, $2, $3, $4, NULL, $5)`,
-        [planId, Number(session.exercise_id), Number(session.sets), Number(session.reps), sessionDate]
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+            planId,
+            Number(session.exercise_id),
+            exercisesById && isCardioExercise(exercisesById.get(Number(session.exercise_id))) ? null : Number(session.sets),
+            exercisesById && isCardioExercise(exercisesById.get(Number(session.exercise_id))) ? null : Number(session.reps),
+            session.duration_minutes ? Number(session.duration_minutes) : null,
+            sessionDate,
+        ]
       );
     }
 
@@ -558,10 +588,40 @@ const updateWorkoutSession = async (req, res) => {
     const { id } = req.params;
     const { sets, reps, duration_minutes, completed } = req.body;
     const memberResult = await pool.query(
-      "SELECT fitness_goal FROM users WHERE user_id = $1",
+      "SELECT fitness_goal, activity_level, injuries, health_conditions, injury_pain_levels FROM users WHERE user_id = $1",
       [req.user.user_id]
     );
-    if (memberResult.rowCount && !isWorkoutDoseAllowed(memberResult.rows[0].fitness_goal, sets, reps)) {
+    const sessionExercise = await pool.query(
+      `SELECT e.exercise_id, e.muscle_group, e.difficulty, c.category_name
+       FROM workout_sessions ws
+       JOIN exercises e ON e.exercise_id = ws.exercise_id
+       LEFT JOIN exercise_categories c ON c.category_id = e.category_id
+       JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+       WHERE ws.session_id = $1 AND wp.user_id = $2
+       LIMIT 1`,
+      [id, req.user.user_id]
+    );
+    const cardioExercise = sessionExercise.rowCount && isCardioExercise(sessionExercise.rows[0]);
+    if (cardioExercise && memberResult.rowCount) {
+      const member = memberResult.rows[0];
+      const cardio = getCardioDurationRecommendation({
+        experienceLevel: member.activity_level,
+        fitnessGoal: member.fitness_goal,
+        painLevel: getHighestInjuryPainLevel(member.injury_pain_levels),
+        hasHealthCondition: Array.isArray(member.health_conditions) && member.health_conditions.length > 0,
+      });
+      if (cardio.status === "blocked" || cardio.status === "stop") {
+        return res.status(400).json({ success: false, message: cardio.note });
+      }
+      if (!Number.isInteger(Number(duration_minutes))
+        || Number(duration_minutes) < cardio.min
+        || Number(duration_minutes) > cardio.max) {
+        return res.status(400).json({
+          success: false,
+          message: `For this cardio exercise, use ${cardio.min}–${cardio.max} minutes. ${cardio.note}`,
+        });
+      }
+    } else if (memberResult.rowCount && !isWorkoutDoseAllowed(memberResult.rows[0].fitness_goal, sets, reps)) {
       const rules = getWorkoutGoalRules(memberResult.rows[0].fitness_goal);
       return res.status(400).json({
         success: false,
@@ -624,23 +684,38 @@ const startWorkoutSession = async (req, res) => {
         message: "You can only start this workout on its scheduled day.",
       });
     }
+    if (scheduledSession.rows[0].completed) {
+      return res.status(409).json({ success: false, message: "This workout is already complete. Start a different unfinished workout." });
+    }
+    if (scheduledSession.rows[0].started_at) {
+      return res.status(409).json({ success: false, message: "This workout has already started. Finish it before starting another workout." });
+    }
 
     const result = await pool.query(`
       UPDATE workout_sessions ws
-      SET started_at = COALESCE(ws.started_at, NOW())
+      SET started_at = NOW()
       FROM workout_plans wp
       WHERE ws.session_id = $1
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
         AND wp.approval_status = 'Approved'
         AND COALESCE(wp.deletion_request_status, '') <> 'Pending'
-        AND ws.completed = false
+        AND ws.started_at IS NULL
+        AND ws.completed IS NOT TRUE
+        AND NOT EXISTS (
+          SELECT 1
+          FROM workout_sessions active_ws
+          WHERE active_ws.workout_plan_id = ws.workout_plan_id
+            AND active_ws.session_id <> ws.session_id
+            AND active_ws.started_at IS NOT NULL
+            AND active_ws.completed IS NOT TRUE
+        )
         AND ${SCHEDULED_FOR_TODAY_SQL}
       RETURNING ws.session_id, ws.started_at
     `, [req.params.id, req.user.user_id]);
 
     if (result.rowCount === 0) {
-      return res.status(400).json({ success: false, message: "This workout can only be started on its scheduled day." });
+      return res.status(409).json({ success: false, message: "Another workout is already active. Finish it before starting this workout." });
     }
 
     res.json({ success: true, data: result.rows[0] });

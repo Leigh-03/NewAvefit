@@ -707,6 +707,22 @@ const initializeDatabase = async () => {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS admin_audit_logs (
+        audit_id BIGSERIAL PRIMARY KEY,
+        admin_id INTEGER,
+        event_type VARCHAR(40) NOT NULL,
+        request_method VARCHAR(12) NOT NULL,
+        request_path VARCHAR(240) NOT NULL,
+        status_code SMALLINT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS admin_audit_logs_created_at_idx
+      ON admin_audit_logs (created_at DESC)
+    `);
+
+    await client.query(`
       ALTER TABLE admins
       ADD COLUMN IF NOT EXISTS password_reset_token_hash TEXT
     `);

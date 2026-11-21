@@ -920,13 +920,13 @@ export default function Trainers() {
             className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none dark:text-white"
           />
         </label>
-        <div className="flex gap-2 overflow-x-auto" role="group" aria-label="Filter trainers by status">
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter trainers by status">
           {["All","Active","Pending","Inactive"].map(status=><button key={status} type="button" aria-pressed={statusFilter===status} onClick={()=>setStatusFilter(status)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${statusFilter===status?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300"}`}>{status}{status==="Pending"&&pendingCount?` (${pendingCount})`:""}</button>)}
         </div>
       </div>
 
       {/* Table */}
-      <div className="admin-trainers-table-container overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
+      <div className="admin-trainers-table-container overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
         {loading ? (
           <div className="p-8 space-y-3">
             {[...Array(4)].map((_, i) => (
@@ -934,15 +934,15 @@ export default function Trainers() {
             ))}
           </div>
         ) : (
-          <table className="admin-trainers-table w-full text-sm">
+          <table className="admin-trainers-table w-full table-fixed text-xs lg:text-sm">
             <colgroup>
-              <col />
-              <col />
-              <col />
-              <col />
-              <col />
-              <col />
-              <col />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "16%" }} />
             </colgroup>
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>

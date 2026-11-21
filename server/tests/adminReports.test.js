@@ -53,7 +53,7 @@ test("returns operational report sections using the selected date range", async 
     if (text.includes("u.membership_start_date")) return { rows: [{ user_id: 4, member_name: "B Member" }] };
     if (text.includes("AS completed_date")) return { rows: [{ session_id: 9, member_name: "C Member" }] };
     if (text.includes("FROM equipment_inventory")) {
-      return { rows: [{ equipment_id: 2, equipment_name: "Treadmill", quantity: 3, status: "In service" }] };
+      return { rows: [{ equipment_id: 2, equipment_name: "Treadmill", quantity: 4, status: "In service", status_unit_count: 4, status_ratio: "4/4" }] };
     }
     if (text.includes("FROM trainers t")) {
       return { rows: [{ trainer_id: 1, trainer_name: "Coach One", roster_count: 7, total_capacity: 15, available_capacity: 8 }] };
@@ -83,6 +83,7 @@ test("returns operational report sections using the selected date range", async 
   assert.match(queryCalls[0].text, /membership_end_date BETWEEN \$1::date AND \$2::date/);
   assert.match(queryCalls[3].text, /ws\.completed IS TRUE/);
   assert.equal(response.body.data.equipment.items[0].equipment_name, "Treadmill");
+  assert.equal(response.body.data.equipment.items[0].status_ratio, "4/4");
   assert.equal(response.body.data.coaches.summary.roster_count, 7);
   assert.equal(response.body.data.coaches.summary.total_capacity, 15);
 });
