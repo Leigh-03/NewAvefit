@@ -22,6 +22,9 @@ const {
   isExerciseAllowedForExperience,
   getProgramForDate,
   requiresConservativeWorkout,
+  isCardioExercise,
+  getHighestInjuryPainLevel,
+  getCardioDurationRecommendation,
 } = require("../utils/trainingPrograms");
 
 const deliverWorkoutPlanEmail = async (details, context) => {
@@ -1699,19 +1702,11 @@ const createMyWorkoutPlan = async (req, res) => {
     typeof session !== "object" ||
     Array.isArray(session) ||
     !Number.isInteger(Number(session.exercise_id)) ||
-    Number(session.exercise_id) < 1 ||
-    String(session.sets ?? "").trim() === "" ||
-    !Number.isInteger(Number(session.sets)) ||
-    Number(session.sets) < 1 ||
-    Number(session.sets) > 6 ||
-    String(session.reps ?? "").trim() === "" ||
-    !Number.isInteger(Number(session.reps)) ||
-    Number(session.reps) < 3 ||
-    Number(session.reps) > 16
+    Number(session.exercise_id) < 1
   )) {
     return res.status(400).json({
       success: false,
-      message: "Every exercise must have an exercise, sets from 1 to 6, and reps from 3 to 16.",
+      message: "Every exercise must have a valid exercise selection.",
     });
   }
   if (new Set(sessions.map((session) => Number(session.exercise_id))).size !== sessions.length) {
@@ -1741,7 +1736,7 @@ const createMyWorkoutPlan = async (req, res) => {
       `
       SELECT user_id, first_name, last_name, email, activity_level, fitness_goal,
              target_weight, membership_end_date,
-             workout_days_per_week, preferred_days, injuries, health_conditions
+             workout_days_per_week, preferred_days, injuries, health_conditions, injury_pain_levels
       FROM users
       WHERE user_id = $1
         AND trainer_id = $2
@@ -1931,6 +1926,26 @@ const createMyWorkoutPlan = async (req, res) => {
         transactionStarted = false;
         return res.status(400).json({ success: false, message: `Choose only exercises that belong to the ${trainingProgram} program.` });
       }
+      if (isCardioExercise(exercise)) {
+        const cardio = getCardioDurationRecommendation({
+          experienceLevel: memberPreferences.activity_level,
+          fitnessGoal: memberPreferences.fitness_goal,
+          painLevel: getHighestInjuryPainLevel(memberPreferences.injury_pain_levels),
+          hasHealthCondition: Array.isArray(memberPreferences.health_conditions) && memberPreferences.health_conditions.length > 0,
+        });
+        if (cardio.status === "blocked" || cardio.status === "stop") {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(400).json({ success: false, message: cardio.note });
+        }
+        const duration = Number(session.duration_minutes);
+        if (!Number.isInteger(duration) || duration < cardio.min || duration > cardio.max) {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(400).json({ success: false, message: `Use ${cardio.min}–${cardio.max} minutes for this cardio exercise. ${cardio.note}` });
+        }
+        continue;
+      }
       if (requiresConservativeWorkout(exercise, memberPreferences.injuries || [], memberPreferences.health_conditions || [])) {
         if (String(exercise.difficulty || "").toLowerCase() !== "beginner"
           || Number(session.sets) < 1 || Number(session.sets) > 2
@@ -2006,17 +2021,20 @@ const createMyWorkoutPlan = async (req, res) => {
     const planId = plan.rows[0].workout_plan_id;
 
     for (const session of sessions) {
+      const sessionExercise = exerciseById.get(Number(session.exercise_id));
+      const cardioSession = isCardioExercise(sessionExercise);
       await client.query(
         `
         INSERT INTO workout_sessions
           (workout_plan_id, exercise_id, sets, reps, duration_minutes, session_date)
-        VALUES ($1, $2, $3, $4, NULL, $5)
+        VALUES ($1, $2, $3, $4, $5, $6)
         `,
         [
           planId,
           Number(session.exercise_id),
-          Number(session.sets),
-          Number(session.reps),
+          cardioSession ? null : Number(session.sets),
+          cardioSession ? null : Number(session.reps),
+          cardioSession ? Number(session.duration_minutes) : null,
           sessionDate,
         ]
       );
@@ -2425,19 +2443,11 @@ const updateMyWorkoutPlan = async (req, res) => {
     typeof session !== "object" ||
     Array.isArray(session) ||
     !Number.isInteger(Number(session.exercise_id)) ||
-    Number(session.exercise_id) < 1 ||
-    String(session.sets ?? "").trim() === "" ||
-    !Number.isInteger(Number(session.sets)) ||
-    Number(session.sets) < 1 ||
-    Number(session.sets) > 6 ||
-    String(session.reps ?? "").trim() === "" ||
-    !Number.isInteger(Number(session.reps)) ||
-    Number(session.reps) < 3 ||
-    Number(session.reps) > 16
+    Number(session.exercise_id) < 1
   )) {
     return res.status(400).json({
       success: false,
-      message: "Every exercise must have an exercise, sets from 1 to 6, and reps from 3 to 16.",
+      message: "Every exercise must have a valid exercise selection.",
     });
   }
   if (new Set(sessions.map((session) => Number(session.exercise_id))).size !== sessions.length) {
@@ -2532,7 +2542,7 @@ const updateMyWorkoutPlan = async (req, res) => {
     }
 
     const member = await client.query(
-      `SELECT user_id, first_name, last_name, email, activity_level, fitness_goal, workout_days_per_week, injuries, health_conditions
+      `SELECT user_id, first_name, last_name, email, activity_level, fitness_goal, workout_days_per_week, injuries, health_conditions, injury_pain_levels
        FROM users
        WHERE user_id = $1 AND trainer_id = $2 AND LOWER(COALESCE(account_status, 'pending')) = 'active'`,
       [plan.rows[0].user_id, trainerId]
@@ -2699,6 +2709,26 @@ const updateMyWorkoutPlan = async (req, res) => {
         transactionStarted = false;
         return res.status(400).json({ success: false, message: `This workout must stay within the ${plan.rows[0].training_program} program.` });
       }
+      if (isCardioExercise(exercise)) {
+        const cardio = getCardioDurationRecommendation({
+          experienceLevel: memberProfile.activity_level,
+          fitnessGoal: memberProfile.fitness_goal,
+          painLevel: getHighestInjuryPainLevel(memberProfile.injury_pain_levels),
+          hasHealthCondition: Array.isArray(memberProfile.health_conditions) && memberProfile.health_conditions.length > 0,
+        });
+        if (cardio.status === "blocked" || cardio.status === "stop") {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(400).json({ success: false, message: cardio.note });
+        }
+        const duration = Number(session.duration_minutes);
+        if (!Number.isInteger(duration) || duration < cardio.min || duration > cardio.max) {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(400).json({ success: false, message: `Use ${cardio.min}–${cardio.max} minutes for this cardio exercise. ${cardio.note}` });
+        }
+        continue;
+      }
       if (requiresConservativeWorkout(exercise, memberProfile.injuries || [], memberProfile.health_conditions || [])) {
         if (String(exercise.difficulty || "").toLowerCase() !== "beginner"
           || Number(session.sets) < 1 || Number(session.sets) > 2
@@ -2788,11 +2818,20 @@ const updateMyWorkoutPlan = async (req, res) => {
     );
     await client.query("DELETE FROM workout_sessions WHERE workout_plan_id = $1", [planId]);
     for (const session of sessions) {
+      const sessionExercise = exercisesById.get(Number(session.exercise_id));
+      const cardioSession = isCardioExercise(sessionExercise);
       await client.query(
         `INSERT INTO workout_sessions
           (workout_plan_id, exercise_id, sets, reps, duration_minutes, session_date)
-         VALUES ($1, $2, $3, $4, NULL, $5)`,
-        [planId, Number(session.exercise_id), Number(session.sets), Number(session.reps), sessionDate]
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          planId,
+          Number(session.exercise_id),
+          cardioSession ? null : Number(session.sets),
+          cardioSession ? null : Number(session.reps),
+          cardioSession ? Number(session.duration_minutes) : null,
+          sessionDate,
+        ]
       );
     }
 
@@ -3145,20 +3184,6 @@ const assignSessionAsTrainer = async (req, res) => {
     const setsValue = Number(sets);
     const repsValue = Number(reps);
 
-    if (!Number.isInteger(setsValue) || setsValue < 1 || setsValue > 6) {
-      return res.status(400).json({
-        success: false,
-        message: "Sets must be a whole number from 1 to 6.",
-      });
-    }
-
-    if (!Number.isInteger(repsValue) || repsValue < 3 || repsValue > 16) {
-      return res.status(400).json({
-        success: false,
-        message: "Reps must be a whole number from 3 to 16.",
-      });
-    }
-
     if (
       typeof session_date !== "string" ||
       !/^\d{4}-\d{2}-\d{2}$/.test(session_date)
@@ -3198,7 +3223,8 @@ const assignSessionAsTrainer = async (req, res) => {
 
     const memberResult = await client.query(
       `
-      SELECT user_id, activity_level, fitness_goal, workout_days_per_week
+      SELECT user_id, activity_level, fitness_goal, workout_days_per_week,
+             injuries, health_conditions, injury_pain_levels
       FROM users
       WHERE user_id = $1
         AND trainer_id = $2
@@ -3218,15 +3244,6 @@ const assignSessionAsTrainer = async (req, res) => {
     }
 
     const member = memberResult.rows[0];
-    if (!isWorkoutDoseAllowed(member.fitness_goal, setsValue, repsValue)) {
-      const rules = getWorkoutGoalRules(member.fitness_goal);
-      await client.query("ROLLBACK");
-      transactionStarted = false;
-      return res.status(400).json({
-        success: false,
-        message: `For this member's fitness goal, use ${rules.sets[0]}–${rules.sets[1]} sets and ${rules.reps[0]}–${rules.reps[1]} reps.`,
-      });
-    }
     const memberAvailability = await client.query(
       `SELECT day_of_week, start_time, end_time
        FROM user_workout_availability
@@ -3289,13 +3306,58 @@ const assignSessionAsTrainer = async (req, res) => {
     }
 
     const exercise = await client.query(
-      "SELECT muscle_group FROM exercises WHERE exercise_id = $1",
+      `SELECT e.exercise_id, e.muscle_group, e.difficulty, c.category_name
+       FROM exercises e
+       LEFT JOIN exercise_categories c ON c.category_id = e.category_id
+       WHERE e.exercise_id = $1`,
       [exercise_id]
     );
     if (!exercise.rowCount) {
       await client.query("ROLLBACK");
       transactionStarted = false;
       return res.status(400).json({ success: false, message: "Choose a valid exercise." });
+    }
+    if (isCardioExercise(exercise.rows[0])) {
+      const cardio = getCardioDurationRecommendation({
+        experienceLevel: member.activity_level,
+        fitnessGoal: member.fitness_goal,
+        painLevel: getHighestInjuryPainLevel(member.injury_pain_levels),
+        hasHealthCondition: Array.isArray(member.health_conditions) && member.health_conditions.length > 0,
+      });
+      if (cardio.status === "blocked" || cardio.status === "stop") {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({ success: false, message: cardio.note });
+      }
+      if (!Number.isInteger(Number(duration_minutes))
+        || Number(duration_minutes) < cardio.min
+        || Number(duration_minutes) > cardio.max) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: `Use ${cardio.min}–${cardio.max} minutes for this cardio exercise. ${cardio.note}`,
+        });
+      }
+    } else {
+      if (!Number.isInteger(setsValue) || setsValue < 1 || setsValue > 6
+        || !Number.isInteger(repsValue) || repsValue < 3 || repsValue > 16) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: "Sets must be from 1 to 6 and reps from 3 to 16.",
+        });
+      }
+      if (!isWorkoutDoseAllowed(member.fitness_goal, setsValue, repsValue)) {
+        const rules = getWorkoutGoalRules(member.fitness_goal);
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: `For this member's fitness goal, use ${rules.sets[0]}–${rules.sets[1]} sets and ${rules.reps[0]}–${rules.reps[1]} reps.`,
+        });
+      }
     }
 
     const adjacentDates = [
@@ -3405,9 +3467,9 @@ const assignSessionAsTrainer = async (req, res) => {
       [
         planId,
         exercise_id,
-        setsValue,
-        repsValue,
-        duration_minutes || null,
+        isCardioExercise(exercise.rows[0]) ? null : setsValue,
+        isCardioExercise(exercise.rows[0]) ? null : repsValue,
+        isCardioExercise(exercise.rows[0]) ? (duration_minutes || null) : null,
         session_date,
       ]
     );

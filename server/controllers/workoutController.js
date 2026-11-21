@@ -2,6 +2,11 @@ const pool = require("../db");
 const getExerciseCatalog = require("../utils/exerciseCatalog");
 const { createNotification } = require("../utils/notifications");
 const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutGoalRules");
+const {
+  isCardioExercise,
+  getHighestInjuryPainLevel,
+  getCardioDurationRecommendation,
+} = require("../utils/trainingPrograms");
 
 const getWorkouts = async (req, res) => {
   try {
@@ -69,6 +74,16 @@ const getEquipmentInventory = async (_req, res) => {
              inventory.condition_notes,
              inventory.status,
              inventory.updated_at,
+             CASE
+               WHEN LOWER(BTRIM(inventory.status)) IN ('in service', 'under maintenance', 'under repair', 'needs replacement')
+                 THEN inventory.quantity
+               ELSE 0
+             END::int AS status_unit_count,
+             CASE
+               WHEN LOWER(BTRIM(inventory.status)) IN ('in service', 'under maintenance', 'under repair', 'needs replacement')
+                 THEN inventory.quantity::text || '/' || inventory.quantity::text
+               ELSE '0/' || inventory.quantity::text
+             END AS status_ratio,
              COALESCE(plan_usage.planned_session_count, 0)::int AS planned_session_count,
              COALESCE(plan_usage.usage_count, 0)::int AS usage_count,
              COALESCE(plan_usage.users, '[]'::json) AS users
@@ -315,8 +330,38 @@ const assignSessionToMember = async (req, res) => {
     if (!user_id || !exercise_id || !session_date) {
       return res.status(400).json({ success: false, message: "user_id, exercise_id, and session_date are required." });
     }
-    const member = await pool.query("SELECT fitness_goal FROM users WHERE user_id = $1", [user_id]);
-    if (member.rowCount && !isWorkoutDoseAllowed(member.rows[0].fitness_goal, sets, reps)) {
+    const member = await pool.query(
+      "SELECT fitness_goal, activity_level, injuries, health_conditions, injury_pain_levels FROM users WHERE user_id = $1",
+      [user_id]
+    );
+    const exercise = await pool.query(
+      `SELECT e.exercise_id, e.muscle_group, e.difficulty, c.category_name
+       FROM exercises e LEFT JOIN exercise_categories c ON c.category_id = e.category_id
+       WHERE e.exercise_id = $1`,
+      [exercise_id]
+    );
+    if (!exercise.rowCount) {
+      return res.status(400).json({ success: false, message: "Choose a valid exercise." });
+    }
+    if (member.rowCount && isCardioExercise(exercise.rows[0])) {
+      const cardio = getCardioDurationRecommendation({
+        experienceLevel: member.rows[0].activity_level,
+        fitnessGoal: member.rows[0].fitness_goal,
+        painLevel: getHighestInjuryPainLevel(member.rows[0].injury_pain_levels),
+        hasHealthCondition: Array.isArray(member.rows[0].health_conditions) && member.rows[0].health_conditions.length > 0,
+      });
+      if (cardio.status === "blocked" || cardio.status === "stop") {
+        return res.status(400).json({ success: false, message: cardio.note });
+      }
+      if (!Number.isInteger(Number(duration_minutes))
+        || Number(duration_minutes) < cardio.min
+        || Number(duration_minutes) > cardio.max) {
+        return res.status(400).json({
+          success: false,
+          message: `For this cardio exercise, use ${cardio.min}–${cardio.max} minutes. ${cardio.note}`,
+        });
+      }
+    } else if (member.rowCount && !isWorkoutDoseAllowed(member.rows[0].fitness_goal, sets, reps)) {
       const rules = getWorkoutGoalRules(member.rows[0].fitness_goal);
       return res.status(400).json({
         success: false,
@@ -348,7 +393,14 @@ const assignSessionToMember = async (req, res) => {
     const result = await pool.query(`
       INSERT INTO workout_sessions (workout_plan_id, exercise_id, sets, reps, duration_minutes, session_date)
       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
-    `, [planId, exercise_id, sets || null, reps || null, duration_minutes || null, session_date]);
+    `, [
+      planId,
+      exercise_id,
+      isCardioExercise(exercise.rows[0]) ? null : (sets || null),
+      isCardioExercise(exercise.rows[0]) ? null : (reps || null),
+      isCardioExercise(exercise.rows[0]) ? (duration_minutes || null) : null,
+      session_date,
+    ]);
 
     await createNotification({
       audience: "user",

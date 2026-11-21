@@ -68,6 +68,7 @@ export default function WorkoutPage() {
   const [membershipEndDate, setMembershipEndDate] = useState("");
   const [injuries, setInjuries] = useState([]);
   const [healthConditions, setHealthConditions] = useState([]);
+  const [injuryPainLevels, setInjuryPainLevels] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [weekStart, setWeekStart] = useState(() => philippinesMondayString());
@@ -118,6 +119,7 @@ export default function WorkoutPage() {
       setMembershipEndDate(profile.membership_end_date ? String(profile.membership_end_date).slice(0, 10) : "");
       setInjuries(Array.isArray(profile.injuries) ? profile.injuries.filter((injury) => injury && injury !== "None") : []);
       setHealthConditions(Array.isArray(profile.health_conditions) ? profile.health_conditions.filter((condition) => condition && condition !== "None") : []);
+      setInjuryPainLevels(profile.injury_pain_levels && typeof profile.injury_pain_levels === "object" ? profile.injury_pain_levels : {});
       setHasAssignedCoach(Boolean(profile.trainer_id));
       const today = philippinesDateString();
       if (!initializedSchedule.current) {
@@ -348,6 +350,7 @@ export default function WorkoutPage() {
           workoutFrequency={workoutFrequency}
           injuries={injuries}
           healthConditions={healthConditions}
+          injuryPainLevels={injuryPainLevels}
           existingPlans={userPlans}
           existingSessions={sessions}
           onClose={() => setShowPlanRequest(false)}
@@ -629,6 +632,13 @@ export default function WorkoutPage() {
                       <div className="mt-3 flex flex-wrap gap-2">
                         {session.sets && <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:bg-white/[0.06] dark:text-slate-300">💪 {session.sets} sets</span>}
                         {session.reps && <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:bg-white/[0.06] dark:text-slate-300">🔁 {session.reps} reps</span>}
+                      </div>
+                    )}
+                    {session.duration_minutes && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-semibold text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+                          ⏱ {session.duration_minutes} minutes
+                        </span>
                       </div>
                     )}
                   </div>

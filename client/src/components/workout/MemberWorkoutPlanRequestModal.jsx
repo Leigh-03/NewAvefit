@@ -16,12 +16,16 @@ import {
   hasHealthConditions,
   isExerciseAllowedForExperience,
   requiresConservativeWorkout,
+  isCardioExercise,
+  getHighestInjuryPainLevel,
+  getCardioDurationRecommendation,
 } from "../../utils/trainingPrograms";
 
 const blankExercise = (goal) => ({
   exercise_id: "",
   sets: String(getWorkoutGoalRules(goal).sets[0]),
   reps: String(getWorkoutGoalRules(goal).reps[0]),
+  duration_minutes: "",
 });
 
 const isBlankValue = (value) => value === null || value === undefined || String(value).trim() === "";
@@ -52,6 +56,7 @@ export default function MemberWorkoutPlanRequestModal({
   workoutFrequency,
   injuries = [],
   healthConditions = [],
+  injuryPainLevels = {},
   existingPlans = [],
   existingSessions = [],
   onClose,
@@ -195,21 +200,45 @@ export default function MemberWorkoutPlanRequestModal({
     return exercise ? getExerciseDose(exercise, injuries, doseRules, healthConditions) : doseRules;
   }, [doseRules, exercises, healthConditions, injuries]);
 
+  const getCardioRecommendationForExercise = useCallback((exerciseId) => {
+    const exercise = exercises.find((item) => String(item.exercise_id) === String(exerciseId));
+    if (!exercise || !isCardioExercise(exercise)) return null;
+    return getCardioDurationRecommendation({
+      experienceLevel,
+      fitnessGoal: initialGoal,
+      painLevel: getHighestInjuryPainLevel(injuryPainLevels),
+      hasHealthCondition: hasReportedInjuries(healthConditions),
+    });
+  }, [exercises, experienceLevel, healthConditions, initialGoal, injuryPainLevels]);
+
   useEffect(() => {
     setSessions((current) => {
       let changed = false;
       const updated = current.map((session) => {
         if (!session.exercise_id) return session;
+        const cardio = getCardioRecommendationForExercise(session.exercise_id);
+        if (cardio) {
+          if (session.duration_minutes === String(cardio.recommended)) return session;
+          changed = true;
+          return {
+            ...session,
+            sets: "1",
+            reps: "1",
+            duration_minutes: cardio.status === "standard" || cardio.status === "modified"
+              ? String(cardio.recommended)
+              : "",
+          };
+        }
         const rules = getDoseRulesForExercise(session.exercise_id);
         const sets = String(rules.sets[0]);
         const reps = String(rules.reps[0]);
-        if (session.sets === sets && session.reps === reps) return session;
+        if (session.sets === sets && session.reps === reps && !session.duration_minutes) return session;
         changed = true;
-        return { ...session, sets, reps };
+        return { ...session, sets, reps, duration_minutes: "" };
       });
       return changed ? updated : current;
     });
-  }, [getDoseRulesForExercise]);
+  }, [getCardioRecommendationForExercise, getDoseRulesForExercise]);
 
   const handleProgramChange = (program) => {
     setSelectedProgram(program);
@@ -250,9 +279,18 @@ export default function MemberWorkoutPlanRequestModal({
 
   const handleExerciseSelection = (index, exerciseId) => {
     const rules = getDoseRulesForExercise(exerciseId);
+    const cardio = getCardioRecommendationForExercise(exerciseId);
     setSessions((current) => current.map((session, sessionIndex) => (
       sessionIndex === index
-        ? { ...session, exercise_id: exerciseId, sets: String(rules.sets[0]), reps: String(rules.reps[0]) }
+        ? {
+            ...session,
+            exercise_id: exerciseId,
+            sets: cardio ? "1" : String(rules.sets[0]),
+            reps: cardio ? "1" : String(rules.reps[0]),
+            duration_minutes: cardio && cardio.status !== "blocked" && cardio.status !== "stop"
+              ? String(cardio.recommended)
+              : "",
+          }
         : session
     )));
   };
@@ -300,13 +338,19 @@ export default function MemberWorkoutPlanRequestModal({
     }
     if (requestNeedsExerciseEditor && sessions.some((session) => {
       const rules = getDoseRulesForExercise(session.exercise_id);
+      const cardio = getCardioRecommendationForExercise(session.exercise_id);
+      if (cardio) {
+        if (cardio.status === "blocked" || cardio.status === "stop") return true;
+        const duration = Number(session.duration_minutes);
+        return !Number.isInteger(duration) || duration < cardio.min || duration > cardio.max;
+      }
       const sets = Number(session.sets);
       const reps = Number(session.reps);
       return !Number.isFinite(sets) || !Number.isFinite(reps)
         || sets < rules.sets[0] || sets > rules.sets[1]
         || reps < rules.reps[0] || reps > rules.reps[1];
     })) {
-      setError("Use the displayed sets and reps range for each exercise.");
+      setError("Use the displayed duration or sets/reps range. Cardio exercises may be blocked by severe pain or required medical review.");
       return;
     }
     const usedExercises = sessions.map((session) => session.exercise_id);
@@ -330,7 +374,12 @@ export default function MemberWorkoutPlanRequestModal({
         is_program_switch: wantsProgramChange && isProgramSwitch,
         previous_program: wantsProgramChange && isProgramSwitch ? defaultProgram : "",
         sessions: requestNeedsExerciseEditor
-          ? sessions.map(({ exercise_id, sets, reps }) => ({ exercise_id, sets, reps }))
+          ? sessions.map(({ exercise_id, sets, reps, duration_minutes }) => ({
+              exercise_id,
+              sets,
+              reps,
+              duration_minutes: duration_minutes ? Number(duration_minutes) : null,
+            }))
           : [],
         notes: requestNote.trim(),
       });
@@ -544,14 +593,37 @@ export default function MemberWorkoutPlanRequestModal({
                         </span>
                       )}
                     </label>
-                    <label className="text-xs font-semibold text-slate-500">
-                      Sets
-                      <input type="number" min={getDoseRulesForExercise(session.exercise_id).sets[0]} max={getDoseRulesForExercise(session.exercise_id).sets[1]} step="1" value={session.sets} onChange={(event) => updateSession(index, "sets", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
-                    </label>
-                    <label className="text-xs font-semibold text-slate-500">
-                      Reps
-                      <input type="number" min={getDoseRulesForExercise(session.exercise_id).reps[0]} max={getDoseRulesForExercise(session.exercise_id).reps[1]} step="1" value={session.reps} onChange={(event) => updateSession(index, "reps", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
-                    </label>
+                    {(() => {
+                      const cardio = getCardioRecommendationForExercise(session.exercise_id);
+                      if (cardio) {
+                        if (cardio.status === "blocked" || cardio.status === "stop") {
+                          return (
+                            <p className="col-span-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300 sm:col-span-2">
+                              {cardio.note} This is safety guidance, not a diagnosis.
+                            </p>
+                          );
+                        }
+                        return (
+                          <label className="col-span-2 text-xs font-semibold text-slate-500 sm:col-span-2">
+                            Duration (minutes, {cardio.min}–{cardio.max})
+                            <input type="number" min={cardio.min} max={cardio.max} step="1" value={session.duration_minutes} onChange={(event) => updateSession(index, "duration_minutes", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
+                            <span className="mt-1 block font-normal leading-relaxed text-slate-400">{cardio.note}</span>
+                          </label>
+                        );
+                      }
+                      return (
+                        <>
+                          <label className="text-xs font-semibold text-slate-500">
+                            Sets
+                            <input type="number" min={getDoseRulesForExercise(session.exercise_id).sets[0]} max={getDoseRulesForExercise(session.exercise_id).sets[1]} step="1" value={session.sets} onChange={(event) => updateSession(index, "sets", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
+                          </label>
+                          <label className="text-xs font-semibold text-slate-500">
+                            Reps
+                            <input type="number" min={getDoseRulesForExercise(session.exercise_id).reps[0]} max={getDoseRulesForExercise(session.exercise_id).reps[1]} step="1" value={session.reps} onChange={(event) => updateSession(index, "reps", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
+                          </label>
+                        </>
+                      );
+                    })()}
                     <button type="button" onClick={() => setRemoveExerciseIndex(index)} disabled={sessions.length <= 3} aria-label={`Remove exercise ${index + 1}`} className="col-span-2 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-30 sm:col-span-1">
                       <X size={16} />
                     </button>
