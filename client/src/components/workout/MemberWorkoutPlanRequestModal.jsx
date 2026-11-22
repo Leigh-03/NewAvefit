@@ -164,11 +164,16 @@ export default function MemberWorkoutPlanRequestModal({
   const experienceLimit = getExerciseLimitForExperience(experienceLevel);
   const maxExercises = experienceLimit.max;
   const requestNeedsExerciseEditor = isKeepCurrentProgram || isProgramChange;
-  const visibleExercises = exercises.filter((exercise) => (
-    exerciseMatchesProgram(exercise, selectedProgram || defaultProgram) &&
-    isExerciseAllowedForExperience(exercise, experienceLevel) &&
-    (!requiresConservativeWorkout(exercise, injuries, healthConditions) || String(exercise.difficulty || "").toLowerCase() === "beginner")
-  ));
+  const visibleExercises = exercises
+    .filter((exercise) => (
+      exerciseMatchesProgram(exercise, selectedProgram || defaultProgram) &&
+      isExerciseAllowedForExperience(exercise, experienceLevel) &&
+      (!requiresConservativeWorkout(exercise, injuries, healthConditions) || String(exercise.difficulty || "").toLowerCase() === "beginner")
+    ))
+    .sort((left, right) => (
+      Number(isCardioExercise(right)) - Number(isCardioExercise(left))
+      || left.exercise_name.localeCompare(right.exercise_name)
+    ));
 
   useEffect(() => {
     setSelectedProgram(defaultProgram);
@@ -538,7 +543,7 @@ export default function MemberWorkoutPlanRequestModal({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-800 dark:text-white">My Personalized Suggested Workout Routine</h3>
-                <p className="mt-1 text-xs text-slate-500">{isProgramChange ? `Add your proposed ${selectedProgram || "selected program"} exercises for coach approval.` : `Add your preferred exercises and sets/reps for your trainer to review.`}</p>
+                <p className="mt-1 text-xs text-slate-500">{isProgramChange ? `Add your proposed ${selectedProgram || "selected program"} exercises for coach approval.` : "Add preferred exercises for your trainer to review; cardio uses minutes, while other exercises use sets and reps."}</p>
               </div>
               <button
                 type="button"
@@ -578,6 +583,9 @@ export default function MemberWorkoutPlanRequestModal({
                           onChange={(exerciseId) => handleExerciseSelection(index, exerciseId)}
                           placeholder="Choose an exercise"
                           getBadges={(exercise) => [
+                            ...(isCardioExercise(exercise)
+                              ? [{ label: "Cardio · minutes", className: "bg-cyan-100 text-cyan-800 dark:bg-cyan-500/15 dark:text-cyan-300" }]
+                              : []),
                             ...(scheduledExerciseIds.has(String(exercise.exercise_id))
                               ? [{ label: "Scheduled this week", className: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300" }]
                               : []),

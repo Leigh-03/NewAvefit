@@ -20,39 +20,40 @@ const normalizeEquipmentStatus = (status) => {
 const displayEquipmentStatus = (status) => normalizeEquipmentStatus(status);
 
 const CONDITIONS_BY_STATUS = {
-  "Needs inspection": ["Not assessed"],
-  "Under Maintenance": ["Damaged"],
-  "In service": ["Good", "Rusty"],
-  "Needs replacement": ["Poor", "Damaged", "Worn"],
+  "Overall condition": ["Not assessed", "Good", "Rusty", "Damaged", "Poor", "Worn"],
 };
-const STATUSES = Object.keys(CONDITIONS_BY_STATUS).filter((status) => status !== "Needs inspection");
+const STATUS_FIELDS = [
+  { status: "In service", field: "in_service_count" },
+  { status: "Under Maintenance", field: "under_maintenance_count" },
+  { status: "Needs replacement", field: "needs_replacement_count" },
+  { status: "Needs inspection", field: "needs_inspection_count" },
+];
+const STATUSES = STATUS_FIELDS.map(({ status }) => status);
+const emptyStatusCounts = { in_service_count: "1", under_maintenance_count: "0", needs_replacement_count: "0", needs_inspection_count: "0" };
 
 const emptyForm = {
   equipment_name: "",
   quantity: "1",
   condition: "Good",
   condition_notes: "",
-  status: "In service",
+  ...emptyStatusCounts,
 };
 
 function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting }) {
-  const normalizedEquipmentStatus = equipment ? normalizeEquipmentStatus(equipment.status) : "";
-  const fallbackStatus = normalizedEquipmentStatus && CONDITIONS_BY_STATUS[normalizedEquipmentStatus]
-    ? normalizedEquipmentStatus
-    : "Needs inspection";
   const [form, setForm] = useState(() => equipment ? {
     equipment_name: equipment.equipment_name,
     quantity: String(equipment.quantity),
-    condition: CONDITIONS_BY_STATUS[fallbackStatus]?.includes(equipment.condition)
+    condition: CONDITIONS_BY_STATUS["Overall condition"].includes(equipment.condition)
       ? equipment.condition
-      : CONDITIONS_BY_STATUS[fallbackStatus]?.[0] || "Not assessed",
+      : "Not assessed",
     condition_notes: equipment.condition_notes || "",
-    status: fallbackStatus,
+    ...Object.fromEntries(STATUS_FIELDS.map(({ status, field }) => [
+      field,
+      String(equipment[field] ?? (normalizeEquipmentStatus(equipment.status) === status ? equipment.quantity : 0)),
+    ])),
   } : emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-
-  const availableConditions = CONDITIONS_BY_STATUS[form.status] || ["Not assessed"];
 
   const submit = async (event) => {
     event.preventDefault();
@@ -64,12 +65,28 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting })
       setError("Quantity must be a whole number from 1 to 50.");
       return;
     }
+    const statusCounts = STATUS_FIELDS.map(({ status, field }) => ({
+      status,
+      value: form[field],
+    }));
+    if (statusCounts.some(({ value }) => !/^\d+$/.test(value) || Number(value) > 50)) {
+      setError("Each status count must be a whole number from 0 to 50.");
+      return;
+    }
+    const assignedCount = statusCounts.reduce((total, { value }) => total + Number(value), 0);
+    if (assignedCount !== Number(form.quantity)) {
+      setError("Status counts must add up to the total quantity.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      const payload = equipment
-        ? { ...form, quantity: Number(form.quantity), status: normalizeEquipmentStatus(form.status) }
-        : { ...form, quantity: Number(form.quantity), condition: "Good", status: "In service" };
+      const payload = {
+        ...form,
+        quantity: Number(form.quantity),
+        condition: equipment ? form.condition : "Good",
+        ...Object.fromEntries(STATUS_FIELDS.map(({ field }) => [field, Number(form[field])])),
+      };
       if (equipment) {
         await api.put(`/workouts/equipment/${equipment.equipment_id}`, payload);
       } else {
@@ -95,7 +112,7 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting })
           <h2 id="equipment-form-title" className="text-xl font-bold text-slate-900 dark:text-white">
             {equipment ? "Equipment Details" : "Add Equipment"}
           </h2>
-          <p className="mt-1 text-sm text-slate-500">Update stock, condition, and the latest maintenance status.</p>
+          <p className="mt-1 text-sm text-slate-500">Enter how many units are in each status. The counts must equal the total quantity.</p>
         </header>
         <form onSubmit={submit} className="space-y-4 p-5">
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -130,40 +147,40 @@ function EquipmentFormModal({ equipment, onClose, onSaved, onDelete, deleting })
               className={fieldClass}
             />
           </label>
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-medium text-slate-700 dark:text-slate-200">Units by status</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {STATUS_FIELDS.map(({ status, field }) => (
+                <label key={field} className="block text-sm text-slate-700 dark:text-slate-200">
+                  {status}
+                  <input
+                    required
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={form[field]}
+                    onChange={(event) => setForm({
+                      ...form,
+                      [field]: event.target.value.replace(/\D/g, "").slice(0, 2),
+                    })}
+                    className={fieldClass}
+                  />
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500">
+              Assigned: {STATUS_FIELDS.reduce((total, { field }) => total + (Number(form[field]) || 0), 0)} / {Number(form.quantity) || 0}
+            </p>
+          </fieldset>
           <div className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-            <p>Status</p>
-            {equipment ? (
-              <div className="mt-1">
-                <CustomSelect
-                  id="equipment-status"
-                  ariaLabel="Equipment status"
-                  value={form.status}
-                  options={[
-                    ...(form.status === "Needs inspection"
-                      ? [{ value: "Needs inspection", label: "Needs inspection", disabled: true }]
-                      : []),
-                    ...STATUSES.map((status) => ({ value: status, label: status })),
-                  ]}
-                  onChange={(status) => {
-                    const nextConditions = CONDITIONS_BY_STATUS[status] || ["Not assessed"];
-                    setForm({ ...form, status, condition: nextConditions[0] || "Not assessed" });
-                  }}
-                />
-              </div>
-            ) : (
-              <span className={`${fieldClass} block cursor-not-allowed opacity-75`}>In service</span>
-            )}
-          </div>
-          <div className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-            <p>Condition</p>
+            <p>Overall condition</p>
             {equipment ? (
               <div className="mt-1">
                 <CustomSelect
                   id="equipment-condition"
-                  ariaLabel="Equipment condition"
+                  ariaLabel="Overall equipment condition"
                   value={form.condition}
-                  disabled={availableConditions.length === 1}
-                  options={availableConditions.map((condition) => ({ value: condition, label: condition }))}
+                  options={CONDITIONS_BY_STATUS["Overall condition"].map((condition) => ({ value: condition, label: condition }))}
                   onChange={(condition) => setForm({ ...form, condition })}
                 />
               </div>
@@ -216,18 +233,10 @@ const statusClass = (status) => ({
 
 const getEquipmentStatusRatio = (item) => {
   const quantity = Number(item.quantity || 0);
-  const status = normalizeEquipmentStatus(item.status);
-  if (["In service", "Needs replacement", "Under Maintenance"].includes(status)) {
-    return `${quantity}/${quantity}`;
-  }
-  return `0/${quantity}`;
+  return STATUS_FIELDS.map(({ status, field }) => `${status}: ${Number(item[field] || 0)}/${quantity}`).join(" · ");
 };
 
-const getEquipmentStatusUnitCount = (item) => {
-  const quantity = Number(item.quantity || 0);
-  const status = normalizeEquipmentStatus(item.status);
-  return ["In service", "Needs replacement", "Under Maintenance"].includes(status) ? quantity : 0;
-};
+const getEquipmentStatusUnitCount = (item, field) => Number(item[field] || 0);
 
 export default function EquipmentInventory() {
   const [equipment, setEquipment] = useState([]);
@@ -289,17 +298,14 @@ export default function EquipmentInventory() {
     const query = search.trim().toLowerCase();
     return equipment.filter((item) => {
       const matchesQuery = item.equipment_name.toLowerCase().includes(query);
-      const matchesStatus = !selectedStatusFilter || normalizeEquipmentStatus(item.status) === selectedStatusFilter;
+      const statusField = STATUS_FIELDS.find(({ status }) => status === selectedStatusFilter)?.field;
+      const matchesStatus = !selectedStatusFilter || Number(item[statusField] || 0) > 0;
       return matchesQuery && matchesStatus;
     });
   }, [equipment, search, selectedStatusFilter]);
   const totalQuantity = equipment.reduce((total, item) => total + Number(item.quantity || 0), 0);
-  const needReplacementCount = equipment
-    .filter((item) => normalizeEquipmentStatus(item.status) === "Needs replacement")
-    .reduce((total, item) => total + Number(item.quantity || 0), 0);
-  const underMaintenanceCount = equipment
-    .filter((item) => normalizeEquipmentStatus(item.status) === "Under Maintenance")
-    .reduce((total, item) => total + Number(item.quantity || 0), 0);
+  const needReplacementCount = equipment.reduce((total, item) => total + getEquipmentStatusUnitCount(item, "needs_replacement_count"), 0);
+  const underMaintenanceCount = equipment.reduce((total, item) => total + getEquipmentStatusUnitCount(item, "under_maintenance_count"), 0);
 
   const handleDelete = async (item) => {
     setDeletingEquipmentId(item.equipment_id);
@@ -480,18 +486,18 @@ export default function EquipmentInventory() {
                       <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Boxes size={18} /></span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-bold text-slate-900 dark:text-white">{item.equipment_name}</span>
-                        <span className="mt-1 block text-xs text-slate-500">Status: {displayEquipmentStatus(item.status)} · Condition: {item.condition}{item.condition_notes ? ` · ${item.condition_notes}` : ""}</span>
+                        <span className="mt-1 block text-xs text-slate-500">Condition: {item.condition}{item.condition_notes ? ` · ${item.condition_notes}` : ""}</span>
                       </span>
                     </button>
                     <div className="flex flex-wrap items-center justify-end gap-3">
                       <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Qty: {item.quantity}</span>
-                      <span className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-bold text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200">
-                        {normalizeEquipmentStatus(item.status)}: {getEquipmentStatusRatio(item)}
-                      </span>
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(item.status)}`}>
-                        {displayEquipmentStatus(item.status)}
-                        {normalizeEquipmentStatus(item.status) === "Needs inspection" && <span aria-label="Needs attention" title="Needs inspection" className="ml-1 inline-block h-2 w-2 rounded-full bg-red-500 align-middle" />}
-                      </span>
+                      <div className="flex flex-wrap justify-end gap-1">
+                        {STATUS_FIELDS.filter(({ field }) => Number(item[field] || 0) > 0).map(({ status, field }) => (
+                          <span key={field} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(status)}`}>
+                            {status}: {item[field]}
+                          </span>
+                        ))}
+                      </div>
                       <button type="button" onClick={() => setEditingEquipment(item)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-orange-500 hover:text-orange-600 dark:border-white/10 dark:text-slate-200" aria-label={`Edit ${item.equipment_name} details`}>
                         <Pencil size={14} /> Details
                       </button>
@@ -505,9 +511,9 @@ export default function EquipmentInventory() {
                       <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-3 dark:border-white/10 dark:bg-[#111]">
                         <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Quantity:</strong> {item.quantity}</p>
                         <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Condition:</strong> {item.condition}</p>
-                        <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Status:</strong> {displayEquipmentStatus(item.status)}</p>
+                        <p className="text-sm text-slate-600 dark:text-slate-300"><strong>Overall condition:</strong> {item.condition}</p>
                         <p className="text-sm font-bold text-slate-700 dark:text-slate-200 sm:col-span-3">
-                          <strong>Status units:</strong> {getEquipmentStatusUnitCount(item)} / {item.quantity} ({getEquipmentStatusRatio(item)})
+                          <strong>Units by status:</strong> {getEquipmentStatusRatio(item)}
                         </p>
                         {item.condition_notes && <p className="text-sm text-slate-600 dark:text-slate-300 sm:col-span-3"><strong>Condition details:</strong> {item.condition_notes}</p>}
                         <p className="text-xs text-slate-500 sm:col-span-3">Last updated: {item.updated_at ? new Date(item.updated_at).toLocaleString() : "—"}</p>

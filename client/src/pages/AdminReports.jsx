@@ -27,6 +27,22 @@ const getInitialRange = () => {
 
 const formatDate = (value) => value ? String(value).slice(0, 10) : "—";
 const formatNumber = (value) => new Intl.NumberFormat().format(Number(value) || 0);
+const EQUIPMENT_STATUS_COLUMNS = [
+  ["In service", "in_service_count"],
+  ["Under Maintenance", "under_maintenance_count"],
+  ["Needs replacement", "needs_replacement_count"],
+  ["Needs inspection", "needs_inspection_count"],
+];
+const getEquipmentStatusBreakdown = (row) => {
+  const quantity = Number(row.quantity) || 0;
+  return EQUIPMENT_STATUS_COLUMNS.map(([status, field]) => {
+    const count = row[field] == null
+      ? (row.status === status ? quantity : 0)
+      : Number(row[field]) || 0;
+    return `${status}: ${count}/${quantity}`;
+  }).join(" · ");
+};
+const hasEquipmentNeedingAttention = (row) => Number(row.quantity || 0) > Number(row.in_service_count || 0);
 const formatPercentChange = (current, previous) => {
   const currentValue = Number(current) || 0;
   const previousValue = Number(previous) || 0;
@@ -80,12 +96,11 @@ const buildOperationalCsv = (report) => [
   ]),
   [],
   ["Equipment status"],
-  ["Equipment", "Quantity", "Status", "Status units", "Condition", "Condition details", "Last updated"],
+  ["Equipment", "Quantity", "Status by units", "Condition", "Condition details", "Last updated"],
   ...report.equipment.items.map((row) => [
     row.equipment_name,
     row.quantity,
-    row.status,
-    row.status_ratio || `${row.quantity}/${row.quantity}`,
+    getEquipmentStatusBreakdown(row),
     row.condition,
     row.condition_notes,
     formatDate(row.updated_at),
@@ -604,21 +619,20 @@ export default function AdminReports() {
                       title="Equipment status details"
                       description="Status and condition by equipment type."
                       rows={equipmentAttentionOnly
-                        ? report.equipment.items.filter((item) => item.status !== "In service")
+                        ? report.equipment.items.filter(hasEquipmentNeedingAttention)
                         : report.equipment.items}
                       emptyMessage={equipmentAttentionOnly
                         ? "No equipment units need attention."
                         : "No equipment inventory records are available."}
-                      highlightRow={equipmentAttentionOnly ? (item) => item.status !== "In service" : undefined}
+                      highlightRow={equipmentAttentionOnly ? hasEquipmentNeedingAttention : undefined}
                       compact
                       columns={[
                         { key: "equipment_name", label: "Equipment" },
                         { key: "quantity", label: "Quantity", render: formatNumber },
-                        { key: "status", label: "Status" },
                         {
-                          key: "status_ratio",
-                          label: "Status units",
-                          render: (value, row) => value || `${Number(row.quantity) || 0}/${Number(row.quantity) || 0}`,
+                          key: "status_unit_count",
+                          label: "Units by status",
+                          render: (_value, row) => getEquipmentStatusBreakdown(row),
                         },
                         { key: "condition", label: "Condition" },
                         { key: "condition_notes", label: "Condition details" },

@@ -595,10 +595,8 @@ const getDashboardStats = async (req, res) => {
          WHERE LOWER(COALESCE(account_status, 'pending')) = 'pending') AS pending_members,
         (SELECT COUNT(*)::int FROM exercises) AS total_exercises,
         (SELECT COUNT(*)::int FROM meal_plans) AS total_meal_plans,
-        (SELECT COUNT(*)::int FROM equipment_inventory
-         WHERE LOWER(BTRIM(status)) = 'needs replacement') AS need_replacement_count,
-        (SELECT COUNT(*)::int FROM equipment_inventory
-         WHERE LOWER(BTRIM(status)) IN ('under maintenance', 'under repair')) AS under_maintenance_count
+        (SELECT COALESCE(SUM(needs_replacement_count), 0)::int FROM equipment_inventory) AS need_replacement_count,
+        (SELECT COALESCE(SUM(under_maintenance_count), 0)::int FROM equipment_inventory) AS under_maintenance_count
     `);
 
     const recentMembers = await pool.query(`
