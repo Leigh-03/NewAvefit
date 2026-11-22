@@ -405,10 +405,8 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
       if (cardio.status === "blocked" || cardio.status === "stop") {
         errors[`sessions.${index}.exercise_id`] = cardio.note;
       } else {
-        const duration = Number(session.duration_minutes);
-        if (!Number.isInteger(duration) || duration < cardio.min || duration > cardio.max) {
-          errors[`sessions.${index}.duration_minutes`] = `Use ${cardio.min}–${cardio.max} minutes.`;
-        }
+        const durationError = integerRangeError(session.duration_minutes, "Duration", cardio.min, cardio.max);
+        if (durationError) errors[`sessions.${index}.duration_minutes`] = durationError;
       }
       return errors;
     }
@@ -481,9 +479,12 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
   ) : null;
 
   const updateSessionField = (index, field, value) => {
+    const nextValue = ["sets", "reps", "duration_minutes"].includes(field)
+      ? String(value).replace(/\D/g, "").slice(0, 2)
+      : value;
     const nextSession = {
       ...form.sessions[index],
-      ...(field === "exercise_id" ? { exercise_id: value } : {}),
+      ...(field === "exercise_id" ? { exercise_id: nextValue } : {}),
     };
     const nextDose = getSessionDoseRules(nextSession);
     const nextCardio = getCardioRecommendation(nextSession);
@@ -493,7 +494,7 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
         sessionIndex === index
           ? {
             ...session,
-            [field]: value,
+            [field]: nextValue,
             ...(field === "exercise_id" ? {
               sets: nextCardio ? "1" : String(nextDose.sets[0]),
               reps: nextCardio ? "1" : String(nextDose.reps[0]),
@@ -507,16 +508,20 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
     }));
     const key = `sessions.${index}.${field}`;
     const fieldError = field === "exercise_id"
-      ? !value
+      ? !nextValue
         ? "Select an exercise."
         : form.sessions.some((session, sessionIndex) =>
-          sessionIndex !== index && String(session.exercise_id) === String(value)
+          sessionIndex !== index && String(session.exercise_id) === String(nextValue)
         )
           ? "Choose an exercise that is not already in this day's plan."
           : ""
       : field === "sets"
-      ? integerRangeError(value, "Sets", nextDose.sets[0], nextDose.sets[1])
-      : integerRangeError(value, "Reps", nextDose.reps[0], nextDose.reps[1]);
+      ? integerRangeError(nextValue, "Sets", nextDose.sets[0], nextDose.sets[1])
+      : field === "reps"
+        ? integerRangeError(nextValue, "Reps", nextDose.reps[0], nextDose.reps[1])
+        : nextCardio && nextCardio.status !== "blocked" && nextCardio.status !== "stop"
+          ? integerRangeError(nextValue, "Duration", nextCardio.min, nextCardio.max)
+          : "";
     setFieldErrors((current) => ({ ...current, sessions: "", [key]: fieldError }));
     setError("");
   };
@@ -794,10 +799,10 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                           <input
                             id={`sessions-${index}-duration_minutes`}
                             aria-label={`Exercise ${index + 1} duration in minutes`}
-                            type="number"
-                            min={cardio.min}
-                            max={cardio.max}
-                            step="1"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]{1,2}"
+                            maxLength={2}
                             required
                             value={session.duration_minutes}
                             onChange={(event) => updateSessionField(index, "duration_minutes", event.target.value)}
@@ -817,10 +822,10 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                           <input
                             id={`sessions-${index}-sets`}
                             aria-label={`Exercise ${index + 1} sets`}
-                            type="number"
-                            min={getSessionDoseRules(session).sets[0]}
-                            max={getSessionDoseRules(session).sets[1]}
-                            step="1"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]{1,2}"
+                            maxLength={2}
                             required
                             placeholder="Sets"
                             value={session.sets}
@@ -836,10 +841,10 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                           <input
                             id={`sessions-${index}-reps`}
                             aria-label={`Exercise ${index + 1} reps`}
-                            type="number"
-                            min={getSessionDoseRules(session).reps[0]}
-                            max={getSessionDoseRules(session).reps[1]}
-                            step="1"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]{1,2}"
+                            maxLength={2}
                             required
                             placeholder="Reps"
                             value={session.reps}

@@ -35,12 +35,7 @@ const getAdminSidebarCounts = async (req, res) => {
          (
            SELECT COUNT(*)::int
            FROM equipment_inventory
-           WHERE LOWER(BTRIM(COALESCE(status, ''))) IN (
-             'needs inspection',
-             'under repair',
-             'under maintenance',
-             'needs replacement'
-           )
+           WHERE in_service_count < quantity
          ) AS equipment,
          (
            SELECT COUNT(*)::int

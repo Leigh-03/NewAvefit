@@ -20,11 +20,18 @@ const getWorkouts = async (req, res) => {
 
 const EQUIPMENT_CONDITIONS_BY_STATUS = {
   "Needs inspection": ["Not assessed"],
-  "Under repair": ["Damaged"],
+  "Under Maintenance": ["Damaged"],
   "In service": ["Good", "Rusty"],
   "Needs replacement": ["Poor", "Damaged", "Worn"],
 };
 const equipmentStatuses = Object.keys(EQUIPMENT_CONDITIONS_BY_STATUS);
+const equipmentCountFields = {
+  "In service": "in_service_count",
+  "Under Maintenance": "under_maintenance_count",
+  "Needs replacement": "needs_replacement_count",
+  "Needs inspection": "needs_inspection_count",
+};
+const equipmentConditions = Object.values(EQUIPMENT_CONDITIONS_BY_STATUS).flat();
 
 const validateEquipmentInput = (body, { creating = false } = {}) => {
   const equipmentName = typeof body.equipment_name === "string" ? body.equipment_name.trim() : "";
@@ -34,7 +41,8 @@ const validateEquipmentInput = (body, { creating = false } = {}) => {
     : typeof body.quantity === "string" && /^\d+$/.test(body.quantity);
   const condition = creating ? "Good" : typeof body.condition === "string" ? body.condition.trim() : "";
   const conditionNotes = typeof body.condition_notes === "string" ? body.condition_notes.trim() : "";
-  const status = creating ? "In service" : typeof body.status === "string" ? body.status.trim() : "";
+  const requestedStatus = typeof body.status === "string" ? body.status.trim() : "In service";
+  const status = requestedStatus === "Under repair" ? "Under Maintenance" : requestedStatus;
   if (creating && (!/^(?=.*\p{L})[\p{L}\s]+$/u.test(equipmentName))) {
     return { error: "Equipment name is required and can contain letters and spaces only." };
   }
@@ -44,22 +52,46 @@ const validateEquipmentInput = (body, { creating = false } = {}) => {
   if (!quantityIsDigits || quantity < 1 || quantity > 50) {
     return { error: "Quantity must be a whole number from 1 to 50." };
   }
-  if (!equipmentStatuses.includes(status)) {
-    return { error: "Choose a valid equipment status." };
-  }
-  if (!EQUIPMENT_CONDITIONS_BY_STATUS[status].includes(condition)) {
-    return { error: `Choose a condition available for the ${status.toLowerCase()} status.` };
+  if (!equipmentConditions.includes(condition)) {
+    return { error: "Choose a valid equipment condition." };
   }
   if (conditionNotes.length > 500) {
     return { error: "Condition details must be 500 characters or fewer." };
   }
+  const countFields = Object.values(equipmentCountFields);
+  const hasStatusCounts = countFields.some((field) => Object.hasOwn(body, field));
+  const statusCounts = {};
+  if (hasStatusCounts) {
+    for (const [equipmentStatus, field] of Object.entries(equipmentCountFields)) {
+      const count = body[field];
+      const validCount = typeof count === "number"
+        ? Number.isInteger(count)
+        : typeof count === "string" && /^\d+$/.test(count);
+      if (!validCount || Number(count) < 0 || Number(count) > 50) {
+        return { error: `Enter a whole number from 0 to 50 for ${equipmentStatus.toLowerCase()}.` };
+      }
+      statusCounts[field] = Number(count);
+    }
+  } else {
+    if (!equipmentStatuses.includes(status)) {
+      return { error: "Choose a valid equipment status." };
+    }
+    statusCounts[equipmentCountFields[status]] = quantity;
+    for (const field of countFields) statusCounts[field] ??= 0;
+  }
+  if (Object.values(statusCounts).reduce((total, count) => total + count, 0) !== quantity) {
+    return { error: "The status counts must add up to the total quantity." };
+  }
+  const summaryStatus = ["Needs replacement", "Under Maintenance", "Needs inspection", "In service"]
+    .find((equipmentStatus) => statusCounts[equipmentCountFields[equipmentStatus]] > 0);
   return {
     value: {
       equipmentName,
       quantity,
       condition,
       conditionNotes,
-      status,
+      status: summaryStatus,
+      ...statusCounts,
     },
   };
 };
@@ -73,17 +105,14 @@ const getEquipmentInventory = async (_req, res) => {
              inventory.equipment_condition AS condition,
              inventory.condition_notes,
              inventory.status,
+             inventory.in_service_count,
+             inventory.under_maintenance_count,
+             inventory.needs_replacement_count,
+             inventory.needs_inspection_count,
              inventory.updated_at,
-             CASE
-               WHEN LOWER(BTRIM(inventory.status)) IN ('in service', 'under maintenance', 'under repair', 'needs replacement')
-                 THEN inventory.quantity
-               ELSE 0
-             END::int AS status_unit_count,
-             CASE
-               WHEN LOWER(BTRIM(inventory.status)) IN ('in service', 'under maintenance', 'under repair', 'needs replacement')
-                 THEN inventory.quantity::text || '/' || inventory.quantity::text
-               ELSE '0/' || inventory.quantity::text
-             END AS status_ratio,
+             (inventory.quantity - inventory.in_service_count)::int AS status_unit_count,
+             (inventory.quantity - inventory.in_service_count)::text
+               || '/' || inventory.quantity::text AS status_ratio,
              COALESCE(plan_usage.planned_session_count, 0)::int AS planned_session_count,
              COALESCE(plan_usage.usage_count, 0)::int AS usage_count,
              COALESCE(plan_usage.users, '[]'::json) AS users
@@ -130,15 +159,17 @@ const createEquipment = async (req, res) => {
   if (validated.error) {
     return res.status(400).json({ success: false, message: validated.error });
   }
-  const { equipmentName, quantity, condition, conditionNotes, status } = validated.value;
+  const { equipmentName, quantity, condition, conditionNotes, status, ...statusCounts } = validated.value;
   try {
     const result = await pool.query(
       `INSERT INTO equipment_inventory
-        (equipment_name, quantity, equipment_condition, condition_notes, status, updated_at)
-        VALUES ($1, $2, $3, $4, $5, NOW())
+        (equipment_name, quantity, equipment_condition, condition_notes, status,
+         in_service_count, under_maintenance_count, needs_replacement_count, needs_inspection_count, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
         ON CONFLICT (LOWER(BTRIM(equipment_name))) DO NOTHING
-        RETURNING equipment_id, equipment_name, quantity, equipment_condition AS condition, condition_notes, status, updated_at`,
-      [equipmentName, quantity, condition, conditionNotes, status]
+        RETURNING equipment_id, equipment_name, quantity, equipment_condition AS condition, condition_notes,
+          status, in_service_count, under_maintenance_count, needs_replacement_count, needs_inspection_count, updated_at`,
+      [equipmentName, quantity, condition, conditionNotes, status, ...Object.values(statusCounts)]
     );
     if (!result.rowCount) {
       return res.status(409).json({ success: false, message: "This equipment is already in the inventory." });
@@ -162,7 +193,7 @@ const updateEquipment = async (req, res) => {
   if (validated.error) {
     return res.status(400).json({ success: false, message: validated.error });
   }
-  const { equipmentName, quantity, condition, conditionNotes, status } = validated.value;
+  const { equipmentName, quantity, condition, conditionNotes, status, ...statusCounts } = validated.value;
   let client;
   let transactionStarted = false;
   try {
@@ -181,10 +212,13 @@ const updateEquipment = async (req, res) => {
     const result = await client.query(
       `UPDATE equipment_inventory
        SET equipment_name = $1, quantity = $2, equipment_condition = $3,
-           condition_notes = $4, status = $5, updated_at = NOW()
-       WHERE equipment_id = $6
-       RETURNING equipment_id, equipment_name, quantity, equipment_condition AS condition, condition_notes, status, updated_at`,
-      [equipmentName, quantity, condition, conditionNotes, status, equipmentId]
+           condition_notes = $4, status = $5, in_service_count = $6,
+           under_maintenance_count = $7, needs_replacement_count = $8,
+           needs_inspection_count = $9, updated_at = NOW()
+       WHERE equipment_id = $10
+       RETURNING equipment_id, equipment_name, quantity, equipment_condition AS condition, condition_notes,
+         status, in_service_count, under_maintenance_count, needs_replacement_count, needs_inspection_count, updated_at`,
+      [equipmentName, quantity, condition, conditionNotes, status, ...Object.values(statusCounts), equipmentId]
     );
     if (current.rows[0].equipment_name !== equipmentName) {
       await client.query(

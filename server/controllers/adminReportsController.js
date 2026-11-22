@@ -112,22 +112,15 @@ const getOperationalReport = async ({ startDate, endDate }) => {
   const equipmentResult = await pool.query(`
     SELECT equipment_id, equipment_name, quantity,
       equipment_condition AS condition, condition_notes, status, updated_at,
-      CASE
-        WHEN LOWER(BTRIM(status)) IN ('in service', 'under maintenance', 'under repair', 'needs replacement')
-          THEN quantity
-        ELSE 0
-      END::int AS status_unit_count,
-      CASE
-        WHEN LOWER(BTRIM(status)) IN ('in service', 'under maintenance', 'under repair', 'needs replacement')
-          THEN quantity::text || '/' || quantity::text
-        ELSE '0/' || quantity::text
-      END AS status_ratio
+      in_service_count, under_maintenance_count, needs_replacement_count, needs_inspection_count,
+      (quantity - in_service_count)::int AS status_unit_count
     FROM equipment_inventory
     ORDER BY
-      CASE status
-        WHEN 'Needs replacement' THEN 1
-        WHEN 'Under repair' THEN 2
-        WHEN 'Needs inspection' THEN 3
+      CASE LOWER(status)
+        WHEN 'needs replacement' THEN 1
+        WHEN 'under maintenance' THEN 2
+        WHEN 'under repair' THEN 2
+        WHEN 'needs inspection' THEN 3
         ELSE 4
       END,
       equipment_name
@@ -158,7 +151,7 @@ const getOperationalReport = async ({ startDate, endDate }) => {
     equipment_types: totals.equipment_types + 1,
     equipment_units: totals.equipment_units + Number(item.quantity || 0),
     equipment_needing_attention: totals.equipment_needing_attention
-      + (item.status === "In service" ? 0 : Number(item.quantity || 0)),
+      + Math.max(Number(item.quantity || 0) - Number(item.in_service_count || 0), 0),
   }), { equipment_types: 0, equipment_units: 0, equipment_needing_attention: 0 });
 
   return {
