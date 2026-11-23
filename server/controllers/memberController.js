@@ -7,7 +7,7 @@ const {
   sendUserCoachAssignedEmail,
   sendMemberAccountDecisionEmail,
 } = require("../utils/mailer");
-const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
+const { getCapacityStatus, getMemberAvailability, getScheduleMatch, isCoachAtCapacity } = require("../utils/coachAssignment");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 
 const MEMBERSHIP_TERMS = [1, 3, 6, 12];
@@ -422,6 +422,14 @@ const assignTrainer = async (req, res) => {
         );
         const assignedCount = assignedCountResult.rows[0].count;
         nextAssignedCount = assignedCount;
+        if (isCoachAtCapacity(assignedCount, nextTrainer.max_members)) {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(409).json({
+            success: false,
+            message: "This coach has reached their total member capacity. Choose another coach.",
+          });
+        }
       }
     }
 

@@ -6,6 +6,7 @@ import ProgramPicker from "./ProgramPicker";
 import { philippinesDateString } from "../../utils/philippinesDate";
 import { getWorkoutGoalRules } from "../../utils/workoutGoalRules";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import CustomSelect from "../ui/CustomSelect";
 import {
   exerciseMatchesProgram,
   getExerciseLimitForExperience,
@@ -325,6 +326,13 @@ export default function MemberWorkoutPlanRequestModal({
       setError("Choose an exercise and enter sets and reps for every row.");
       return;
     }
+    const unavailableExercise = requestNeedsExerciseEditor && sessions
+      .map((session) => exercises.find((exercise) => String(exercise.exercise_id) === String(session.exercise_id)))
+      .find((exercise) => exercise?.equipment_available === false);
+    if (unavailableExercise) {
+      setError(`${unavailableExercise.exercise_name} is unavailable because its required equipment has no units in service.`);
+      return;
+    }
     if (requestType === "program_change" && !availableSwitchPrograms.includes(selectedProgram)) {
       setError("Each program can only be selected once per week. Choose an unused program.");
       return;
@@ -614,7 +622,23 @@ export default function MemberWorkoutPlanRequestModal({
                         return (
                           <label className="col-span-2 text-xs font-semibold text-slate-500 sm:col-span-2">
                             Duration (minutes, {cardio.min}–{cardio.max})
-                            <input type="number" min={cardio.min} max={cardio.max} step="1" value={session.duration_minutes} onChange={(event) => updateSession(index, "duration_minutes", event.target.value)} required className="mt-1 block min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-normal text-slate-900 dark:border-slate-700 dark:bg-[#171717] dark:text-white" />
+                            <div className="mt-1">
+                              <CustomSelect
+                                id={`sessions-${index}-duration_minutes`}
+                                ariaLabel={`Exercise ${index + 1} duration in minutes`}
+                                value={session.duration_minutes}
+                                options={Array.from(
+                                  { length: cardio.max - cardio.min + 1 },
+                                  (_, offset) => {
+                                    const duration = cardio.min + offset;
+                                    return { value: String(duration), label: `${duration} minutes` };
+                                  }
+                                )}
+                                onChange={(duration) => updateSession(index, "duration_minutes", duration)}
+                                ariaInvalid={Boolean(fieldErrors?.[`sessions.${index}.duration_minutes`])}
+                                className="min-h-11"
+                              />
+                            </div>
                             <span className="mt-1 block font-normal leading-relaxed text-slate-400">{cardio.note}</span>
                           </label>
                         );

@@ -6,7 +6,6 @@ import {
   Boxes,
   ClipboardList,
   Dumbbell,
-  Activity,
   Home,
   Settings,
   UserCheck,
@@ -23,7 +22,6 @@ const NAV = [
   { to: "/admin/equipment", icon: Boxes, label: "Equipment", countKey: "equipment" },
   { to: "/admin/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/admin/reports", icon: ClipboardList, label: "Reports" },
-  { to: "/admin/system-health", icon: Activity, label: "System Health" },
   { to: "/admin/notifications", icon: Bell, label: "Notifications", countKey: "notifications" },
   { to: "/admin/settings", icon: Settings, label: "Settings" },
 ];

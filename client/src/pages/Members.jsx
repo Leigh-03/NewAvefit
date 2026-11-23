@@ -249,6 +249,11 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
   const [changesError, setChangesError] = useState("");
   const assignedTrainer = trainers.find(t => Number(t.trainer_id) === Number(member.trainer_id));
   const canEditMembershipAndCoach = String(member.status || "").trim() === "Active";
+  const selectedCoach = recommendations.find((coach) => String(coach.trainer_id) === String(selectedTrainer));
+  const coachChanged = String(selectedTrainer || "") !== String(member.trainer_id || "");
+  const selectedCoachAtCapacity = Boolean(selectedCoach &&
+    Number(selectedCoach.max_members) > 0 &&
+    Number(selectedCoach.assigned_member_count) >= Number(selectedCoach.max_members));
   useEffect(() => {
     setMembershipMonths(member.membership_months || 1);
     setSelectedTrainer(member.trainer_id || "");
@@ -271,6 +276,9 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
     setSavingChanges(true);
     setChangesError("");
     try {
+      if (coachChanged && selectedCoachAtCapacity) {
+        throw new Error("This coach has reached their maximum member capacity. Choose another coach.");
+      }
       if (coachChanged) await onAssign(member, selectedTrainer || null);
       if (membershipChanged) {
         await onMembershipUpdate(member, membershipMonths ? Number(membershipMonths) : null);
@@ -292,8 +300,6 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
     ? getMembershipEndDate(membershipStartDate, membershipMonths)
     : null;
   const membershipChanged = String(membershipMonths || "") !== String(member.membership_months || "");
-  const selectedCoach = recommendations.find((coach) => String(coach.trainer_id) === String(selectedTrainer));
-  const coachChanged = String(selectedTrainer || "") !== String(member.trainer_id || "");
   const hasChanges = membershipChanged || coachChanged;
   const injuries = toHealthNotes(member.injuries).map((area) => {
     const level = Number(member.injury_pain_levels?.[area]);
@@ -461,6 +467,8 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                 {recommendations.map((coach) => {
                   const capacity = Number(coach.max_members) || 0;
                   const assigned = Number(coach.assigned_member_count) || 0;
+                  const atCapacity = capacity > 0 && assigned >= capacity;
+                  const alreadyAssigned = String(member.trainer_id || "") === String(coach.trainer_id);
                   const selected = String(selectedTrainer) === String(coach.trainer_id);
                   const specializations = Array.isArray(coach.specializations)
                     ? coach.specializations.filter(Boolean)
@@ -476,7 +484,7 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                       <button
                         type="button"
                         onClick={() => setSelectedTrainer(String(coach.trainer_id))}
-                        disabled={!canEditMembershipAndCoach || recommendationsLoading}
+                        disabled={!canEditMembershipAndCoach || recommendationsLoading || (atCapacity && !alreadyAssigned)}
                         aria-pressed={selected}
                         className="block w-full p-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-white/[0.03]"
                       >
@@ -502,7 +510,7 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                         </div>
                         <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
                           <span>{assigned}/{capacity} members · {Math.max(capacity - assigned, 0)} slots remaining</span>
-                          <span>{coach.capacity_status || (Number(coach.capacity_percent) >= 80 ? "Near Capacity" : "Active")}</span>
+                          <span>{atCapacity ? "Full" : coach.capacity_status || (Number(coach.capacity_percent) >= 80 ? "Near Capacity" : "Active")}</span>
                         </div>
                         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
                           <span className="block h-full rounded-full bg-orange-500" style={{ width: `${Math.min(Number(coach.capacity_percent) || 0, 100)}%` }} />
@@ -537,10 +545,10 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
               <p role="status" className="mt-2 rounded-lg border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">{recommendationMessage}</p>
             )}
             {selectedTrainer && selectedCoach && (
-              <div role={selectedCoach.schedule_compatible && Number(selectedCoach.assigned_member_count) < Number(selectedCoach.max_members) ? "status" : "alert"} className={`mt-3 rounded-lg border px-3 py-2 text-xs ${selectedCoach.schedule_compatible && Number(selectedCoach.assigned_member_count) < Number(selectedCoach.max_members) ? "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200" : "border-amber-300/50 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"}`}>
-                {!selectedCoach.schedule_compatible && <p>This coach’s availability does not match the member’s preferred workout schedule. You can still assign this coach.</p>}
-                {Number(selectedCoach.assigned_member_count) >= Number(selectedCoach.max_members) && <p className={!selectedCoach.schedule_compatible ? "mt-1" : ""}>This coach is at full capacity. You can still assign this coach.</p>}
-                {selectedCoach.schedule_compatible && Number(selectedCoach.assigned_member_count) < Number(selectedCoach.max_members) && <p>Schedule matches. Compatible days: {selectedCoach.matched_days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ") || "—"}</p>}
+              <div role={selectedCoach.schedule_compatible && !selectedCoachAtCapacity ? "status" : "alert"} className={`mt-3 rounded-lg border px-3 py-2 text-xs ${selectedCoach.schedule_compatible && !selectedCoachAtCapacity ? "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200" : "border-amber-300/50 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"}`}>
+                {!selectedCoach.schedule_compatible && <p>This coach’s availability does not match the member’s preferred workout schedule.{selectedCoachAtCapacity ? " Choose another coach because this coach is full." : " You can still assign this coach."}</p>}
+                {selectedCoachAtCapacity && <p className={!selectedCoach.schedule_compatible ? "mt-1" : ""}>{coachChanged ? "This coach has reached their maximum member capacity. Choose another coach." : "This coach is at maximum capacity. This member is already assigned and can remain with this coach."}</p>}
+                {selectedCoach.schedule_compatible && !selectedCoachAtCapacity && <p>Schedule matches. Compatible days: {selectedCoach.matched_days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ") || "—"}</p>}
               </div>
             )}
             {!canEditMembershipAndCoach && <p className="mt-2 text-xs text-slate-500">Coach assignment is locked until this member is active.</p>}

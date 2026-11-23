@@ -5,6 +5,7 @@ const {
   sendWorkoutPlanApprovalRequestEmail,
 } = require("../utils/mailer");
 const { getWorkoutGoalRules, isWorkoutDoseAllowed } = require("../utils/workoutGoalRules");
+const { isExerciseEquipmentAvailable } = require("../utils/exerciseEquipment");
 const {
   TRAINING_PROGRAMS,
   getExerciseLimitForExperience,
@@ -329,9 +330,12 @@ const requestWorkoutPlan = async (req, res) => {
     const sessionDuration = DEFAULT_WORKOUT_SESSION_DURATION;
 
     const exercisesResult = await client.query(
-      `SELECT e.exercise_id, e.muscle_group, e.difficulty, c.category_name
+      `SELECT e.exercise_id, e.exercise_name, e.equipment, e.muscle_group, e.difficulty, c.category_name,
+              COALESCE(inventory.in_service_count, 0)::int AS equipment_in_service_count
        FROM exercises e
        LEFT JOIN exercise_categories c ON c.category_id = e.category_id
+       LEFT JOIN equipment_inventory inventory
+         ON LOWER(BTRIM(inventory.equipment_name)) = LOWER(BTRIM(e.equipment))
        WHERE e.exercise_id = ANY($1::int[])`,
       [exerciseIds]
     );
@@ -343,6 +347,14 @@ const requestWorkoutPlan = async (req, res) => {
     const exercisesById = new Map(exercisesResult.rows.map((exercise) => [Number(exercise.exercise_id), exercise]));
     for (const session of sessions) {
       const exercise = exercisesById.get(Number(session.exercise_id));
+      if (!isExerciseEquipmentAvailable(exercise)) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(400).json({
+          success: false,
+          message: `${exercise.exercise_name} is unavailable because its required equipment has no units in service.`,
+        });
+      }
       if (!isExerciseAllowedForExperience(exercise, member.activity_level || "Beginner")) {
         await client.query("ROLLBACK");
         transactionStarted = false;

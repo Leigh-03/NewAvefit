@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from "react";
-import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock, TrendingUp } from "lucide-react";
+import { UserCheck, Plus, Search, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock, TrendingUp } from "lucide-react";
 import api from "../services/api";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
@@ -7,6 +7,7 @@ import TrainerAvailabilityManager from "../components/trainers/TrainerAvailabili
 import ScrollReveal from "../components/ScrollReveal";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
+import CustomSelect from "../components/ui/CustomSelect";
 
 const fetchMemberProgress = (userId) => api.get(`/members/${userId}/progress`);
 
@@ -806,11 +807,6 @@ export default function Trainers() {
     }
   };
 
-  const handleEdit = (trainer) => {
-    setEditTrainer(trainer);
-    setShowModal(true);
-  };
-
   const handleAdd = () => {
     setEditTrainer(null);
     setShowModal(true);
@@ -920,9 +916,23 @@ export default function Trainers() {
             className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none dark:text-white"
           />
         </label>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Filter trainers by status">
-          {["All","Active","Pending","Inactive"].map(status=><button key={status} type="button" aria-pressed={statusFilter===status} onClick={()=>setStatusFilter(status)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${statusFilter===status?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300"}`}>{status}{status==="Pending"&&pendingCount?` (${pendingCount})`:""}</button>)}
-        </div>
+        <CustomSelect
+          ariaLabel="Filter trainers by status"
+          value={statusFilter}
+          onChange={setStatusFilter}
+          className="min-h-11 w-full sm:w-52"
+          options={[
+            { value: "All", label: "All", description: "Show every coach" },
+            { value: "Active", label: "Active", description: "Approved and available" },
+            {
+              value: "Pending",
+              label: "Pending",
+              description: "Awaiting approval",
+              count: pendingCount,
+            },
+            { value: "Inactive", label: "Inactive", description: "Not currently active" },
+          ]}
+        />
       </div>
 
       {/* Table */}
@@ -1054,13 +1064,6 @@ export default function Trainers() {
                           aria-label={`View ${trainer.full_name}'s availability`}
                         >
                           <CalendarClock size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleEdit(trainer)}
-                          className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-500 transition"
-                          title="Edit"
-                        >
-                          <Edit2 size={16} />
                         </button>
                         {trainer.status === "Pending" && (
                           <button onClick={() => handleApprove(trainer.trainer_id)} className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition" title="Approve"><UserCheck size={16} /></button>

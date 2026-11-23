@@ -88,8 +88,15 @@ const getCapacityStatus = (assignedMembers, maxMembers, status = "Active") => {
   return "Available";
 };
 
+const isCoachAtCapacity = (assignedMembers, maxMembers) => {
+  const assigned = Number(assignedMembers) || 0;
+  const capacity = Number(maxMembers) || 0;
+  return capacity > 0 && assigned >= capacity;
+};
+
 module.exports = {
   getCapacityStatus,
   getMemberAvailability,
   getScheduleMatch,
+  isCoachAtCapacity,
 };

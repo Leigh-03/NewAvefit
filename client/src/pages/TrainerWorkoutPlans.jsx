@@ -4,6 +4,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Dumbbell, Eye, 
 import trainerApi from "../trainerApi";
 import ExercisePicker from "../components/workout/ExercisePicker";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+import CustomSelect from "../components/ui/CustomSelect";
 import { getWorkoutGoalRules } from "../utils/workoutGoalRules";
 import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 import {
@@ -399,6 +400,10 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
     }
     if (session.exercise_id && !matchingExercises.some((exercise) => String(exercise.exercise_id) === String(session.exercise_id))) {
       errors[`sessions.${index}.exercise_id`] = `Choose an exercise for the ${trainingProgram || "selected"} program and member's level.`;
+    }
+    const selectedExercise = exercises.find((exercise) => String(exercise.exercise_id) === String(session.exercise_id));
+    if (selectedExercise?.equipment_available === false) {
+      errors[`sessions.${index}.exercise_id`] = `${selectedExercise.exercise_name} is unavailable because its required equipment has no units in service.`;
     }
     const cardio = getCardioRecommendation(session);
     if (cardio) {
@@ -796,19 +801,20 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                       return (
                         <div className="col-span-2 min-w-0">
                           <label htmlFor={`sessions-${index}-duration_minutes`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Duration ({cardio.min}–{cardio.max} min)</label>
-                          <input
+                          <CustomSelect
                             id={`sessions-${index}-duration_minutes`}
-                            aria-label={`Exercise ${index + 1} duration in minutes`}
-                            type="text"
-                            inputMode="numeric"
-                            pattern="[0-9]{1,2}"
-                            maxLength={2}
-                            required
+                            ariaLabel={`Exercise ${index + 1} duration in minutes`}
                             value={session.duration_minutes}
-                            onChange={(event) => updateSessionField(index, "duration_minutes", event.target.value)}
-                            aria-invalid={Boolean(fieldErrors[`sessions.${index}.duration_minutes`])}
-                            aria-describedby={fieldErrors[`sessions.${index}.duration_minutes`] ? `sessions-${index}-duration_minutes-error` : undefined}
-                            className={`${inputClass(`sessions.${index}.duration_minutes`)} h-11 px-3 py-2`}
+                            options={Array.from(
+                              { length: cardio.max - cardio.min + 1 },
+                              (_, offset) => {
+                                const duration = cardio.min + offset;
+                                return { value: String(duration), label: `${duration} minutes` };
+                              }
+                            )}
+                            onChange={(duration) => updateSessionField(index, "duration_minutes", duration)}
+                            ariaInvalid={Boolean(fieldErrors[`sessions.${index}.duration_minutes`])}
+                            className="h-11"
                           />
                           {renderFieldError(`sessions.${index}.duration_minutes`)}
                           <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{cardio.note}</p>
@@ -1309,17 +1315,31 @@ export default function TrainerWorkoutPlans() {
           className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"
         />
       </label>
-      <label className="sr-only" htmlFor="trainer-plan-status">Filter plans by status</label>
-      <select id="trainer-plan-status" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setCurrentPage(1); }} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
-        {["All", ...statusFilterOptions].map((status) => <option key={status} value={status}>{status === "All" ? "All Status" : status}</option>)}
-      </select>
-      <label className="sr-only" htmlFor="trainer-plan-roster">Filter by My Roster</label>
-      <select id="trainer-plan-roster" value={rosterFilter} onChange={(event) => { setRosterFilter(event.target.value); setCurrentPage(1); }} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
-        <option value="All">My Roster · All members</option>
-        {members.map((member) => (
-          <option key={member.user_id} value={String(member.user_id)}>{member.first_name} {member.last_name}</option>
-        ))}
-      </select>
+      <CustomSelect
+        id="trainer-plan-status"
+        ariaLabel="Filter plans by status"
+        value={statusFilter}
+        options={["All", ...statusFilterOptions].map((status) => ({
+          value: status,
+          label: status === "All" ? "All Status" : status,
+        }))}
+        onChange={(status) => { setStatusFilter(status); setCurrentPage(1); }}
+        className="min-w-40"
+      />
+      <CustomSelect
+        id="trainer-plan-roster"
+        ariaLabel="Filter by My Roster"
+        value={rosterFilter}
+        options={[
+          { value: "All", label: "My Roster · All members" },
+          ...members.map((member) => ({
+            value: String(member.user_id),
+            label: `${member.first_name} ${member.last_name}`.trim(),
+          })),
+        ]}
+        onChange={(memberId) => { setRosterFilter(memberId); setCurrentPage(1); }}
+        className="min-w-48"
+      />
       </div>
 
       <div className="trainer-card overflow-hidden rounded-2xl border">
@@ -1330,12 +1350,20 @@ export default function TrainerWorkoutPlans() {
             ))}
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+          <div className="overflow-hidden">
+            <table className="w-full table-fixed text-left text-sm">
+              <colgroup>
+                <col style={{ width: "24%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "12%" }} />
+                <col style={{ width: "15%" }} />
+                <col style={{ width: "20%" }} />
+                <col style={{ width: "15%" }} />
+              </colgroup>
               <thead className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/70">
                 <tr>
-                  {["Plan Name", "Goal", "Member", "Workout Date", "Completed / Total", "Status", "Actions"].map((heading) => (
-                    <th key={heading} className={`whitespace-nowrap px-5 py-4 font-semibold text-slate-600 dark:text-slate-300 ${heading === "Status" ? "min-w-[150px]" : ""}`}>
+                  {["Plan", "Member", "Date", "Progress", "Status", "Actions"].map((heading) => (
+                    <th key={heading} className="whitespace-normal break-words px-2 py-4 text-xs font-semibold leading-tight text-slate-600 dark:text-slate-300 sm:px-3">
                       {heading}
                     </th>
                   ))}
@@ -1344,7 +1372,7 @@ export default function TrainerWorkoutPlans() {
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-16 text-center">
+                    <td colSpan={6} className="py-16 text-center">
                       <ClipboardList size={36} className="mx-auto mb-2 text-slate-400" />
                       <p className="font-semibold text-slate-700 dark:text-slate-200">{plans.length ? "No plans match these filters." : "No workout plans yet."}</p>
                       <p className="mt-1 text-sm text-slate-500">{plans.length ? "Try a different search or status." : "Create a plan to start building a member's routine."}</p>
@@ -1367,20 +1395,26 @@ export default function TrainerWorkoutPlans() {
                   );
                   return (
                   <tr key={plan.workout_plan_id} className="hover:bg-orange-500/5">
-                    <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-800 dark:text-white">{getPlanDisplayName(plan)}</td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{formatFitnessGoal(plan.fitness_goal) || "—"}</td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.member_name || "Template"}</td>
-                    <td className="whitespace-nowrap px-5 py-4 text-slate-500">
+                    <td className="break-words px-2 py-4 font-semibold text-slate-800 dark:text-white sm:px-3">{getPlanDisplayName(plan)}</td>
+                    <td className="break-words px-2 py-4 text-slate-600 dark:text-slate-300 sm:px-3">{plan.member_name || "Template"}</td>
+                    <td className="whitespace-nowrap px-2 py-4 text-slate-500 sm:px-3">
                       {plan.scheduled_date ? (
-                        <>
-                          {new Date(`${plan.scheduled_date}T00:00:00`).toLocaleDateString()}
-                        </>
+                        <time
+                          dateTime={String(plan.scheduled_date).slice(0, 10)}
+                          title={new Date(`${plan.scheduled_date}T00:00:00`).toLocaleDateString()}
+                        >
+                          {new Date(`${plan.scheduled_date}T00:00:00`).toLocaleDateString(undefined, {
+                            month: "numeric",
+                            day: "numeric",
+                            year: "2-digit",
+                          })}
+                        </time>
                       ) : "—"}
                     </td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                    <td className="break-words px-2 py-4 text-slate-600 dark:text-slate-300 sm:px-3">
                       {Number(plan.completed_count) || 0} / {Number(plan.exercise_count) || 0} completed
                     </td>
-                    <td className="min-w-[150px] px-4 py-4">
+                    <td className="px-2 py-4">
                       <div className="flex w-fit max-w-[180px] flex-col items-start gap-2">
                         {pendingApproval && (
                           <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-amber-300/70 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold leading-none text-amber-200">
@@ -1429,8 +1463,8 @@ export default function TrainerWorkoutPlans() {
                         )}
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-4">
-                      <div className="flex items-center gap-1">
+                    <td className="px-1.5 py-4 sm:px-2">
+                      <div className="flex flex-wrap items-center gap-1">
                         <button
                           type="button"
                           onClick={() => setViewingPlan(plan)}
