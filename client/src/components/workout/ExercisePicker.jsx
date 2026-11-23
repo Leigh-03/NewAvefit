@@ -29,6 +29,10 @@ export default function ExercisePicker({
         .some((field) => String(field || "").toLowerCase().includes(normalizedQuery))
     ));
   }, [options, query]);
+  const availableEquipmentCount = useMemo(
+    () => filteredOptions.filter((exercise) => exercise.equipment_available !== false).length,
+    [filteredOptions]
+  );
 
   useEffect(() => {
     if (!open) return undefined;
@@ -41,7 +45,7 @@ export default function ExercisePicker({
   }, [open]);
 
   const selectExercise = (exercise) => {
-    if (!exercise.disabled) {
+    if (!exercise.disabled && exercise.equipment_available !== false) {
       onChange(String(exercise.exercise_id));
       setOpen(false);
       setQuery("");
@@ -128,12 +132,19 @@ export default function ExercisePicker({
                 className="min-w-0 flex-1 bg-transparent py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-white"
               />
             </div>
-            <p className="mt-2 px-1 text-[11px] font-medium text-slate-400">{filteredOptions.length} exercise{filteredOptions.length === 1 ? "" : "s"} available</p>
+            <p className="mt-2 px-1 text-[11px] font-medium text-slate-400">{availableEquipmentCount} exercise{availableEquipmentCount === 1 ? "" : "s"} available</p>
           </div>
           <ul id={`${id}-options`} role="listbox" aria-label="Available exercises" className="max-h-64 space-y-1 overflow-y-auto p-2">
             {filteredOptions.length ? filteredOptions.map((exercise, index) => {
               const isSelected = String(exercise.exercise_id) === String(value);
-              const badges = getBadges?.(exercise) || [];
+              const equipmentUnavailable = exercise.equipment_available === false;
+              const isDisabled = exercise.disabled || equipmentUnavailable;
+              const badges = [
+                ...(getBadges?.(exercise) || []),
+                ...(equipmentUnavailable
+                  ? [{ label: "Equipment unavailable", className: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300" }]
+                  : []),
+              ];
               return (
                 <li key={exercise.exercise_id} role="presentation">
                   <button
@@ -142,7 +153,7 @@ export default function ExercisePicker({
                     type="button"
                     role="option"
                     aria-selected={isSelected}
-                    disabled={exercise.disabled}
+                    disabled={isDisabled}
                     onClick={() => selectExercise(exercise)}
                     onMouseEnter={() => setActiveIndex(index)}
                     onKeyDown={(event) => {
@@ -164,7 +175,7 @@ export default function ExercisePicker({
                       }
                     }}
                     className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition ${
-                      exercise.disabled
+                      isDisabled
                         ? "cursor-not-allowed opacity-40"
                         : isSelected
                           ? "bg-orange-50 ring-1 ring-inset ring-orange-200 dark:bg-orange-500/10 dark:ring-orange-500/25"

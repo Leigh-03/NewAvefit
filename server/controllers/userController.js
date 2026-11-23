@@ -25,7 +25,7 @@ const {
   sendUserCoachAssignedEmail,
 } = require("../utils/mailer");
 const { notifyNewUser, createNotification } = require("../utils/notifications");
-const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
+const { getCapacityStatus, getMemberAvailability, getScheduleMatch, isCoachAtCapacity } = require("../utils/coachAssignment");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const {
   buildProfileChangePayload,
@@ -1586,8 +1586,7 @@ const updateProfile = async (req, res) => {
         [selectedTrainerId]
       );
       selectedCoach.assigned_member_count = Number(assignedCountResult.rows[0].count) || 0;
-      const maxMembers = Number(selectedCoach.max_members) || 0;
-      if (maxMembers > 0 && selectedCoach.assigned_member_count >= maxMembers) {
+      if (isCoachAtCapacity(selectedCoach.assigned_member_count, selectedCoach.max_members)) {
         return res.status(409).json({
           success: false,
           message: "This coach has reached their total member capacity. Choose another coach.",

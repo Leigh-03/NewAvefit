@@ -19,6 +19,10 @@ export default function CustomSelect({
   const [menuPosition, setMenuPosition] = useState(null);
   const [menuIsDark, setMenuIsDark] = useState(false);
   const selectedOption = options.find((option) => option.value === value);
+  const desiredMenuHeight = Math.min(
+    280,
+    options.reduce((height, option) => height + (option.description ? 56 : 40), 16)
+  );
 
   useEffect(() => {
     if (!open) return undefined;
@@ -26,11 +30,10 @@ export default function CustomSelect({
       const bounds = triggerRef.current?.getBoundingClientRect();
       if (!bounds) return;
       const gap = 6;
-      const desiredHeight = Math.min(240, options.length * 40 + 16);
       const spaceBelow = window.innerHeight - bounds.bottom - gap - 8;
       const spaceAbove = bounds.top - gap - 8;
-      const placeBelow = spaceBelow >= desiredHeight || spaceBelow >= spaceAbove;
-      const maxHeight = Math.max(80, Math.min(desiredHeight, placeBelow ? spaceBelow : spaceAbove));
+      const placeBelow = spaceBelow >= desiredMenuHeight || spaceBelow >= spaceAbove;
+      const maxHeight = Math.max(80, Math.min(desiredMenuHeight, placeBelow ? spaceBelow : spaceAbove));
       const width = Math.min(Math.max(bounds.width, 240), window.innerWidth - 16);
       const left = Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8));
       const hasDarkAncestor = Boolean(rootRef.current?.closest(".dark"));
@@ -67,7 +70,7 @@ export default function CustomSelect({
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);
     };
-  }, [open, options.length]);
+  }, [desiredMenuHeight, open]);
 
   return (
     <div ref={rootRef} className="relative w-full">
@@ -124,7 +127,23 @@ export default function CustomSelect({
                           : "text-slate-800 hover:bg-slate-100"
                   }`}
                 >
-                  <span>{option.label}</span>
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span>{option.label}</span>
+                    {option.description && (
+                      <span className={`mt-0.5 whitespace-normal text-xs font-normal ${
+                        menuIsDark ? "text-slate-400" : "text-slate-500"
+                      }`}>
+                        {option.description}
+                      </span>
+                    )}
+                  </span>
+                  {option.count > 0 && (
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      menuIsDark ? "bg-orange-500/20 text-orange-200" : "bg-orange-100 text-orange-800"
+                    }`}>
+                      {option.count}
+                    </span>
+                  )}
                   {selected && <Check size={15} aria-hidden="true" className="shrink-0 text-orange-600 dark:text-orange-400" />}
                 </button>
               </li>
