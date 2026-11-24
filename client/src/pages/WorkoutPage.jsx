@@ -4,11 +4,12 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 import MemberWorkoutPlanRequestModal from "../components/workout/MemberWorkoutPlanRequestModal";
+import AttendancePanel from "../components/attendance/AttendancePanel";
 import TrainingPulse from "../components/TrainingPulse";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
 import { getWorkoutDayGroups } from "../utils/workoutSessions";
-import { getProgramForDate, getScheduledPrograms } from "../utils/trainingPrograms";
+import { getProgramForDate, getScheduledPrograms, isCardioExercise } from "../utils/trainingPrograms";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const WORKOUT_STATUS_STYLES = {
@@ -47,6 +48,23 @@ const getWeekday = (dateKey) => {
   return DAYS[(new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7];
 };
 
+const getMonthlyAttendanceTarget = (dateKey, weeklyTarget, preferredDays) => {
+  const [year, month] = dateKey.split("-").map(Number);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const preferredWeekdays = new Set(
+    (Array.isArray(preferredDays) ? preferredDays : []).map((day) => String(day).toLowerCase())
+  );
+  if (preferredWeekdays.size) {
+    let target = 0;
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const currentDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      if (preferredWeekdays.has(getWeekday(currentDate).toLowerCase())) target += 1;
+    }
+    return target;
+  }
+  return weeklyTarget ? Math.round((weeklyTarget * daysInMonth) / 7) : null;
+};
+
 const isSessionScheduledForDate = (session, date) => {
   const scheduledDate = philippinesDateKey(session.session_date);
   if (/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) return scheduledDate === date;
@@ -72,8 +90,11 @@ export default function WorkoutPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [weekStart, setWeekStart] = useState(() => philippinesMondayString());
+  const [today, setToday] = useState(() => philippinesDateString());
   const [activeDay, setActiveDay] = useState(() => philippinesDateString());
+  const observedToday = useRef(today);
   const [startingSessionId, setStartingSessionId] = useState(null);
+  const [attendanceCheckedIn, setAttendanceCheckedIn] = useState(false);
   const [userPlans, setUserPlans] = useState([]);
   const [hasAssignedCoach, setHasAssignedCoach] = useState(false);
   const [showPlanRequest, setShowPlanRequest] = useState(false);
@@ -88,6 +109,36 @@ export default function WorkoutPage() {
     const timer = window.setTimeout(() => setPlanRequestNotice(""), 5000);
     return () => window.clearTimeout(timer);
   }, [planRequestNotice]);
+
+  useEffect(() => {
+    const refreshToday = () => {
+      const nextToday = philippinesDateString();
+      const previousToday = observedToday.current;
+      if (nextToday === previousToday) return;
+
+      observedToday.current = nextToday;
+      setToday(nextToday);
+      setAttendanceCheckedIn(false);
+      setActiveDay((currentDay) => currentDay === previousToday ? nextToday : currentDay);
+      setWeekStart((currentWeek) => {
+        const previousWeek = philippinesMondayString(new Date(`${previousToday}T12:00:00+08:00`));
+        return currentWeek === previousWeek
+          ? philippinesMondayString(new Date(`${nextToday}T12:00:00+08:00`))
+          : currentWeek;
+      });
+    };
+    const refreshWhenVisible = () => {
+      if (!document.hidden) refreshToday();
+    };
+    const intervalId = window.setInterval(refreshToday, 15_000);
+    window.addEventListener("focus", refreshToday);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshToday);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, []);
 
   useEffect(() => {
     if (loading) return undefined;
@@ -215,7 +266,6 @@ export default function WorkoutPage() {
     await fetchData();
   };
 
-  const today = philippinesDateString();
   const daySessions = sessions.filter((session) => (
     philippinesDateKey(session.session_date) === activeDay ||
     (!/^\d{4}-\d{2}-\d{2}$/.test(philippinesDateKey(session.session_date)) && session.day_of_week === getWeekday(activeDay))
@@ -241,6 +291,12 @@ export default function WorkoutPage() {
   ).length;
   const weeklyGoal = workoutFrequency || workoutDays.length;
   const weeklyProgress = weeklyGoal ? Math.min(100, Math.round((completedThisWeek / weeklyGoal) * 100)) : 0;
+  const monthlyAttendanceTarget = getMonthlyAttendanceTarget(today, weeklyGoal, workoutDays);
+  const showTodayCheckIn = activeDay === today
+    && (
+      sessions.some((session) => isSessionScheduledForDate(session, today))
+      || workoutDays.some((day) => String(day).toLowerCase() === getWeekday(today).toLowerCase())
+    );
   const nextSession = sessions
     .filter((session) => {
       const date = philippinesDateKey(session.session_date);
@@ -415,6 +471,18 @@ export default function WorkoutPage() {
             >
               View progress <ArrowRight size={16} />
             </Link>
+          </div>
+          <div className="mt-4">
+            <AttendancePanel
+              key={today}
+              client={userApi}
+              endpoint="/attendance"
+              checkInEndpoint="/attendance/check-in"
+              showCheckIn={showTodayCheckIn}
+              weeklyTarget={weeklyGoal}
+              monthlyTarget={monthlyAttendanceTarget}
+              onAttendanceChange={setAttendanceCheckedIn}
+            />
           </div>
         </div>
       </div>
@@ -604,6 +672,7 @@ export default function WorkoutPage() {
         ) : (
           daySessions.map((session) => (
             (() => {
+              const isCardio = isCardioExercise(session);
               const activeSession = daySessions.find((item) => item.started_at && !item.completed);
               const anotherSessionIsActive = Boolean(activeSession)
                 && String(activeSession.session_id) !== String(session.session_id);
@@ -628,7 +697,7 @@ export default function WorkoutPage() {
                           : `${session.training_program} program`}
                       </span>
                     )}
-                    {(session.sets || session.reps) && (
+                    {!isCardio && (session.sets || session.reps) && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {session.sets && <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:bg-white/[0.06] dark:text-slate-300">💪 {session.sets} sets</span>}
                         {session.reps && <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600 dark:bg-white/[0.06] dark:text-slate-300">🔁 {session.reps} reps</span>}
@@ -640,6 +709,9 @@ export default function WorkoutPage() {
                           ⏱ {session.duration_minutes} minutes
                         </span>
                       </div>
+                    )}
+                    {isCardio && !session.duration_minutes && (
+                      <p className="mt-3 text-xs font-medium text-slate-500">Duration not recorded</p>
                     )}
                   </div>
                 </div>
@@ -664,13 +736,15 @@ export default function WorkoutPage() {
                       </div>
                     ) : (
                       <button type="button" onClick={() => handleStart(session.session_id)}
-                        disabled={startingSessionId === session.session_id || anotherSessionIsActive}
-                        title={anotherSessionIsActive ? "Complete the active workout first." : undefined}
+                        disabled={startingSessionId === session.session_id || anotherSessionIsActive || !attendanceCheckedIn}
+                        title={!attendanceCheckedIn ? "Check in at the gym before starting your workout." : anotherSessionIsActive ? "Complete the active workout first." : undefined}
                         className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-500 px-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                       >
                         <Play size={16} fill="currentColor" />
                         {startingSessionId === session.session_id
                           ? "Starting..."
+                          : !attendanceCheckedIn
+                            ? "Check in to start"
                           : anotherSessionIsActive
                             ? "Finish active workout first"
                             : "Start workout"}

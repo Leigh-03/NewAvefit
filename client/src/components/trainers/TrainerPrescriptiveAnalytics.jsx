@@ -3,6 +3,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Lege
 import { Bar } from "react-chartjs-2";
 import { AlertTriangle, ChevronDown, Sparkles, TrendingUp, UserRound } from "lucide-react";
 import trainerApi from "../../trainerApi";
+import { isCardioExercise } from "../../utils/trainingPrograms";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -389,7 +390,9 @@ export default function TrainerPrescriptiveAnalytics({ members, onViewProfile })
                               <ul className="mt-2 space-y-1 text-xs text-slate-600 dark:text-slate-300">
                                 {exercises.map((exercise, index) => (
                                   <li key={`${exercise.exercise_name || "exercise"}-${index}`}>
-                                    {exercise.exercise_name || "Exercise"} · {exercise.sets ?? "—"} sets × {exercise.reps ?? "—"} reps
+                                    {isCardioExercise(exercise)
+                                      ? `${exercise.exercise_name || "Exercise"} · ${exercise.duration_minutes ? `${exercise.duration_minutes} minutes` : "duration not recorded"}`
+                                      : `${exercise.exercise_name || "Exercise"} · ${exercise.sets ?? "—"} sets × ${exercise.reps ?? "—"} reps`}
                                   </li>
                                 ))}
                               </ul>
@@ -397,6 +400,22 @@ export default function TrainerPrescriptiveAnalytics({ members, onViewProfile })
                           ) : (
                             <p className="mt-1 text-xs text-slate-500">No approved workout is scheduled today. Create or update a plan if training is intended.</p>
                           )}
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Personalized workout recommendation</p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{member.recommendations.goal_focus}</p>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
+                          <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Performance-based adjustment</p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{member.recommendations.performance_adjustment}</p>
+                        </div>
+                        <div className="rounded-xl bg-amber-50 p-3 dark:bg-amber-950/30 sm:col-span-2">
+                          <p className="text-xs font-bold text-amber-900 dark:text-amber-100">Consistency alerts</p>
+                          <ul className="mt-1 space-y-1 text-xs leading-relaxed text-amber-900 dark:text-amber-100">
+                            {member.recommendations.consistency_alerts.map((alert) => <li key={alert}>{alert}</li>)}
+                          </ul>
+                          <p className="mt-3 text-xs font-bold text-slate-700 dark:text-slate-200">Engagement recommendation</p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{member.recommendations.engagement_recommendation}</p>
                         </div>
                         <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
                           <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Intensity adjustment</p>

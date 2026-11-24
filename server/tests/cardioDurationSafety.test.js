@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const {
   getCardioDurationRecommendation,
   getHighestInjuryPainLevel,
+  hasHealthConditions,
   isCardioExercise,
 } = require("../utils/trainingPrograms");
 
@@ -77,4 +78,10 @@ test("blocks moderate-to-severe pain and identifies the highest pain level", () 
 
   assert.equal(isCardioExercise({ category_name: "Cardio", muscle_group: "Cardio" }), true);
   assert.equal(isCardioExercise({ category_name: "Legs", muscle_group: "Legs" }), false);
+});
+
+test("does not treat empty or None health-condition entries as a condition", () => {
+  assert.equal(hasHealthConditions([]), false);
+  assert.equal(hasHealthConditions(["None"]), false);
+  assert.equal(hasHealthConditions(["Asthma"]), true);
 });

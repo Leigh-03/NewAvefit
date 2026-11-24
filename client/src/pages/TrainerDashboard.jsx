@@ -3,6 +3,7 @@ import { Users, AlertTriangle, X, ClipboardList, CircleCheck, TrendingUp, Search
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend } from "chart.js";
 import { Bar, Doughnut } from "react-chartjs-2";
 import trainerApi from "../trainerApi";
+import AttendancePanel from "../components/attendance/AttendancePanel";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 import TrainerPrescriptiveAnalytics from "../components/trainers/TrainerPrescriptiveAnalytics";
 import TrainingPulse from "../components/TrainingPulse";
@@ -123,6 +124,10 @@ function MemberProfileModal({ member, onClose, onViewProgress }) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
           {[['Phone',member.phone],['Gender',member.gender],['Age',member.age?`${member.age} yrs`:'—'],['Height',member.height?`${member.height} cm`:'—'],['Weight',currentWeight?`${currentWeight} kg`:'—'],['Target Weight',member.target_weight?`${member.target_weight} kg`:'—'],['BMI',currentBmi||'—'],['Goal',member.fitness_goal||'—']].map(([l,v])=><div key={l} className="rounded-xl bg-slate-50 dark:bg-slate-900 p-3"><p className="text-xs text-slate-400">{l}</p><p className="mt-1 font-semibold text-slate-700 dark:text-slate-200 break-words">{v}</p></div>)}
         </div>
+        <AttendancePanel
+          client={trainerApi}
+          endpoint={`/me/members/${member.user_id}/attendance`}
+        />
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4"><p className="flex items-center gap-2 text-amber-400 font-semibold text-sm"><AlertTriangle size={16}/> Health &amp; Safety Assessment</p><div className="mt-3 space-y-1 text-sm text-amber-200"><p><span className="font-semibold">Injury:</span> {injuries.join(", ") || "None reported"}</p><p><span className="font-semibold">Health Condition:</span> {conditions.join(", ") || "None reported"}</p></div></div>
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4"><p className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-2">Training Preferences</p><p className="text-sm text-slate-600 dark:text-slate-300">{toList(member.preferred_days).join(', ') || 'No preferred days set.'}</p><p className="text-xs text-slate-400 mt-2">{member.workout_days_per_week ? `${member.workout_days_per_week} days/week` : 'Days/week not set'}</p><p className="mt-2 text-xs text-slate-500 dark:text-slate-400"><span className="font-semibold">Preferred time:</span> {formatPreferredWorkoutTime(member.preferred_workout_time)}</p>
           {Array.isArray(member.weekly_availability) && member.weekly_availability.length > 0 && (

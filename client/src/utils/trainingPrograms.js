@@ -247,6 +247,14 @@ export const getCardioDurationRecommendation = ({
   };
 };
 
+export const getCardioSessionValues = (recommendation) => ({
+  sets: "",
+  reps: "",
+  duration_minutes: recommendation.status === "standard" || recommendation.status === "modified"
+    ? String(recommendation.recommended)
+    : "",
+});
+
 export const isExerciseAllowedForExperience = (exercise, experienceLevel) => {
   const difficultyRank = (value) => {
     const normalized = String(value || "").trim().toLowerCase();

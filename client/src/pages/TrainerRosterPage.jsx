@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check, ChevronDown, Mail, Search, TrendingUp, Users, X } from "lucide-react";
 import trainerApi from "../trainerApi";
+import AttendancePanel from "../components/attendance/AttendancePanel";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 import CustomSelect from "../components/ui/CustomSelect";
 import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
@@ -114,6 +115,11 @@ function MemberProfileModal({ member, onClose, onViewProgress }) {
               </div>
             ))}
           </div>
+
+          <AttendancePanel
+            client={trainerApi}
+            endpoint={`/me/members/${member.user_id}/attendance`}
+          />
 
           <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
             <p className="flex items-center gap-2 text-sm font-semibold text-amber-400"><AlertTriangle size={16} /> Health & Safety Assessment</p>

@@ -17,6 +17,7 @@ const {
   isCardioExercise,
   getHighestInjuryPainLevel,
   getCardioDurationRecommendation,
+  hasHealthConditions,
 } = require("../utils/trainingPrograms");
 
 const DEFAULT_WORKOUT_SESSION_DURATION = 60;
@@ -47,6 +48,7 @@ const getUserWorkoutPlan = async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT ws.*, e.exercise_name, e.muscle_group, e.difficulty, e.equipment, e.description,
+             c.category_name,
              wp.workout_plan_id, wp.plan_name, wp.trainer_change_reason,
              wp.training_program, wp.previous_training_program, wp.is_program_switch,
              wp.deletion_request_status,
@@ -54,6 +56,7 @@ const getUserWorkoutPlan = async (req, res) => {
       FROM workout_sessions ws
       JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
       LEFT JOIN exercises e ON ws.exercise_id = e.exercise_id
+      LEFT JOIN exercise_categories c ON c.category_id = e.category_id
       WHERE wp.user_id = $1
         AND wp.approval_status = 'Approved'
       ORDER BY ws.session_date ASC
@@ -374,7 +377,7 @@ const requestWorkoutPlan = async (req, res) => {
           experienceLevel: member.activity_level,
           fitnessGoal: member.fitness_goal,
           painLevel,
-          hasHealthCondition: Array.isArray(member.health_conditions) && member.health_conditions.length > 0,
+          hasHealthCondition: hasHealthConditions(member.health_conditions),
         });
         if (cardio.status === "blocked" || cardio.status === "stop") {
           await client.query("ROLLBACK");
@@ -387,7 +390,7 @@ const requestWorkoutPlan = async (req, res) => {
           transactionStarted = false;
           return res.status(400).json({
             success: false,
-            message: `For this cardio exercise, use a duration from ${cardio.min} to ${cardio.max} minutes. ${cardio.note}`,
+            message: `For this cardio exercise, use a duration from ${cardio.min} to ${cardio.max} minutes.`,
           });
         }
         continue;
@@ -620,7 +623,7 @@ const updateWorkoutSession = async (req, res) => {
         experienceLevel: member.activity_level,
         fitnessGoal: member.fitness_goal,
         painLevel: getHighestInjuryPainLevel(member.injury_pain_levels),
-        hasHealthCondition: Array.isArray(member.health_conditions) && member.health_conditions.length > 0,
+        hasHealthCondition: hasHealthConditions(member.health_conditions),
       });
       if (cardio.status === "blocked" || cardio.status === "stop") {
         return res.status(400).json({ success: false, message: cardio.note });
@@ -630,7 +633,7 @@ const updateWorkoutSession = async (req, res) => {
         || Number(duration_minutes) > cardio.max) {
         return res.status(400).json({
           success: false,
-          message: `For this cardio exercise, use ${cardio.min}–${cardio.max} minutes. ${cardio.note}`,
+          message: `For this cardio exercise, use ${cardio.min}–${cardio.max} minutes.`,
         });
       }
     } else if (memberResult.rowCount && !isWorkoutDoseAllowed(memberResult.rows[0].fitness_goal, sets, reps)) {
@@ -703,6 +706,19 @@ const startWorkoutSession = async (req, res) => {
       return res.status(409).json({ success: false, message: "This workout has already started. Finish it before starting another workout." });
     }
 
+    const attendance = await pool.query(`
+      SELECT 1
+      FROM gym_attendance
+      WHERE user_id = $1
+        AND attendance_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+    `, [req.user.user_id]);
+    if (!attendance.rowCount) {
+      return res.status(409).json({
+        success: false,
+        message: "Check in at the gym before starting your workout.",
+      });
+    }
+
     const result = await pool.query(`
       UPDATE workout_sessions ws
       SET started_at = NOW()
@@ -714,6 +730,12 @@ const startWorkoutSession = async (req, res) => {
         AND COALESCE(wp.deletion_request_status, '') <> 'Pending'
         AND ws.started_at IS NULL
         AND ws.completed IS NOT TRUE
+        AND EXISTS (
+          SELECT 1
+          FROM gym_attendance ga
+          WHERE ga.user_id = wp.user_id
+            AND ga.attendance_date = (NOW() AT TIME ZONE 'Asia/Manila')::date
+        )
         AND NOT EXISTS (
           SELECT 1
           FROM workout_sessions active_ws
