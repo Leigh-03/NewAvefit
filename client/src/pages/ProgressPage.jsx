@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from "chart.js";
 import { Line } from "react-chartjs-2";
-import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Scale, Target } from "lucide-react";
+import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CalendarCheck, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Scale, Target } from "lucide-react";
 import userApi from "../userApi";
 import GoalRenewalModal from "../components/progress/GoalRenewalModal";
 import { useUserAuth } from "../context/UserAuthContext";
@@ -291,6 +291,9 @@ export default function ProgressPage() {
   const [historySortOrder, setHistorySortOrder] = useState("newest");
   const [sessions, setSessions] = useState([]);
   const [profile, setProfile] = useState(null);
+  const [attendanceVisits, setAttendanceVisits] = useState([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(true);
+  const [attendanceError, setAttendanceError] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [analyticsFrom, setAnalyticsFrom] = useState(() => addDateDays(philippinesDateString(), -7));
@@ -331,6 +334,26 @@ export default function ProgressPage() {
   }, []);
 
   useEffect(() => { fetchProgress(); }, [fetchProgress]);
+
+  useEffect(() => {
+    let active = true;
+    userApi.get("/attendance")
+      .then((response) => {
+        const visits = response.data?.data?.recent_visits;
+        if (!Array.isArray(visits)) throw new Error("Attendance response did not include visit history.");
+        if (active) setAttendanceVisits(visits);
+      })
+      .catch((error) => {
+        console.error("Unable to load gym attendance history:", error);
+        if (active) {
+          setAttendanceError(error.response?.data?.message || "Unable to load gym attendance history.");
+        }
+      })
+      .finally(() => {
+        if (active) setAttendanceLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!datePickerOpen) return undefined;
@@ -502,6 +525,100 @@ export default function ProgressPage() {
   const formattedGoalProgress = goalProgress === null ? null : `${goalProgress.toFixed(1)}%`;
 
   const today = philippinesDateString();
+  const attendanceStartDate = `${today.slice(0, 4)}-04-01`;
+  const firstAttendanceWeek = philippinesMondayString(new Date(`${attendanceStartDate}T12:00:00Z`));
+  const currentAttendanceWeek = philippinesMondayString();
+  const attendanceWeekCount = Math.max(
+    1,
+    Math.floor((Date.parse(`${currentAttendanceWeek}T00:00:00Z`) - Date.parse(`${firstAttendanceWeek}T00:00:00Z`)) / (7 * 24 * 60 * 60 * 1000)) + 1
+  );
+  const attendanceWeekStarts = Array.from(
+    { length: attendanceWeekCount },
+    (_, index) => addDateDays(firstAttendanceWeek, index * 7)
+  );
+  const attendanceWeekCounts = new Map(
+    attendanceWeekStarts.map((weekStart) => [weekStart, { recorded: 0, simulated: 0 }])
+  );
+  attendanceVisits.forEach((visit) => {
+    const date = String(visit.attendance_date || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < attendanceStartDate || date > today) return;
+    const visitWeekStart = philippinesMondayString(new Date(`${date}T12:00:00Z`));
+    if (attendanceWeekCounts.has(visitWeekStart)) {
+      const currentCount = attendanceWeekCounts.get(visitWeekStart);
+      const visitType = visit.is_simulated ? "simulated" : "recorded";
+      attendanceWeekCounts.set(visitWeekStart, {
+        ...currentCount,
+        [visitType]: currentCount[visitType] + 1,
+      });
+    }
+  });
+  const recordedAttendanceCounts = attendanceWeekStarts.map((weekStart) => attendanceWeekCounts.get(weekStart).recorded);
+  const simulatedAttendanceCounts = attendanceWeekStarts.map((weekStart) => attendanceWeekCounts.get(weekStart).simulated);
+  const combinedAttendanceCounts = attendanceWeekStarts.map((weekStart) => (
+    attendanceWeekCounts.get(weekStart).recorded + attendanceWeekCounts.get(weekStart).simulated
+  ));
+  const recordedAttendanceTotal = recordedAttendanceCounts.reduce((total, count) => total + count, 0);
+  const simulatedAttendanceTotal = simulatedAttendanceCounts.reduce((total, count) => total + count, 0);
+  const isDemoAttendanceView = simulatedAttendanceTotal > 0
+    && /^coach-test-[a-z0-9]+-member-\d{2}@example\.test$/i.test(String(user?.email || ""));
+  const attendanceChartData = {
+    labels: attendanceWeekStarts.map((weekStart, index) => formatPhilippinesDate(
+      index === 0 ? attendanceStartDate : weekStart,
+      { month: "short", day: "numeric" }
+    )),
+    datasets: [
+      {
+        label: isDemoAttendanceView || simulatedAttendanceTotal === 0
+          ? "Recorded check-ins"
+          : "Total visits (includes demo)",
+        data: combinedAttendanceCounts,
+        borderColor: "#f97316",
+        backgroundColor: "rgba(249,115,22,0.12)",
+        fill: true,
+        tension: 0.3,
+        borderWidth: 2.5,
+        pointBackgroundColor: "#f97316",
+        pointBorderColor: "#111827",
+        pointBorderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+      },
+    ],
+  };
+  const attendanceChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { intersect: false, mode: "index" },
+    plugins: {
+      legend: {
+        display: true,
+        position: "bottom",
+        labels: { color: "#94a3b8", usePointStyle: true, padding: 18 },
+      },
+      tooltip: {
+        backgroundColor: "#111827",
+        titleColor: "#f8fafc",
+        bodyColor: "#e2e8f0",
+        padding: 10,
+        callbacks: {
+          label: (context) => `${context.dataset.label}: ${context.parsed.y} visit${context.parsed.y === 1 ? "" : "s"}`,
+        },
+      },
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        border: { display: false },
+        grid: { color: "rgba(148,163,184,0.12)", drawTicks: false },
+        ticks: { color: "#94a3b8", padding: 8, precision: 0, stepSize: 1 },
+      },
+      x: {
+        border: { display: false },
+        grid: { display: false },
+        ticks: { color: "#94a3b8", padding: 8, maxTicksLimit: 9, autoSkip: true },
+      },
+    },
+  };
   const analyticsRange = { start: analyticsFrom, end: analyticsTo };
   const allTimeWeightedLogs = logs.filter((log) => log.weight != null && Number.isFinite(Number(log.weight)));
   const allTimeBmiLogs = logs.filter((log) => log.bmi != null && Number.isFinite(Number(log.bmi)));
@@ -734,6 +851,55 @@ export default function ProgressPage() {
                   <p className="mt-1 text-xs text-slate-500">Log a measurement to start your all-time trends.</p>
                 </div>
               )}
+
+              <section aria-labelledby="gym-attendance-trend-heading" className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-[#151515] sm:p-5">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 id="gym-attendance-trend-heading" className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+                      <CalendarCheck size={17} className="text-orange-500" /> Gym attendance
+                    </h3>
+                    <p className="mt-0.5 text-[11px] text-slate-500">Weekly attendance · Apr 1–today</p>
+                  </div>
+                  {!attendanceLoading && !attendanceError && (
+                    <div className="flex flex-wrap gap-2 text-xs font-bold">
+                      {isDemoAttendanceView ? (
+                        <span className="rounded-lg bg-orange-500/10 px-2.5 py-1 text-orange-700 dark:text-orange-300">
+                          {recordedAttendanceTotal + simulatedAttendanceTotal} recorded
+                        </span>
+                      ) : (
+                        <>
+                          <span className="rounded-lg bg-orange-500/10 px-2.5 py-1 text-orange-700 dark:text-orange-300">
+                            {recordedAttendanceTotal} recorded
+                          </span>
+                          {simulatedAttendanceTotal > 0 && (
+                            <span className="rounded-lg bg-sky-500/10 px-2.5 py-1 text-sky-700 dark:text-sky-300">
+                              {simulatedAttendanceTotal} demo
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {!isDemoAttendanceView && simulatedAttendanceTotal > 0 && (
+                  <p className="mb-3 text-[11px] text-slate-500">Demo attendance is fictional and separate from real gym check-ins.</p>
+                )}
+                {attendanceError ? (
+                  <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">{attendanceError}</p>
+                ) : attendanceLoading ? (
+                  <div role="status" aria-label="Loading gym attendance chart" className="h-56 animate-pulse rounded-xl bg-slate-200/70 dark:bg-white/5 sm:h-64" />
+                ) : attendanceVisits.length ? (
+                  <div className="h-56 w-full sm:h-64">
+                    <Line data={attendanceChartData} options={attendanceChartOptions} />
+                  </div>
+                ) : (
+                  <div className="flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-orange-200 px-4 py-8 text-center dark:border-white/10">
+                    <CalendarCheck size={22} className="mb-2 text-orange-500" />
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">No gym check-ins recorded yet</p>
+                    <p className="mt-1 text-xs text-slate-500">Check in at the gym to start building your attendance trend.</p>
+                  </div>
+                )}
+              </section>
             </section>
 
             <section aria-label="Progress overview" className="grid grid-cols-2 gap-4 lg:grid-cols-4">

@@ -398,6 +398,7 @@ const getTrainerPrescriptiveAnalytics = async (req, res) => {
         COALESCE(workout_activity.completed_last_week, 0)::int AS completed_last_week,
         COALESCE(workout_activity.completed_previous_week, 0)::int AS completed_previous_week,
         COALESCE(workout_activity.completed_last_two_weeks, 0)::int AS completed_last_two_weeks,
+        COALESCE(gym_activity.visits_last_14_days, 0)::int AS gym_visits_last_14_days,
         today_plan.plan_name AS today_workout_name,
         COALESCE(today_plan.exercises, '[]'::json) AS today_workout_exercises,
         latest_workout.plan_name AS latest_completed_plan_name,
@@ -442,13 +443,22 @@ const getTrainerPrescriptiveAnalytics = async (req, res) => {
           AND wp.approval_status = 'Approved'
       ) workout_activity ON TRUE
       LEFT JOIN LATERAL (
+        SELECT COUNT(*) FILTER (
+          WHERE attendance.attendance_date >= (NOW() AT TIME ZONE 'Asia/Manila')::date - 13
+        )::int AS visits_last_14_days
+        FROM gym_attendance attendance
+        WHERE attendance.user_id = u.user_id
+      ) gym_activity ON TRUE
+      LEFT JOIN LATERAL (
         SELECT
           wp.plan_name,
           JSON_AGG(
             JSON_BUILD_OBJECT(
               'exercise_name', e.exercise_name,
+              'category_name', c.category_name,
               'sets', ws.sets,
               'reps', ws.reps,
+              'duration_minutes', ws.duration_minutes,
               'muscle_group', e.muscle_group
             )
             ORDER BY ws.session_id
@@ -456,6 +466,7 @@ const getTrainerPrescriptiveAnalytics = async (req, res) => {
         FROM workout_plans wp
         JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
         LEFT JOIN exercises e ON e.exercise_id = ws.exercise_id
+        LEFT JOIN exercise_categories c ON c.category_id = e.category_id
         WHERE wp.user_id = u.user_id
           AND wp.approval_status = 'Approved'
           AND ws.session_date::text = TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD')
@@ -627,6 +638,102 @@ const getDashboardStats = async (req, res) => {
     console.error("getDashboardStats error:", err.message);
     res.status(500).json({ success: false, message: err.message });
   }
+};
+
+const getSystemUsageMonitoring = async () => {
+  const result = await pool.query(`
+    WITH bounds AS (
+      SELECT (NOW() AT TIME ZONE 'Asia/Manila')::date AS end_date
+    ),
+    days AS (
+      SELECT generated.activity_date::date AS activity_date
+      FROM bounds
+      CROSS JOIN LATERAL GENERATE_SERIES(
+        bounds.end_date - 29,
+        bounds.end_date,
+        INTERVAL '1 day'
+      ) AS generated(activity_date)
+    ),
+    gym_check_ins AS (
+      SELECT attendance.attendance_date AS activity_date,
+        COUNT(*)::int AS check_ins
+      FROM gym_attendance attendance
+      CROSS JOIN bounds
+      WHERE attendance.attendance_date BETWEEN bounds.end_date - 29 AND bounds.end_date
+      GROUP BY attendance.attendance_date
+    ),
+    workout_starts AS (
+      SELECT (sessions.started_at AT TIME ZONE 'Asia/Manila')::date AS activity_date,
+        COUNT(*)::int AS starts
+      FROM workout_sessions sessions
+      JOIN workout_plans plans ON plans.workout_plan_id = sessions.workout_plan_id
+      CROSS JOIN bounds
+      WHERE sessions.started_at >= ((bounds.end_date - 29)::timestamp AT TIME ZONE 'Asia/Manila')
+        AND sessions.started_at < ((bounds.end_date + 1)::timestamp AT TIME ZONE 'Asia/Manila')
+      GROUP BY (sessions.started_at AT TIME ZONE 'Asia/Manila')::date
+    ),
+    member_activity AS (
+      SELECT attendance.attendance_date AS activity_date, attendance.user_id
+      FROM gym_attendance attendance
+      CROSS JOIN bounds
+      WHERE attendance.attendance_date BETWEEN bounds.end_date - 29 AND bounds.end_date
+      UNION
+      SELECT (sessions.started_at AT TIME ZONE 'Asia/Manila')::date AS activity_date,
+        plans.user_id
+      FROM workout_sessions sessions
+      JOIN workout_plans plans ON plans.workout_plan_id = sessions.workout_plan_id
+      CROSS JOIN bounds
+      WHERE sessions.started_at >= ((bounds.end_date - 29)::timestamp AT TIME ZONE 'Asia/Manila')
+        AND sessions.started_at < ((bounds.end_date + 1)::timestamp AT TIME ZONE 'Asia/Manila')
+        AND plans.user_id IS NOT NULL
+    ),
+    daily_active_members AS (
+      SELECT activity_date, COUNT(DISTINCT user_id)::int AS active_members
+      FROM member_activity
+      GROUP BY activity_date
+    ),
+    period_totals AS (
+      SELECT
+        COALESCE((SELECT SUM(check_ins) FROM gym_check_ins), 0)::int AS total_gym_check_ins,
+        COALESCE((SELECT SUM(starts) FROM workout_starts), 0)::int AS total_workout_starts,
+        (SELECT COUNT(DISTINCT user_id)::int FROM member_activity) AS total_active_members
+    )
+    SELECT
+      TO_CHAR(days.activity_date, 'Mon FMDD') AS label,
+      TO_CHAR(days.activity_date, 'YYYY-MM-DD') AS activity_date,
+      COALESCE(gym_check_ins.check_ins, 0)::int AS gym_check_ins,
+      COALESCE(workout_starts.starts, 0)::int AS workout_starts,
+      COALESCE(daily_active_members.active_members, 0)::int AS active_members,
+      period_totals.total_gym_check_ins,
+      period_totals.total_workout_starts,
+      period_totals.total_active_members
+    FROM days
+    LEFT JOIN gym_check_ins USING (activity_date)
+    LEFT JOIN workout_starts USING (activity_date)
+    LEFT JOIN daily_active_members USING (activity_date)
+    CROSS JOIN period_totals
+    ORDER BY days.activity_date
+  `);
+
+  const firstDay = result.rows[0];
+  if (!firstDay) {
+    throw new Error("System usage monitoring returned no daily results.");
+  }
+
+  return {
+    summary: {
+      gymCheckIns: Number(firstDay.total_gym_check_ins),
+      workoutStarts: Number(firstDay.total_workout_starts),
+      activeMembers: Number(firstDay.total_active_members),
+    },
+    daily: result.rows.map((row) => ({
+      date: row.activity_date,
+      label: row.label,
+      gymCheckIns: Number(row.gym_check_ins),
+      workoutStarts: Number(row.workout_starts),
+      activeMembers: Number(row.active_members),
+    })),
+  };
 };
 
 // GET full analytics
@@ -936,6 +1043,8 @@ const getAnalytics = async (req, res) => {
       END
     `);
 
+    const usageMonitoring = await getSystemUsageMonitoring();
+
     const peakHours = await pool.query(`
       SELECT hours.hour, COALESCE(activity.count, 0)::int AS count
       FROM generate_series(0, 23) AS hours(hour)
@@ -1088,6 +1197,7 @@ const getAnalytics = async (req, res) => {
         goalDistribution: goalDistribution.rows,
         bmiDistribution: bmiDistribution.rows,
         attendance: attendance.rows,
+        usageMonitoring,
         peakHours: peakHours.rows,
         dayAvailability: dayAvailability.rows,
         mostUsedEquipment: mostUsedEquipment.rows,
@@ -1103,6 +1213,7 @@ const getAnalytics = async (req, res) => {
 module.exports = {
   getDashboardStats,
   getAnalytics,
+  getSystemUsageMonitoring,
   getTrainingPulse,
   getTrainerPrescriptiveAnalytics,
   sendWeeklyProgressReport,

@@ -33,6 +33,8 @@ test("selects BMI from the latest progress log for trainer prescriptive analytic
   assert.match(queryText, /SELECT weight, bmi, log_date\s+FROM progress_logs/);
   assert.doesNotMatch(queryText, /u\.bmi/);
   assert.match(queryText, /latest_progress\.bmi[\s\S]*POWER\(u\.height \/ 100\.0, 2\)/);
+  assert.match(queryText, /gym_activity\.visits_last_14_days/);
+  assert.match(queryText, /FROM gym_attendance attendance[\s\S]*attendance\.user_id = u\.user_id/);
 });
 
 test("includes every triggered member signal with names and reasons", async (t) => {
@@ -46,6 +48,7 @@ test("includes every triggered member signal with names and reasons", async (t) 
         last_name: "Inactive",
         fitness_goal: "Weight Loss",
         completed_last_two_weeks: 0,
+        gym_visits_last_14_days: 0,
         completed_previous_week: 0,
         completed_last_week: 0,
         latest_weight: null,
@@ -88,6 +91,10 @@ test("includes every triggered member signal with names and reasons", async (t) 
   await getTrainerPrescriptiveAnalytics({ trainer: { trainer_id: 1 } }, response);
 
   assert.equal(response.statusCode, 200);
+  const inactiveMember = response.body.data.members.find(({ user_id }) => user_id === 7);
+  assert.match(inactiveMember.recommendations.consistency_alerts[0], /No completed approved workout/);
+  assert.match(inactiveMember.recommendations.consistency_alerts[1], /No gym check-in/);
+  assert.match(inactiveMember.recommendations.engagement_recommendation, /small, repeatable weekly target/);
   const inactivity = response.body.data.insights.find((insight) => insight.title === "Consistency check-in needed");
   const stagnation = response.body.data.insights.find((insight) => insight.title === "Little weight change recently");
   const workoutDecline = response.body.data.insights.find((insight) => insight.title === "Roster workout completion declined");

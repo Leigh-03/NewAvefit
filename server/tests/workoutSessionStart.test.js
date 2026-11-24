@@ -90,7 +90,11 @@ test("starting a session is blocked when another session in the plan is active",
     if (text.includes("UPDATE workout_sessions ws")) {
       updateQueryCount += 1;
       assert.match(text, /NOT EXISTS/);
+      assert.match(text, /EXISTS[\s\S]*FROM gym_attendance/);
       return { rowCount: 0, rows: [] };
+    }
+    if (text.includes("FROM gym_attendance")) {
+      return { rowCount: 1, rows: [{}] };
     }
     throw new Error("Unexpected workout-start query");
   };
@@ -107,4 +111,44 @@ test("starting a session is blocked when another session in the plan is active",
   assert.equal(updateQueryCount, 1);
   assert.equal(response.statusCode, 409);
   assert.match(response.body.message, /Another workout is already active/i);
+});
+
+test("a workout cannot start until the member checks in for the day", async (t) => {
+  const originalQuery = pool.query;
+  let updateQueryCount = 0;
+  pool.query = async (text) => {
+    if (text.includes("SELECT ws.session_id, ws.session_date")) {
+      return {
+        rowCount: 1,
+        rows: [{
+          session_id: 11,
+          workout_plan_id: 3,
+          started_at: null,
+          completed: false,
+          deletion_request_status: null,
+          scheduled_today: true,
+        }],
+      };
+    }
+    if (text.includes("FROM gym_attendance")) {
+      return { rowCount: 0, rows: [] };
+    }
+    if (text.includes("UPDATE workout_sessions ws")) {
+      updateQueryCount += 1;
+    }
+    throw new Error("Unexpected workout-start query");
+  };
+  t.after(() => {
+    pool.query = originalQuery;
+  });
+
+  const response = createResponse();
+  await startWorkoutSession({
+    params: { id: "11" },
+    user: { user_id: 14 },
+  }, response);
+
+  assert.equal(updateQueryCount, 0);
+  assert.equal(response.statusCode, 409);
+  assert.match(response.body.message, /check in at the gym/i);
 });

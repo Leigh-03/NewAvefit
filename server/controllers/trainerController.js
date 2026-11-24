@@ -26,6 +26,7 @@ const {
   isCardioExercise,
   getHighestInjuryPainLevel,
   getCardioDurationRecommendation,
+  hasHealthConditions,
 } = require("../utils/trainingPrograms");
 
 const deliverWorkoutPlanEmail = async (details, context) => {
@@ -1649,8 +1650,10 @@ const getMyWorkoutPlans = async (req, res) => {
                 'exercise_id', ws.exercise_id,
                 'exercise_name', e.exercise_name,
                 'equipment', e.equipment,
+                'category_name', c.category_name,
                 'sets', ws.sets,
                 'reps', ws.reps,
+                'duration_minutes', ws.duration_minutes,
                 'session_date', ws.session_date,
                 'completed', ws.completed,
                 'muscle_group', e.muscle_group
@@ -1662,6 +1665,7 @@ const getMyWorkoutPlans = async (req, res) => {
           COALESCE(BOOL_OR(ws.started_at IS NOT NULL OR ws.completed = TRUE), FALSE) AS has_started
         FROM workout_sessions ws
         LEFT JOIN exercises e ON e.exercise_id = ws.exercise_id
+        LEFT JOIN exercise_categories c ON c.category_id = e.category_id
         WHERE ws.workout_plan_id = wp.workout_plan_id
       ) plan_sessions ON true
       WHERE wp.trainer_id = $1
@@ -1943,7 +1947,7 @@ const createMyWorkoutPlan = async (req, res) => {
           experienceLevel: memberPreferences.activity_level,
           fitnessGoal: memberPreferences.fitness_goal,
           painLevel: getHighestInjuryPainLevel(memberPreferences.injury_pain_levels),
-          hasHealthCondition: Array.isArray(memberPreferences.health_conditions) && memberPreferences.health_conditions.length > 0,
+          hasHealthCondition: hasHealthConditions(memberPreferences.health_conditions),
         });
         if (cardio.status === "blocked" || cardio.status === "stop") {
           await client.query("ROLLBACK");
@@ -1954,7 +1958,7 @@ const createMyWorkoutPlan = async (req, res) => {
         if (!Number.isInteger(duration) || duration < cardio.min || duration > cardio.max) {
           await client.query("ROLLBACK");
           transactionStarted = false;
-          return res.status(400).json({ success: false, message: `Use ${cardio.min}–${cardio.max} minutes for this cardio exercise. ${cardio.note}` });
+          return res.status(400).json({ success: false, message: `Use ${cardio.min}–${cardio.max} minutes for this cardio exercise.` });
         }
         continue;
       }
@@ -2759,7 +2763,7 @@ const updateMyWorkoutPlan = async (req, res) => {
           experienceLevel: memberProfile.activity_level,
           fitnessGoal: memberProfile.fitness_goal,
           painLevel: getHighestInjuryPainLevel(memberProfile.injury_pain_levels),
-          hasHealthCondition: Array.isArray(memberProfile.health_conditions) && memberProfile.health_conditions.length > 0,
+          hasHealthCondition: hasHealthConditions(memberProfile.health_conditions),
         });
         if (cardio.status === "blocked" || cardio.status === "stop") {
           await client.query("ROLLBACK");
@@ -2770,7 +2774,7 @@ const updateMyWorkoutPlan = async (req, res) => {
         if (!Number.isInteger(duration) || duration < cardio.min || duration > cardio.max) {
           await client.query("ROLLBACK");
           transactionStarted = false;
-          return res.status(400).json({ success: false, message: `Use ${cardio.min}–${cardio.max} minutes for this cardio exercise. ${cardio.note}` });
+          return res.status(400).json({ success: false, message: `Use ${cardio.min}–${cardio.max} minutes for this cardio exercise.` });
         }
         continue;
       }
@@ -3378,7 +3382,7 @@ const assignSessionAsTrainer = async (req, res) => {
         experienceLevel: member.activity_level,
         fitnessGoal: member.fitness_goal,
         painLevel: getHighestInjuryPainLevel(member.injury_pain_levels),
-        hasHealthCondition: Array.isArray(member.health_conditions) && member.health_conditions.length > 0,
+        hasHealthCondition: hasHealthConditions(member.health_conditions),
       });
       if (cardio.status === "blocked" || cardio.status === "stop") {
         await client.query("ROLLBACK");
@@ -3392,7 +3396,7 @@ const assignSessionAsTrainer = async (req, res) => {
         transactionStarted = false;
         return res.status(400).json({
           success: false,
-          message: `Use ${cardio.min}–${cardio.max} minutes for this cardio exercise. ${cardio.note}`,
+          message: `Use ${cardio.min}–${cardio.max} minutes for this cardio exercise.`,
         });
       }
     } else {

@@ -216,6 +216,37 @@ export default function Analytics() {
     }],
   };
 
+  const usageMonitoring = data?.usageMonitoring;
+  const usageTrendChart = {
+    labels: usageMonitoring?.daily.map((day) => day.label) || [],
+    datasets: [
+      {
+        label: "Gym check-ins",
+        data: usageMonitoring?.daily.map((day) => day.gymCheckIns) || [],
+        borderColor: "#f97316",
+        backgroundColor: "rgba(249,115,22,0.08)",
+        tension: 0.35,
+        pointRadius: 2,
+      },
+      {
+        label: "Workout starts",
+        data: usageMonitoring?.daily.map((day) => day.workoutStarts) || [],
+        borderColor: "#3b82f6",
+        backgroundColor: "rgba(59,130,246,0.08)",
+        tension: 0.35,
+        pointRadius: 2,
+      },
+      {
+        label: "Members active",
+        data: usageMonitoring?.daily.map((day) => day.activeMembers) || [],
+        borderColor: "#10b981",
+        backgroundColor: "rgba(16,185,129,0.08)",
+        tension: 0.35,
+        pointRadius: 2,
+      },
+    ],
+  };
+
   const memberProgress = data?.memberProgress || [];
   const memberProgressChart = {
     labels: memberProgress.map((row) => row.label),
@@ -480,6 +511,33 @@ export default function Analytics() {
             <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-orange-500/70 to-transparent opacity-0 transition group-hover:opacity-100" />
           </article>
         ))}
+      </section>
+
+      <section aria-labelledby="admin-system-usage-heading" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+        <div className="mb-5">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-600 dark:text-orange-400">Monitor gym attendance and workout activity</p>
+          <h2 id="admin-system-usage-heading" className="mt-1 text-lg font-black text-slate-900 dark:text-white">Gym attendance and member activity</h2>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
+            Daily activity for the last 30 days. Active members are unique members with a real gym check-in or workout start; demo check-ins are excluded.
+          </p>
+        </div>
+        <div className="mb-5 grid gap-3 sm:grid-cols-3">
+          {[
+            { label: "Gym check-ins", value: usageMonitoring?.summary.gymCheckIns, detail: "Recorded in the last 30 days", icon: <CalendarDays size={20} />, color: "text-orange-600 dark:text-orange-400", surface: "bg-orange-500/10" },
+            { label: "Workout starts", value: usageMonitoring?.summary.workoutStarts, detail: "Recorded in the last 30 days", icon: <Dumbbell size={20} />, color: "text-blue-600 dark:text-blue-400", surface: "bg-blue-500/10" },
+            { label: "Active members", value: usageMonitoring?.summary.activeMembers, detail: "Unique members with activity", icon: <Users size={20} />, color: "text-green-600 dark:text-green-400", surface: "bg-green-500/10" },
+          ].map((item) => (
+            <article key={item.label} className="rounded-2xl border border-slate-200 p-4 dark:border-white/10">
+              <div className={`mb-3 grid h-10 w-10 place-items-center rounded-xl ${item.surface} ${item.color}`}>{item.icon}</div>
+              <p className="text-2xl font-black text-slate-900 dark:text-white">{formatCount(item.value ?? 0)}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{item.label}</p>
+              <p className="mt-1 text-xs text-slate-500">{item.detail}</p>
+            </article>
+          ))}
+        </div>
+        <div role="img" aria-label="Daily gym check-ins, workout starts, and unique active members over the last 30 days" className="h-72">
+          <Line data={usageTrendChart} options={chartOptions} />
+        </div>
       </section>
 
       <section aria-labelledby="admin-predictive-analytics-heading" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">

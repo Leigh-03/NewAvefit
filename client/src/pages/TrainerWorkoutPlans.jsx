@@ -12,6 +12,8 @@ import {
   getExerciseLimitForExperience,
   getProgramForDate,
   requiresConservativeWorkout,
+  hasReportedInjuries,
+  hasHealthConditions,
   isCardioExercise,
   getHighestInjuryPainLevel,
   getCardioDurationRecommendation,
@@ -127,7 +129,9 @@ function PlanDetailsModal({ plan, onClose, onEdit, onApprove, onApproveDeletion,
                 </span>
               </div>
               <p className="mt-3 text-sm text-slate-700 dark:text-slate-300">
-                <strong>{session.sets ?? "—"}</strong> sets × <strong>{session.reps ?? "—"}</strong> reps
+                {isCardioExercise(session)
+                  ? `Duration: ${session.duration_minutes ? `${session.duration_minutes} minutes` : "not recorded"}`
+                  : <><strong>{session.sets ?? "—"}</strong> sets × <strong>{session.reps ?? "—"}</strong> reps</>}
                 {session.session_date ? ` · ${new Date(`${String(session.session_date).slice(0, 10)}T00:00:00`).toLocaleDateString()}` : ""}
               </p>
             </article>
@@ -328,6 +332,11 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const selectedMember = members.find((member) => String(member.user_id) === form.user_id);
+  const hasSelectedMemberHealthConcern = Boolean(selectedMember && (
+    hasReportedInjuries(toList(selectedMember.injuries))
+    || hasHealthConditions(toList(selectedMember.health_conditions))
+    || getHighestInjuryPainLevel(selectedMember.injury_pain_levels) > 0
+  ));
   const isMemberRequestedWorkout = plan?.request_type === "coach_created";
   const doseRules = getWorkoutGoalRules(selectedMember?.fitness_goal);
   const experienceLimit = getExerciseLimitForExperience(selectedMember?.activity_level);
@@ -372,7 +381,7 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
       experienceLevel: selectedMember.activity_level,
       fitnessGoal: selectedMember.fitness_goal,
       painLevel: getHighestInjuryPainLevel(selectedMember.injury_pain_levels),
-      hasHealthCondition: toList(selectedMember.health_conditions).length > 0,
+      hasHealthCondition: hasHealthConditions(toList(selectedMember.health_conditions)),
     });
   };
 
@@ -501,8 +510,8 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
             ...session,
             [field]: nextValue,
             ...(field === "exercise_id" ? {
-              sets: nextCardio ? "1" : String(nextDose.sets[0]),
-              reps: nextCardio ? "1" : String(nextDose.reps[0]),
+              sets: nextCardio ? "" : String(nextDose.sets[0]),
+              reps: nextCardio ? "" : String(nextDose.reps[0]),
               duration_minutes: nextCardio && nextCardio.status !== "blocked" && nextCardio.status !== "stop"
                 ? String(nextCardio.recommended)
                 : "",
@@ -817,7 +826,9 @@ function PlanModal({ members, exercises, plans, plan, initialMemberId = "", init
                             className="h-11"
                           />
                           {renderFieldError(`sessions.${index}.duration_minutes`)}
-                          <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{cardio.note}</p>
+                          {hasSelectedMemberHealthConcern && (
+                            <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{cardio.note}</p>
+                          )}
                         </div>
                       );
                     }

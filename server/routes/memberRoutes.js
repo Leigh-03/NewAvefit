@@ -11,6 +11,7 @@ const {
   getAdminChangeRequests,
   reviewChangeRequest,
 } = require("../controllers/profileChangeController");
+const { getAdminMemberAttendance } = require("../controllers/attendanceController");
 
 router.get("/change-requests", verifyToken, getAdminChangeRequests);
 router.put("/change-requests/:requestId/:decision", verifyToken, reviewChangeRequest);
@@ -18,6 +19,7 @@ router.get("/membership-term-requests", verifyToken, getMembershipTermRequests);
 router.put("/membership-term-requests/:requestId/:decision", verifyToken, reviewMembershipTermRequest);
 router.get("/", verifyToken, getMembers);
 router.get("/:id/coach-recommendations", verifyToken, getCoachRecommendations);
+router.get("/:id/attendance", verifyToken, getAdminMemberAttendance);
 router.get("/:id", verifyToken, getMemberById);
 router.post("/", verifyToken, createMember);
 router.put("/:id/membership", verifyToken, updateMemberMembership);

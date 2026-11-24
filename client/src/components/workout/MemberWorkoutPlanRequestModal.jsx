@@ -20,6 +20,7 @@ import {
   isCardioExercise,
   getHighestInjuryPainLevel,
   getCardioDurationRecommendation,
+  getCardioSessionValues,
 } from "../../utils/trainingPrograms";
 
 const blankExercise = (goal) => ({
@@ -71,7 +72,9 @@ export default function MemberWorkoutPlanRequestModal({
   const [requestType, setRequestType] = useState("keep_current_program");
   const [selectedProgram, setSelectedProgram] = useState(defaultProgram);
   const doseRules = useMemo(() => getWorkoutGoalRules(initialGoal), [initialGoal]);
-  const hasInjuryOrHealthCondition = hasReportedInjuries(injuries) || hasHealthConditions(healthConditions);
+  const hasInjuryOrHealthCondition = hasReportedInjuries(injuries)
+    || hasHealthConditions(healthConditions)
+    || getHighestInjuryPainLevel(injuryPainLevels) > 0;
   const [sessions, setSessions] = useState([blankExercise(initialGoal), blankExercise(initialGoal), blankExercise(initialGoal)]);
   const [requestNote, setRequestNote] = useState("");
   const [loadingExercises, setLoadingExercises] = useState(true);
@@ -224,16 +227,14 @@ export default function MemberWorkoutPlanRequestModal({
         if (!session.exercise_id) return session;
         const cardio = getCardioRecommendationForExercise(session.exercise_id);
         if (cardio) {
-          if (session.duration_minutes === String(cardio.recommended)) return session;
+          const cardioValues = getCardioSessionValues(cardio);
+          if (
+            session.sets === cardioValues.sets
+            && session.reps === cardioValues.reps
+            && session.duration_minutes === cardioValues.duration_minutes
+          ) return session;
           changed = true;
-          return {
-            ...session,
-            sets: "1",
-            reps: "1",
-            duration_minutes: cardio.status === "standard" || cardio.status === "modified"
-              ? String(cardio.recommended)
-              : "",
-          };
+          return { ...session, ...cardioValues };
         }
         const rules = getDoseRulesForExercise(session.exercise_id);
         const sets = String(rules.sets[0]);
@@ -291,11 +292,9 @@ export default function MemberWorkoutPlanRequestModal({
         ? {
             ...session,
             exercise_id: exerciseId,
-            sets: cardio ? "1" : String(rules.sets[0]),
-            reps: cardio ? "1" : String(rules.reps[0]),
-            duration_minutes: cardio && cardio.status !== "blocked" && cardio.status !== "stop"
-              ? String(cardio.recommended)
-              : "",
+            ...(cardio
+              ? getCardioSessionValues(cardio)
+              : { sets: String(rules.sets[0]), reps: String(rules.reps[0]), duration_minutes: "" }),
           }
         : session
     )));
@@ -321,9 +320,11 @@ export default function MemberWorkoutPlanRequestModal({
       return;
     }
     if (requestNeedsExerciseEditor && sessions.some((session) => (
-      isBlankValue(session.exercise_id) || isBlankValue(session.sets) || isBlankValue(session.reps)
+      isBlankValue(session.exercise_id)
+      || (!getCardioRecommendationForExercise(session.exercise_id)
+        && (isBlankValue(session.sets) || isBlankValue(session.reps)))
     ))) {
-      setError("Choose an exercise and enter sets and reps for every row.");
+      setError("Choose an exercise and enter sets and reps for every resistance exercise.");
       return;
     }
     const unavailableExercise = requestNeedsExerciseEditor && sessions
@@ -635,11 +636,12 @@ export default function MemberWorkoutPlanRequestModal({
                                   }
                                 )}
                                 onChange={(duration) => updateSession(index, "duration_minutes", duration)}
-                                ariaInvalid={Boolean(fieldErrors?.[`sessions.${index}.duration_minutes`])}
                                 className="min-h-11"
                               />
                             </div>
-                            <span className="mt-1 block font-normal leading-relaxed text-slate-400">{cardio.note}</span>
+                            {hasInjuryOrHealthCondition && (
+                              <span className="mt-1 block font-normal leading-relaxed text-slate-400">{cardio.note}</span>
+                            )}
                           </label>
                         );
                       }

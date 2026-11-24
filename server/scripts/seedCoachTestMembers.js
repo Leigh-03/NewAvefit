@@ -2,6 +2,7 @@ const bcrypt = require("bcrypt");
 const crypto = require("node:crypto");
 const pool = require("../db");
 const { getWorkoutGoalRules } = require("../utils/workoutGoalRules");
+const { syncWorkoutAttendance } = require("../utils/workoutAttendance");
 
 const SEED_YEAR = 2026;
 const MEMBER_CAPACITY = 15;
@@ -904,6 +905,7 @@ const seed = async () => {
       if (apply) await refreshDemoProgressAndMembership(client, emailList);
       const schedulesNeeded = await ensureDemoSchedules(client, coachResult.rows, apply);
       const workoutHistory = await ensureDemoWorkoutHistory(client, apply);
+      if (apply) await syncWorkoutAttendance(client);
       if (apply) await client.query("COMMIT");
       inTransaction = false;
       if (schedulesNeeded && !apply) {
@@ -961,6 +963,7 @@ const seed = async () => {
       }
     }
     await ensureDemoSchedules(client, coachResult.rows, true);
+    await syncWorkoutAttendance(client);
 
     await client.query("COMMIT");
     inTransaction = false;

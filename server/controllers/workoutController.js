@@ -6,6 +6,7 @@ const {
   isCardioExercise,
   getHighestInjuryPainLevel,
   getCardioDurationRecommendation,
+  hasHealthConditions,
 } = require("../utils/trainingPrograms");
 
 const getWorkouts = async (req, res) => {
@@ -382,7 +383,7 @@ const assignSessionToMember = async (req, res) => {
         experienceLevel: member.rows[0].activity_level,
         fitnessGoal: member.rows[0].fitness_goal,
         painLevel: getHighestInjuryPainLevel(member.rows[0].injury_pain_levels),
-        hasHealthCondition: Array.isArray(member.rows[0].health_conditions) && member.rows[0].health_conditions.length > 0,
+        hasHealthCondition: hasHealthConditions(member.rows[0].health_conditions),
       });
       if (cardio.status === "blocked" || cardio.status === "stop") {
         return res.status(400).json({ success: false, message: cardio.note });
@@ -392,7 +393,7 @@ const assignSessionToMember = async (req, res) => {
         || Number(duration_minutes) > cardio.max) {
         return res.status(400).json({
           success: false,
-          message: `For this cardio exercise, use ${cardio.min}–${cardio.max} minutes. ${cardio.note}`,
+          message: `For this cardio exercise, use ${cardio.min}–${cardio.max} minutes.`,
         });
       }
     } else if (member.rowCount && !isWorkoutDoseAllowed(member.rows[0].fitness_goal, sets, reps)) {

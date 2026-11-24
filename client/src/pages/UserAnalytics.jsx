@@ -14,6 +14,7 @@ import { Line } from "react-chartjs-2";
 import { Activity, CalendarDays, HeartPulse, Scale, TrendingUp, AlertTriangle, Sparkles } from "lucide-react";
 import userApi from "../userApi";
 import TrainingPulse from "../components/TrainingPulse";
+import { getWorkoutGoalRules } from "../utils/workoutGoalRules";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
@@ -32,10 +33,31 @@ const formatDate = (date) => {
   return new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(new Date(date));
 };
 
+const getManilaDateString = (date) => {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+};
+
+const getCalendarDayDifference = (earlierDate, laterDate) => {
+  const earlier = Date.parse(`${earlierDate}T00:00:00Z`);
+  const later = Date.parse(`${laterDate}T00:00:00Z`);
+  return Number.isFinite(earlier) && Number.isFinite(later)
+    ? Math.floor((later - earlier) / (24 * 60 * 60 * 1000))
+    : null;
+};
+
 export default function UserAnalytics() {
   const [profile, setProfile] = useState(null);
   const [logs, setLogs] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [attendanceSummary, setAttendanceSummary] = useState(null);
+  const [attendanceStatus, setAttendanceStatus] = useState("loading");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -54,6 +76,17 @@ export default function UserAnalytics() {
         if (active) setError(requestError.response?.data?.message || "Unable to load your analytics.");
       })
       .finally(() => active && setLoading(false));
+    userApi.get("/attendance")
+      .then((response) => {
+        if (!active) return;
+        if (!response.data?.data) throw new Error("Attendance response did not include a summary.");
+        setAttendanceSummary(response.data.data);
+        setAttendanceStatus("loaded");
+      })
+      .catch((requestError) => {
+        console.error("Unable to load attendance for workout recommendations:", requestError);
+        if (active) setAttendanceStatus("error");
+      });
     return () => { active = false; };
   }, []);
 
@@ -87,6 +120,86 @@ export default function UserAnalytics() {
       completedWorkouts: completed,
     };
   }, [logs, profile, sessions]);
+
+  const workoutRecommendations = useMemo(() => {
+    const goal = String(profile?.fitness_goal || "").trim();
+    const normalizedGoal = goal.toLowerCase();
+    const hasGoalBasedRanges = /maintain|muscle|gain|lose|loss/.test(normalizedGoal);
+    const goalRules = hasGoalBasedRanges ? getWorkoutGoalRules(goal) : null;
+    const hasHealthRestrictions = parseList(profile?.injuries).length > 0
+      || parseList(profile?.health_conditions).length > 0;
+    const goalFocus = goalRules
+      ? `For ${goal}, use ${goalRules.sets[0]}–${goalRules.sets[1]} sets and ${goalRules.reps[0]}–${goalRules.reps[1]} reps for resistance exercises in approved plans. ${hasHealthRestrictions ? "Recorded health or injury restrictions take priority; follow conservative coach-approved options and review concerns with a healthcare professional." : "Progress gradually while maintaining good form."}`
+      : goal
+        ? `For ${goal}, keep a balanced full-body plan and progress gradually within your coach-approved schedule.`
+        : "Set a fitness goal in your profile to tailor resistance-training volume and rep targets. Until then, follow your coach-approved balanced plan.";
+    const completedSessions = sessions.filter((session) => session.completed);
+    const now = Date.now();
+    const completedTimes = completedSessions
+      .map((session) => Date.parse(session.completed_at))
+      .filter((timestamp) => Number.isFinite(timestamp) && timestamp <= now);
+    const thisWeekCount = completedTimes.filter((timestamp) => now - timestamp <= 7 * 24 * 60 * 60 * 1000).length;
+    const previousWeekCount = completedTimes.filter((timestamp) => {
+      const age = now - timestamp;
+      return age > 7 * 24 * 60 * 60 * 1000 && age <= 14 * 24 * 60 * 60 * 1000;
+    }).length;
+    const recentFortnightCount = completedTimes.filter((timestamp) => now - timestamp <= 14 * 24 * 60 * 60 * 1000).length;
+    let performanceAdjustment;
+    if (completedSessions.length === 0) {
+      performanceAdjustment = "No completed workout sessions are recorded yet. Start with a manageable coach-approved plan and review the results before progressing.";
+    } else if (previousWeekCount > 0 && thisWeekCount < previousWeekCount) {
+      performanceAdjustment = `Completed sessions declined from ${previousWeekCount} to ${thisWeekCount} across the last two weeks. Keep the next plan manageable and address schedule or recovery barriers before adding volume.`;
+    } else if (thisWeekCount > 0) {
+      performanceAdjustment = `You completed ${thisWeekCount} recorded sessions in the past 7 days. Maintain your current schedule and progress one variable gradually when form and recovery are good; completion history does not record load or effort.`;
+    } else if (completedTimes.length === 0) {
+      performanceAdjustment = `You have ${completedSessions.length} completed sessions recorded, but their completion dates are unavailable. Keep the next plan manageable and continue logging sessions to build a useful baseline.`;
+    } else {
+      performanceAdjustment = `You have ${completedSessions.length} completed sessions recorded, with none in the past 7 days. Restart with a manageable coach-approved session and build consistency before increasing volume.`;
+    }
+
+    const consistencyAlerts = [];
+    if (previousWeekCount > 0 && thisWeekCount < previousWeekCount) {
+      consistencyAlerts.push(`Your completed sessions declined from ${previousWeekCount} to ${thisWeekCount} week over week.`);
+    }
+    if (completedSessions.length === 0) {
+      consistencyAlerts.push("No completed workout sessions are recorded yet.");
+    } else if (completedTimes.length > 0 && recentFortnightCount === 0) {
+      consistencyAlerts.push("No completed workout has been recorded in the past 14 days.");
+    }
+
+    let attendanceDaysAgo = null;
+    if (attendanceStatus === "loaded" && attendanceSummary?.last_visit) {
+      attendanceDaysAgo = getCalendarDayDifference(
+        attendanceSummary.last_visit,
+        getManilaDateString(new Date())
+      );
+    }
+    if (attendanceStatus === "loaded" && attendanceDaysAgo === null) {
+      consistencyAlerts.push("No gym check-in is recorded yet. Check in at the gym before starting today’s workout.");
+    } else if (attendanceDaysAgo >= 14) {
+      consistencyAlerts.push(`Your last recorded gym check-in was ${attendanceDaysAgo} days ago.`);
+    }
+    if (!consistencyAlerts.length) {
+      consistencyAlerts.push("Your recent workout and check-in activity shows no immediate consistency concerns.");
+    }
+
+    const needsEngagementSupport = completedSessions.length === 0
+      || (completedTimes.length > 0 && recentFortnightCount === 0)
+      || (attendanceStatus === "loaded" && (attendanceDaysAgo === null || attendanceDaysAgo >= 14));
+    const engagementRecommendation = needsEngagementSupport
+      ? "Choose one manageable, coach-approved session on a day you can repeat each week. Check in when you arrive, and ask your trainer to help adjust the plan if time, motivation, or recovery is getting in the way."
+      : previousWeekCount > 0 && thisWeekCount < previousWeekCount
+        ? "Review what interrupted your routine and make the next session shorter or easier to schedule before adding more training."
+        : "Keep a realistic weekly schedule, check in on gym days, and review your progress regularly.";
+
+    return {
+      goalFocus,
+      performanceAdjustment,
+      consistencyAlerts,
+      engagementRecommendation,
+      attendanceStatus,
+    };
+  }, [attendanceStatus, attendanceSummary, profile?.fitness_goal, profile?.injuries, profile?.health_conditions, sessions]);
 
   const injuries = parseList(profile?.injuries);
   const healthConditions = parseList(profile?.health_conditions);
@@ -340,6 +453,36 @@ export default function UserAnalytics() {
               ))}
             </div>
             <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-[#151515] sm:p-5">
+              <div className="mb-4">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Personalized workout recommendations</h3>
+                <p className="mt-1 text-[11px] text-slate-500">Guidance combines your fitness goal with recorded workout completions.</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <article className="rounded-xl border border-orange-200 bg-white p-4 dark:border-orange-500/20 dark:bg-[#111]">
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">Goal-based workout focus</h4>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{workoutRecommendations.goalFocus}</p>
+                </article>
+                <article className="rounded-xl border border-violet-200 bg-white p-4 dark:border-violet-500/20 dark:bg-[#111]">
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">Based on your performance history</h4>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{workoutRecommendations.performanceAdjustment}</p>
+                </article>
+                <article className="rounded-xl border border-amber-200 bg-white p-4 dark:border-amber-500/20 dark:bg-[#111]">
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">Consistency alerts</h4>
+                  <ul className="mt-1 space-y-1 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                    {workoutRecommendations.consistencyAlerts.map((alert) => <li key={alert}>{alert}</li>)}
+                  </ul>
+                  {workoutRecommendations.attendanceStatus === "error" && (
+                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-200">Gym check-in activity is unavailable, so attendance-based alerts could not be checked.</p>
+                  )}
+                </article>
+                <article className="rounded-xl border border-emerald-200 bg-white p-4 dark:border-emerald-500/20 dark:bg-[#111]">
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100">Engagement recommendation</h4>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{workoutRecommendations.engagementRecommendation}</p>
+                </article>
+              </div>
+              <p className="mt-3 text-[10px] text-slate-500">These are general training suggestions, not medical advice. Follow your coach-approved plan and adapt for any recorded health restrictions.</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-[#151515] sm:p-5">
               <div className="mb-3">
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">BMI trend behind this guidance</h3>
                 <p className="mt-1 text-[11px] text-slate-500">

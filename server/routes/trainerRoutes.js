@@ -10,6 +10,7 @@ const {
   getTrainerPrescriptiveAnalytics,
   sendWeeklyProgressReport,
 } = require("../controllers/analyticsController");
+const { getTrainerMemberAttendance } = require("../controllers/attendanceController");
 const {
   getTrainers, getTrainerById, createTrainer, updateTrainer, approveTrainer, rejectTrainer, deactivateTrainer, deleteTrainer, getTrainerRoster,
   loginTrainer, getMyRoster, getMyMissingWorkouts, getTrainerSidebarCounts, getMyProfile, updateMyPhoto, getExerciseCatalog,
@@ -30,6 +31,7 @@ router.get("/me/prescriptive-analytics", verifyTrainer, getTrainerPrescriptiveAn
 router.post("/me/weekly-progress-report", verifyTrainer, sendWeeklyProgressReport);
 router.post("/me/weekly-progress-report/:userId", verifyTrainer, sendWeeklyProgressReport);
 router.get("/me/members/:userId/progress", verifyTrainer, getMyMemberProgress);
+router.get("/me/members/:userId/attendance", verifyTrainer, getTrainerMemberAttendance);
 router.get("/me/profile", verifyTrainer, getMyProfile);
 router.put("/me/photo", verifyTrainer, updateMyPhoto);
 router.get("/me/availability", verifyTrainer, availabilityController.getForTrainer);

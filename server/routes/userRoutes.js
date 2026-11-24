@@ -12,6 +12,7 @@ const { getUserWorkoutPlan, getUserPlans, getUserSidebarCounts, requestWorkoutPl
 const { getProgress, logProgress, updateUserGoal, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
 const { getTrainingPulse } = require("../controllers/analyticsController");
 const { getActiveTrainers } = require("../controllers/trainerController");
+const { getUserAttendance, checkInUser } = require("../controllers/attendanceController");
 const workoutAvailabilityController = require("../controllers/userWorkoutAvailabilityController");
 const { submitMemberFeedback } = require("../controllers/feedbackController");
 const {
@@ -43,6 +44,8 @@ router.put("/profile/health", verifyUser, updateHealthAssessment);
 router.put("/profile/photo", verifyUser, updatePhoto);
 router.get("/profile/availability", verifyUser, workoutAvailabilityController.getAvailability);
 router.put("/profile/availability", verifyUser, workoutAvailabilityController.saveAvailability);
+router.get("/attendance", verifyUser, getUserAttendance);
+router.post("/attendance/check-in", verifyUser, checkInUser);
 router.post("/feedback", verifyUser, feedbackLimiter, submitMemberFeedback);
 router.get("/training-pulse", verifyUser, (req, res, next) => {
   req.trainingAudience = "user";

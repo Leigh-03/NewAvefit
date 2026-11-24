@@ -4,6 +4,7 @@ import api from "../services/api";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import CustomSelect from "../components/ui/CustomSelect";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
+import AttendancePanel from "../components/attendance/AttendancePanel";
 import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 
 const statusColors = {
@@ -351,6 +352,10 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
             ))}
             <div className="rounded-xl bg-slate-50 p-3 dark:bg-[#222]"><p className="text-xs text-slate-400">Email verified</p><p className="mt-1 font-semibold text-slate-700 dark:text-gray-200">{member.email_verified ? "Yes" : "No"}</p></div>
           </div>
+          <AttendancePanel
+            client={api}
+            endpoint={`/members/${member.member_id}/attendance`}
+          />
           {String(member.status || "").trim().toLowerCase() === "active" && (
             <section className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50/70 p-4 dark:border-red-500/20 dark:bg-red-500/[0.05] sm:flex-row sm:items-center sm:justify-between">
               <div>
